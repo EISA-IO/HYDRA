@@ -616,10 +616,6 @@
 		<data>
 		bUQn/wEFb0J63pD36axDHZBPM78=
 		</data>
-		<key>Resources/skills/video-use/.env.example</key>
-		<data>
-		dFzW3EH/qf5iXcaSnuUzS7MWn1U=
-		</data>
 		<key>Resources/skills/video-use/.gitignore</key>
 		<data>
 		gDW9MwZT7uPDKDL5VnDiNlLcOjA=
@@ -2500,13 +2496,6 @@
 			<key>hash2</key>
 			<data>
 			Bt8aBTzRNb4vyolnrrJmIr6TmVn8DSyZKvdOEmNNIKY=
-			</data>
-		</dict>
-		<key>Resources/skills/video-use/.env.example</key>
-		<dict>
-			<key>hash2</key>
-			<data>
-			DFNDV+9YwuD7W+xJL6m5Vxe7X/e4I9amioEeJsaxYsc=
 			</data>
 		</dict>
 		<key>Resources/skills/video-use/.gitignore</key>

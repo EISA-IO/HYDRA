@@ -235,12 +235,47 @@ final class SaaSModel: ObservableObject {
     }
 
     // ---- ⚡ instant mode: one click, Claude orchestrates the whole lifecycle ----
+
+    /// The Open SaaS template repo — the MANDATORY base for every build, whatever the use case.
+    static let templateRepo = "https://github.com/wasp-lang/open-saas"
+
+    /// The exact stack the ⚡ instant build will use — shown to the user BEFORE anything runs.
+    func stackSummary() -> String {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        var lines: [String] = []
+        lines.append("Template   Open SaaS — \(Self.templateRepo) (always, every use case)")
+        lines.append("Framework  Wasp · React · Node.js · Prisma · PostgreSQL · Tailwind CSS")
+        lines.append("App        \(n.isEmpty ? "my-saas" : n)  →  \(appDir)")
+        lines.append("Preset     \(preset)")
+        lines.append("Auth       \(auth)")
+        lines.append("Payments   \(pay)")
+        lines.append("AI layer   \(aiProvider)")
+        var deployLine = "Deploy     \(target) · backend: \(backend)"
+        if target == "Cloud Run" { deployLine += " · \(region)" }
+        lines.append(deployLine)
+        lines.append("GitHub     \(repoVisibility.lowercased()) repo + Actions CI/CD")
+        lines.append("Billing    \(subProvider) · \(trialDays)-day trial · email via \(emailProvider)")
+        lines.append("Model      \(buildModel)")
+        return lines.joined(separator: "\n")
+    }
+
     func buildEverything() {
         let n = name.trimmingCharacters(in: .whitespaces)
         let p = parent.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty, FS.isDir(p) else { app?.alert("Missing info", "Set a valid parent folder and app name first."); return }
         guard !pitch.trimmingCharacters(in: .whitespaces).isEmpty else {
             app?.alert("Add a pitch", "Write the one-line pitch (or pick a preset) so Claude knows what to build."); return
+        }
+        // Show the exact stack and get an explicit OK before anything is written or launched.
+        let confirm = NSAlert()
+        confirm.messageText = "⚡ Instant build — confirm your stack"
+        confirm.informativeText = stackSummary()
+            + "\n\nClaude will scaffold Open SaaS, build every feature, wire billing + email, create the GitHub repo, and deploy — in one run."
+        confirm.addButton(withTitle: "Build")
+        confirm.addButton(withTitle: "Cancel")
+        guard confirm.runModal() == .alertFirstButtonReturn else {
+            out("Instant build cancelled — adjust the stack above and press ⚡ again when ready.")
+            return
         }
         try? FileManager.default.createDirectory(atPath: appDir, withIntermediateDirectories: true)
         // Write EVERY spec up front so one Claude session has the full picture.
@@ -257,7 +292,7 @@ final class SaaSModel: ObservableObject {
         }
         out("Wrote VISION.md, DEPLOY.md, SUBSCRIPTIONS.md, EMAIL.md" + (aiEnabled() ? ", AI.md" : "") + (pk != "none" ? ", PAYMENTS.md" : "") + " into \(appDir)")
         let prompt = "You are building a complete SaaS end-to-end in this folder. Read VISION.md, PAYMENTS.md (if present), AI.md (if present), SUBSCRIPTIONS.md, EMAIL.md and DEPLOY.md, then do ALL of it in order: "
-            + "(1) If the app is not scaffolded yet (no main.wasp/package.json), scaffold the Open SaaS template here — the wasp CLI is available as `wasp` (if the folder having these .md files blocks `wasp new`, scaffold in a temp dir and move the result in, keeping the .md files). "
+            + "(1) If the app is not scaffolded yet (no main.wasp/package.json), scaffold the Open SaaS template (\(Self.templateRepo)) here with `wasp new \(n) -t saas` — the wasp CLI is available as `wasp` (if the folder having these .md files blocks `wasp new`, scaffold in a temp dir and move the result in, keeping the .md files). Open SaaS is the MANDATORY base for EVERY use case — never substitute Next.js, plain Vite, CRA, or any other starter. "
             + "(2) Build the product in VISION.md: auth, every feature/page, premium non-templated UI. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) with the best→cheapest priority ladder and route EVERY AI feature through it. "
             + "(3) Implement the subscription billing + subscriber email described in SUBSCRIPTIONS.md and EMAIL.md, with env keys stubbed in .env.server (never real secrets). "
             + "(4) Initialize git, create a \(repoVisibility.lowercased()) GitHub repo with `gh`, and add the GitHub Actions workflow per DEPLOY.md. "
@@ -310,7 +345,7 @@ final class SaaSModel: ObservableObject {
         guard Shell.shared.onPath("wasp") else { checkWasp(); return }
         let a = NSAlert()
         a.messageText = "Create a new Open SaaS app?"
-        a.informativeText = "\(appDir)\n\nRuns 'wasp new \(n) -t saas'."
+        a.informativeText = "\(appDir)\n\nRuns 'wasp new \(n) -t saas' — scaffolds the Open SaaS template (\(Self.templateRepo))."
         a.addButton(withTitle: "Create"); a.addButton(withTitle: "Cancel")
         guard a.runModal() == .alertFirstButtonReturn else { return }
         app?.runInWorkspace("wasp new \(n) -t saas", cwd: p, note: "Scaffolding Open SaaS — follow any prompts…")
@@ -332,7 +367,7 @@ final class SaaSModel: ObservableObject {
             FS.write(appDir + "/.env.ai.example", aiEnvExample())
             out("Wrote AI.md + .env.ai.example (integrated multi-provider AI router).")
         }
-        let prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of this Open SaaS template. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Start by summarizing the plan and asking me to confirm before major changes." + skillsHint
+        let prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (\(Self.templateRepo)). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Start by summarizing the plan and asking me to confirm before major changes." + skillsHint
         app?.launch(folder: appDir, startupPrompt: prompt, modelOverride: buildModel)
         out("Opened a Claude session in the Workspace to build it.")
     }
@@ -490,7 +525,7 @@ final class SaaSModel: ObservableObject {
         guard deployDirValid() else { return }
         let dir = deployDir()
         FS.write(dir + "/DEPLOY.md", deploySpec())
-        let prompt = "Read DEPLOY.md in this folder and get this project deployed to \(target) with the specified backend. Set up the config, wire the backend/database, handle env vars/secrets safely, then run the deploy and report the live URL. Confirm the plan before any paid or destructive step." + skillsHint
+        let prompt = "Read DEPLOY.md in this folder and get this project deployed to \(target) with the specified backend. This is an Open SaaS (Wasp) app (\(Self.templateRepo)) — use `wasp build` outputs (static client + server Dockerfile) rather than assuming a plain SPA. Set up the config, wire the backend/database, handle env vars/secrets safely, then run the deploy and report the live URL. Confirm the plan before any paid or destructive step." + skillsHint
         app?.launch(folder: dir, startupPrompt: prompt, modelOverride: buildModel)
         out("Wrote DEPLOY.md and opened Claude in the Workspace to deploy it.")
     }
@@ -700,7 +735,7 @@ final class SaaSModel: ObservableObject {
         let dir = deployDir()
         FS.write(dir + "/SUBSCRIPTIONS.md", subscriptionSpec())
         FS.write(dir + "/EMAIL.md", emailSpec())
-        let prompt = "Read SUBSCRIPTIONS.md and EMAIL.md in this folder and implement the full subscription infrastructure they describe (checkout, signed webhooks, entitlement checks, customer portal) plus the subscriber email flows (transactional + broadcast with unsubscribe). Use the database as the source of truth. Summarize the plan, then build it incrementally and keep it runnable." + skillsHint
+        let prompt = "Read SUBSCRIPTIONS.md and EMAIL.md in this folder and implement the full subscription infrastructure they describe (checkout, signed webhooks, entitlement checks, customer portal) plus the subscriber email flows (transactional + broadcast with unsubscribe). This is an Open SaaS (Wasp) app (\(Self.templateRepo)) — follow its conventions (main.wasp operations, Prisma entities, src/server) and its payments plumbing where it fits. Use the database as the source of truth. Summarize the plan, then build it incrementally and keep it runnable." + skillsHint
         app?.launch(folder: dir, startupPrompt: prompt, modelOverride: buildModel)
         out("Wrote the specs and opened Claude in the Workspace to build the subscription + email system.")
     }
@@ -735,7 +770,8 @@ final class SaaSModel: ObservableObject {
         if paymentKey() != "none" { s += "  (see PAYMENTS.md for the verified integration spec + .env.server keys)\n" }
         s += "- AI layer: \(aiProvider)\n"
         if aiEnabled() { s += "  (see AI.md — our integrated multi-provider router with a best→cheapest priority ladder over OpenRouter + Groq + free commercial providers; wire ALL AI features through it)\n" }
-        s += "- Base template: Open SaaS (Wasp + React + Node + Prisma)\n\n"
+        s += "- Base template: Open SaaS (Wasp + React + Node + Prisma) — \(Self.templateRepo)\n"
+        s += "  (MANDATORY for every use case: if this folder is not an Open SaaS app yet, scaffold it with `wasp new -t saas` before anything else; never substitute another starter)\n\n"
         s += """
         ## Build instructions for Claude
         You are working inside a freshly scaffolded Open SaaS app. Implement the vision above:
@@ -896,12 +932,14 @@ final class SaaSModel: ObservableObject {
 
     func deploySpec() -> String {
         var s = "# Deployment spec — \(name.trimmingCharacters(in: .whitespaces))\n\n"
+        s += "- Base app: **Open SaaS (Wasp)** — \(Self.templateRepo) (mandatory template for every use case)\n"
         s += "- Target: **\(target)**\n- Backend: **\(backend)**\n"
         if target == "Cloud Run" {
             s += "- Region: \(region)\n- Service: \(serviceName)\n"
             if !gcpProject.isEmpty { s += "- GCP project: \(gcpProject)\n" }
         }
         if target == "Firebase Hosting" { s += "- Public dir: \(publicDir)\n" }
+        s += "\n> Open SaaS note: `wasp build` outputs the client at `.wasp/build/web-app` (run `npm install && npm run build` there → static files for the hosting target) and a server with a Dockerfile at `.wasp/build` (deploy to a container host — Cloud Run works). The server needs a PostgreSQL `DATABASE_URL` plus `WASP_WEB_CLIENT_URL` / `WASP_SERVER_URL` env vars.\n"
         s += "\n## What to do\n"
         switch target {
         case "Firebase Hosting":

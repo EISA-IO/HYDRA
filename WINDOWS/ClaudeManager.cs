@@ -2949,7 +2949,7 @@ try {
         if (!SaasDeployDirValid()) return;
         string dir = SaasDeployDir();
         try { File.WriteAllText(Path.Combine(dir, "DEPLOY.md"), SaasDeploySpec()); } catch (Exception ex) { SaasLog("Could not write DEPLOY.md: " + ex.Message); return; }
-        string prompt = "Read DEPLOY.md in this folder and get this project deployed to " + saasTarget.SelectedItem + " with the specified backend. Set up the config, wire the backend/database, handle env vars/secrets safely, then run the deploy and report the live URL. Confirm the plan before any paid or destructive step." + SaasSkillsHint();
+        string prompt = "Read DEPLOY.md in this folder and get this project deployed to " + saasTarget.SelectedItem + " with the specified backend. This is an Open SaaS (Wasp) app (" + SaasTemplateRepo + ") — use `wasp build` outputs (static client + server Dockerfile) rather than assuming a plain SPA. Set up the config, wire the backend/database, handle env vars/secrets safely, then run the deploy and report the live URL. Confirm the plan before any paid or destructive step." + SaasSkillsHint();
         SaasLaunchClaude(dir, prompt);
         SaasLog("Wrote DEPLOY.md and opened Claude in the Workspace to deploy it.");
     }
@@ -3052,10 +3052,13 @@ try {
         var sb = new StringBuilder();
         sb.AppendLine("# Deployment spec — " + (saasName.Text ?? "").Trim());
         sb.AppendLine();
+        sb.AppendLine("- Base app: **Open SaaS (Wasp)** — " + SaasTemplateRepo + " (mandatory template for every use case)");
         sb.AppendLine("- Target: **" + t + "**");
         sb.AppendLine("- Backend: **" + (saasBackend.SelectedItem ?? "") + "**");
         if (t == "Cloud Run") { sb.AppendLine("- Region: " + saasRegion.SelectedItem); sb.AppendLine("- Service: " + (saasServiceName.Text ?? "").Trim()); if ((saasGcpProject.Text ?? "").Trim().Length > 0) sb.AppendLine("- GCP project: " + (saasGcpProject.Text ?? "").Trim()); }
         if (t == "Firebase Hosting") sb.AppendLine("- Public dir: " + (saasPublicDir.Text ?? "dist").Trim());
+        sb.AppendLine();
+        sb.AppendLine("> Open SaaS note: `wasp build` outputs the client at `.wasp/build/web-app` (run `npm install && npm run build` there → static files for the hosting target) and a server with a Dockerfile at `.wasp/build` (deploy to a container host — Cloud Run works). The server needs a PostgreSQL `DATABASE_URL` plus `WASP_WEB_CLIENT_URL` / `WASP_SERVER_URL` env vars.");
         sb.AppendLine();
         sb.AppendLine("## What to do");
         if (t == "Firebase Hosting")
@@ -3106,7 +3109,7 @@ try {
         string dir = SaasDeployDir();
         try { File.WriteAllText(Path.Combine(dir, "SUBSCRIPTIONS.md"), SaasSubscriptionSpec()); File.WriteAllText(Path.Combine(dir, "EMAIL.md"), SaasEmailSpec()); }
         catch (Exception ex) { SaasLog("Could not write specs: " + ex.Message); return; }
-        string prompt = "Read SUBSCRIPTIONS.md and EMAIL.md in this folder and implement the full subscription infrastructure they describe (checkout, signed webhooks, entitlement checks, customer portal) plus the subscriber email flows (transactional + broadcast with unsubscribe). Use the database as the source of truth. Summarize the plan, then build it incrementally and keep it runnable." + SaasSkillsHint();
+        string prompt = "Read SUBSCRIPTIONS.md and EMAIL.md in this folder and implement the full subscription infrastructure they describe (checkout, signed webhooks, entitlement checks, customer portal) plus the subscriber email flows (transactional + broadcast with unsubscribe). This is an Open SaaS (Wasp) app (" + SaasTemplateRepo + ") — follow its conventions (main.wasp operations, Prisma entities, src/server) and its payments plumbing where it fits. Use the database as the source of truth. Summarize the plan, then build it incrementally and keep it runnable." + SaasSkillsHint();
         SaasLaunchClaude(dir, prompt);
         SaasLog("Wrote the specs and opened Claude in the Workspace to build the subscription + email system.");
     }
@@ -3406,12 +3409,40 @@ try {
     }
 
     // ---- ⚡ instant mode: one click, Claude orchestrates the whole lifecycle ----
+
+    // The Open SaaS template repo — the MANDATORY base for every build, whatever the use case.
+    const string SaasTemplateRepo = "https://github.com/wasp-lang/open-saas";
+
+    // The exact stack the ⚡ instant build will use — shown to the user BEFORE anything runs.
+    string SaasStackSummary()
+    {
+        string n = (saasName.Text ?? "").Trim(); if (n.Length == 0) n = "my-saas";
+        string t = (saasTarget.SelectedItem ?? "Vercel").ToString();
+        var sb = new StringBuilder();
+        sb.AppendLine("Template:   Open SaaS — " + SaasTemplateRepo + " (always, every use case)");
+        sb.AppendLine("Framework:  Wasp · React · Node.js · Prisma · PostgreSQL · Tailwind CSS");
+        sb.AppendLine("App:        " + n + "  →  " + SaasAppDir());
+        sb.AppendLine("Preset:     " + (saasPreset.SelectedItem ?? "Custom"));
+        sb.AppendLine("Auth:       " + (saasAuth.SelectedItem ?? ""));
+        sb.AppendLine("Payments:   " + (saasPay.SelectedItem ?? ""));
+        sb.AppendLine("AI layer:   " + (saasAI.SelectedItem ?? ""));
+        sb.AppendLine("Deploy:     " + t + " · backend: " + (saasBackend.SelectedItem ?? "") + (t == "Cloud Run" ? " · " + saasRegion.SelectedItem : ""));
+        sb.AppendLine("GitHub:     " + (saasRepoVis.SelectedItem ?? "Private").ToString().ToLower() + " repo + Actions CI/CD");
+        sb.AppendLine("Billing:    " + (saasSubProvider.SelectedItem ?? "") + " · " + (saasTrial.Text ?? "14").Trim() + "-day trial · email via " + (saasEmailProvider.SelectedItem ?? ""));
+        sb.AppendLine("Model:      " + (saasBuildModel.SelectedItem ?? "Default"));
+        return sb.ToString();
+    }
+
     void SaasBuildEverything()
     {
         string n = (saasName.Text ?? "").Trim();
         string p = (saasFolder.Text ?? "").Trim();
         if (n.Length == 0 || !Directory.Exists(p)) { MessageBox.Show("Set a valid parent folder and app name first.", "Claude Manager"); return; }
         if ((saasPitch.Text ?? "").Trim().Length == 0) { MessageBox.Show("Write the one-line pitch (or pick a template) so Claude knows what to build.", "Claude Manager"); return; }
+        // Show the exact stack and get an explicit OK before anything is written or launched.
+        if (MessageBox.Show(SaasStackSummary() + "\nClaude will scaffold Open SaaS, build every feature, wire billing + email, create the GitHub repo, and deploy — in one run.",
+                "⚡ Instant build — confirm your stack", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
+        { SaasLog("Instant build cancelled — adjust the stack and press ⚡ again when ready."); return; }
         string app = SaasAppDir();
         try
         {
@@ -3435,7 +3466,7 @@ try {
         SaveSaasForm();
         string vis = (saasRepoVis.SelectedItem ?? "Private").ToString().ToLower();
         string prompt = "You are building a complete SaaS end-to-end in this folder. Read VISION.md, PAYMENTS.md (if present), AI.md (if present), SUBSCRIPTIONS.md, EMAIL.md and DEPLOY.md, then do ALL of it in order: "
-            + "(1) If the app is not scaffolded yet (no main.wasp/package.json), scaffold the Open SaaS template here — the wasp CLI is available as `wasp` (if the folder having these .md files blocks `wasp new`, scaffold in a temp dir and move the result in, keeping the .md files). "
+            + "(1) If the app is not scaffolded yet (no main.wasp/package.json), scaffold the Open SaaS template (" + SaasTemplateRepo + ") here with `wasp new " + n + " -t saas` — the wasp CLI is available as `wasp` (if the folder having these .md files blocks `wasp new`, scaffold in a temp dir and move the result in, keeping the .md files). Open SaaS is the MANDATORY base for EVERY use case — never substitute Next.js, plain Vite, CRA, or any other starter. "
             + "(2) Build the product in VISION.md: auth, every feature/page, premium non-templated UI. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) with the best→cheapest priority ladder and route EVERY AI feature through it. "
             + "(3) Implement the subscription billing + subscriber email described in SUBSCRIPTIONS.md and EMAIL.md, with env keys stubbed in .env.server (never real secrets). "
             + "(4) Initialize git, create a " + vis + " GitHub repo with `gh`, and add the GitHub Actions workflow per DEPLOY.md. "
@@ -3474,7 +3505,7 @@ try {
         bool haveWasp = OnPath("wasp.exe") || OnPath("wasp");
         bool wsl = OnPath("wsl.exe");
         if (!haveWasp && !wsl) { SaasCheckWasp(); return; }
-        if (MessageBox.Show("Create a new Open SaaS app here?\n\n" + SaasAppDir() + "\n\nRuns 'wasp new " + name + " -t saas'.", "Claude Manager", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+        if (MessageBox.Show("Create a new Open SaaS app here?\n\n" + SaasAppDir() + "\n\nRuns 'wasp new " + name + " -t saas' — scaffolds the Open SaaS template (" + SaasTemplateRepo + ").", "Claude Manager", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
         saasStatus.Text = "Creating app with Wasp… a terminal will open; follow any prompts.";
         try
         {
@@ -3523,7 +3554,8 @@ try {
         sb.AppendLine("- AI layer: " + (saasAI.SelectedItem ?? ""));
         if (AiEnabled())
             sb.AppendLine("  (see AI.md — our integrated multi-provider router with a best→cheapest priority ladder over OpenRouter + Groq + free commercial providers; wire ALL AI features through it)");
-        sb.AppendLine("- Base template: Open SaaS (Wasp + React + Node + Prisma)");
+        sb.AppendLine("- Base template: Open SaaS (Wasp + React + Node + Prisma) — " + SaasTemplateRepo);
+        sb.AppendLine("  (MANDATORY for every use case: if this folder is not an Open SaaS app yet, scaffold it with `wasp new -t saas` before anything else; never substitute another starter)");
         sb.AppendLine();
         sb.AppendLine("## Build instructions for Claude");
         sb.AppendLine("You are working inside a freshly scaffolded Open SaaS app. Implement the vision above:");
@@ -3824,7 +3856,7 @@ try {
 
         // launch Claude in the app folder as a managed terminal, primed with the build prompt,
         // using the chosen build model.
-        string prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of this Open SaaS template. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Start by summarizing the plan and asking me to confirm before major changes." + SaasSkillsHint();
+        string prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (" + SaasTemplateRepo + "). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Start by summarizing the plan and asking me to confirm before major changes." + SaasSkillsHint();
         SaasLaunchClaude(app, prompt);
         SaasLog("Opened a Claude session in the Workspace to build it.");
     }

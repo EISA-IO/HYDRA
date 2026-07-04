@@ -167,6 +167,21 @@ struct SaaSView: View {
                     Button("⚡ Build it all with Claude") { m.buildEverything() }.accentButton()
                 }
                 Divider().overlay(Color.white.opacity(0.05))
+                // Live stack preview — exactly what pressing ⚡ will build, before you press it.
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text("YOUR STACK").font(.system(size: 10, weight: .semibold)).tracking(1.1).foregroundStyle(Theme.textFaint)
+                        HelpButton(text: "This is the exact stack the ⚡ instant build uses — it updates live as you change the options below. Every build starts from the Open SaaS template (github.com/wasp-lang/open-saas): Wasp + React + Node.js + Prisma + PostgreSQL, whatever the use case. You'll also confirm this summary in a dialog before anything runs.")
+                        Spacer()
+                    }
+                    Text(m.stackSummary())
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(Theme.textDim)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                Divider().overlay(Color.white.opacity(0.05))
                 HStack(spacing: 6) {
                     Text("PROGRESS").font(.system(size: 10, weight: .semibold)).tracking(1.1).foregroundStyle(Theme.textFaint)
                     Spacer()
