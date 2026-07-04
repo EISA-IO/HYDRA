@@ -197,6 +197,9 @@ struct SettingsView: View {
                     }
                 }
 
+                // Shared access tokens & API keys — reusable by every project.
+                CredentialsSection()
+
                 // Extra flags
                 Card {
                     VStack(alignment: .leading, spacing: 8) {

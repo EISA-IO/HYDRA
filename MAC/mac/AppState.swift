@@ -45,6 +45,11 @@ final class AppState: ObservableObject {
     @Published var skills: [Skill] = []
     @Published var skillsSummary = ""
 
+    // Shared access tokens & API keys (Settings → Access & API keys).
+    // Persisted to ~/.claude-manager/credentials.env, injected into every
+    // terminal this app launches — reusable by any project.
+    @Published var creds: [String: String] = [:]
+
     // Setup / detection
     @Published var statusLine = ""
     @Published var setupLog = "Ready. Use the buttons above to install or update the Claude toolchain.\n"
@@ -65,6 +70,7 @@ final class AppState: ObservableObject {
         Paths.ensureDirs()
         terminals.app = self
         loadSettings()
+        creds = CredStore.load()
         refreshRecents()
         refreshAll()
         loadSkills()
@@ -100,6 +106,21 @@ final class AppState: ObservableObject {
             "extra=" + extraArgs.trimmingCharacters(in: .whitespaces)
         ]
         FS.write(Paths.settingsFile, lines.joined(separator: "\n"))
+    }
+
+    // ---- shared credentials ----
+    func setCred(_ key: String, _ value: String) {
+        if value.isEmpty { creds.removeValue(forKey: key) } else { creds[key] = value }
+        CredStore.save(creds)
+    }
+
+    /// Export every stored credential into a child-process environment.
+    /// GH_TOKEN is aliased from GITHUB_TOKEN so the gh CLI picks it up too.
+    func applyCreds(to env: inout [String: String]) {
+        for (k, v) in creds where !v.isEmpty { env[k] = v }
+        if let gh = creds["GITHUB_TOKEN"], !gh.isEmpty, env["GH_TOKEN"] == nil {
+            env["GH_TOKEN"] = gh
+        }
     }
 
     func refreshRecents() {

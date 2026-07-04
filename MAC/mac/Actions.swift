@@ -129,6 +129,7 @@ extension AppState {
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         if headroom { env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:\(ProxyPort)" }
+        applyCreds(to: &env)   // shared tokens/keys (Settings → Access & API keys)
         let envArr = env.map { "\($0.key)=\($0.value)" }
 
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
@@ -152,6 +153,7 @@ extension AppState {
         env["PATH"] = Shell.shared.path
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
+        applyCreds(to: &env)   // shared tokens/keys (Settings → Access & API keys)
         let envArr = env.map { "\($0.key)=\($0.value)" }
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
                         headroom: false, rtk: false, caveman: false)
