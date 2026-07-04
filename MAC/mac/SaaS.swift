@@ -628,6 +628,20 @@ final class SaaSModel: ObservableObject {
             Or manually: Google Cloud console → IAM → Service Accounts → create key (JSON) → paste the whole JSON as the secret value.
 
             `GITHUB_TOKEN` is provided automatically by Actions — you don't set it.
+
+            ## No-service-account alternative (proven simpler)
+            If the user already has a CI token (`firebase login:ci`, ideally stored in
+            Claude Manager → Settings → Access & API keys), skip the service account:
+            set a `FIREBASE_TOKEN` repo secret and replace the deploy step with
+            `npx firebase-tools deploy --only hosting --non-interactive --token "$FIREBASE_TOKEN"`
+            (project id comes from .firebaserc).
+
+            ## Wasp projects (Open SaaS) — pitfalls that WILL fail the first run
+            - Pin the CLI: `npm install -g @wasp.sh/wasp-cli@<same version as local>` — unpinned installs drift.
+            - Wasp 0.24+ requires Node 24: `setup-node` with `node-version: 24`.
+            - Build order: `wasp install && wasp build` in `app/`, then `npx vite build` in `app/`
+              (client output lands in `app/.wasp/out/web-app/build`; copy it to the Hosting public dir).
+            - The client build hard-fails without `REACT_APP_API_URL` in env — set it as a repo secret.
             """
             return ("deploy-firebase.yml", content, ["FIREBASE_SERVICE_ACCOUNT"], doc)
 
@@ -768,6 +782,14 @@ final class SaaSModel: ObservableObject {
         s += "\n## Stack decisions\n- Auth: \(auth)\n"
         if auth.hasPrefix("Firebase") {
             s += "  (Integrated provider: **Firebase Authentication** — email/password + Google + Apple via the Firebase Web SDK. On first sign-in, mirror the user into the app's own User table keyed by the Firebase UID; protect every server route by verifying the Firebase ID token with firebase-admin. Put the Firebase web config in client env vars and the service-account JSON in FIREBASE_SERVICE_ACCOUNT, never committed.)\n"
+            s += """
+              (Enablement playbook — learned the hard way, follow it instead of rediscovering:
+               - What WORKS headless with a `firebase login:ci` token: `firebase projects:create`, `firebase apps:create WEB`, `firebase apps:sdkconfig WEB <appId>` (gives apiKey/authDomain/projectId/appId for the client env), and `firebase deploy --only hosting --token "$FIREBASE_TOKEN"`.
+               - What does NOT work headless on a free project: the initial Auth enablement. `PATCH admin/v2/.../config` returns 404 CONFIGURATION_NOT_FOUND until Auth exists, and `identityPlatform:initializeAuth` returns 400 BILLING_NOT_ENABLED (that API is the paid Identity Platform). The free classic Auth config is created ONLY by the console's "Get started" button. The Google provider also needs the console (it auto-creates the OAuth client; the raw API demands one by hand).
+               - So ask the user for exactly 2 clicks: console → Authentication → "Get started", then Google provider → Enable + support email → Save. AFTER that, Email/Password CAN be flipped via API: exchange the CI token for an access token (oauth2.googleapis.com/token, firebase-tools' public client id/secret, grant_type=refresh_token), then `PATCH https://identitytoolkit.googleapis.com/admin/v2/projects/<id>/config?updateMask=signIn.email` with {"signIn":{"email":{"enabled":true,"passwordRequired":true}}}. Verify pagebyte-style authorized domains include the Hosting domain.
+               - Dev fallback so the app works before any of this: accept `dev:<email>` bearer tokens in development only; firebase-admin verifies real ID tokens with just FIREBASE_PROJECT_ID (no service account needed) — the service-account JSON is only required for extras like Google Sheets access.
+               - Apple sign-in requires a paid Apple Developer account — ship without it, add later.)\n
+            """
         } else if auth.hasPrefix("Supabase") {
             s += "  (Integrated provider: **Supabase Auth** — email/password + social via supabase-js. Mirror users into the app's User table keyed by the Supabase user id; verify the Supabase JWT server-side with SUPABASE_JWT_SECRET. Keys: SUPABASE_URL + SUPABASE_ANON_KEY client-side, SUPABASE_SERVICE_ROLE_KEY server-only.)\n"
         } else if auth.hasPrefix("Clerk") {
