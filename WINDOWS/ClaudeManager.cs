@@ -16,6 +16,7 @@ class ClaudeManager : Form
     const int ProxyPort = 8787;
     static readonly string HomeDir     = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     static readonly string StateDir    = Path.Combine(HomeDir, ".claude-manager");
+    static readonly string ManagedBin  = Path.Combine(StateDir, "bin");   // native toolchain the app provisions (on PATH)
     static readonly string RecentFile  = Path.Combine(StateDir, "recent.txt");
     static readonly string SettingsFile= Path.Combine(StateDir, "settings.txt");
     static readonly string SkillsDir   = Path.Combine(HomeDir, ".claude", "skills");
@@ -86,6 +87,8 @@ class ClaudeManager : Form
     // setup / bootstrap (install the CLI + tools + skills from scratch)
     TextBox setupOut;
     Label setupStatus;
+    Button setupAllBtn, setupUpdBtn;
+    Label setupAllCap;
     bool setupBusy;
 
     [STAThread]
@@ -187,6 +190,15 @@ class ClaudeManager : Form
         Directory.CreateDirectory(StateDir);
         Directory.CreateDirectory(EventsDir);
         Directory.CreateDirectory(SessDir);
+        Directory.CreateDirectory(ManagedBin);
+        // The app's OWN managed bin comes FIRST on PATH so natively-bundled tools (rtk, etc.)
+        // always resolve — even on a PC where the user has installed nothing. Launched
+        // terminals inherit this process PATH. This is what makes Claude Manager self-dependent.
+        try {
+            string cur = Environment.GetEnvironmentVariable("PATH") ?? "";
+            if (cur.IndexOf(ManagedBin, StringComparison.OrdinalIgnoreCase) < 0)
+                Environment.SetEnvironmentVariable("PATH", ManagedBin + ";" + cur, EnvironmentVariableTarget.Process);
+        } catch { }
         bool firstRun = !File.Exists(SettingsFile);
         glossary = BuildGlossary();
         BuildUi();
@@ -201,6 +213,7 @@ class ClaudeManager : Form
         RenderGlossary("");
         InitAlerts();
         EnsureDefaultCompression(firstRun);
+        ProvisionNativeToolchain();   // make claude/rtk/caveman native — no manual download
         FormClosing += (s, e) => Shutdown();
     }
 
@@ -1258,14 +1271,17 @@ class ClaudeManager : Form
             FlatStyle = FlatStyle.Flat, ForeColor = Color.Black, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
         Hoverize(allBtn, Accent, AccentHi);
         allBtn.Click += (s, e) => SetupRun(InstallEverything);
+        setupAllBtn = allBtn;
         row(allBtn, 40);
 
-        row(RowCap("Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest CLI + tools."), 18);
+        setupAllCap = RowCap("Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest CLI + tools.");
+        row(setupAllCap, 18);
 
         var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · RTK · Caveman)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Font = new Font("Segoe UI", 10f, FontStyle.Bold) };
         Hoverize(updBtn, Color.FromArgb(70, 110, 150), Color.FromArgb(86, 130, 172));
         updBtn.Click += (s, e) => SetupRun(UpdateCore);
+        setupUpdBtn = updBtn;
         row(updBtn, 38);
 
         // one shared refresh that updates BOTH the setup status line and the toggle statuses,
@@ -1426,6 +1442,13 @@ try {
 
     static string Mark(bool ok) { return ok ? "OK" : "--"; }
 
+    // Core toolchain fully present? (Headroom is optional.) When true, "Install everything"
+    // is pointless, so we hide it and let the Setup tab focus on the Update button.
+    bool AllCoreInstalled()
+    {
+        return HasClaude() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled();
+    }
+
     void DetectStatus()
     {
         if (setupStatus == null) return;
@@ -1433,6 +1456,23 @@ try {
         setupStatus.Text = "Claude " + Mark(HasClaude()) + "   Node " + Mark(node) + "   RTK " + Mark(HasRtk() && RtkInstalled())
             + "   Caveman " + Mark(CavemanInstalled()) + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom"))
             + "   Skills " + CountSkills();
+
+        // Focus the tab: once everything's installed, drop "Install everything" and promote Update.
+        bool all = AllCoreInstalled();
+        if (setupAllBtn != null) setupAllBtn.Visible = !all;
+        if (setupAllCap != null)
+            setupAllCap.Text = all
+                ? "Your toolchain is complete — just keep it fresh with \"Update core packages\" below."
+                : "Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest CLI + tools.";
+        if (setupUpdBtn != null)
+        {
+            setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · RTK · Caveman)   ✓ everything installed"
+                                   : "Update core packages  (npm · Claude CLI · RTK · Caveman)";
+            // promote Update to the primary (accent) style when it's the main action
+            Hoverize(setupUpdBtn, all ? Accent : Color.FromArgb(70, 110, 150),
+                                  all ? AccentHi : Color.FromArgb(86, 130, 172));
+            setupUpdBtn.ForeColor = all ? Color.Black : Color.White;
+        }
     }
 
     void SetupLog(string line)
@@ -1555,6 +1595,87 @@ try {
         }
         SetupLog(ok ? "OK  Headroom installed. It's OPTIONAL — enable it per-launch on the Launch tab."
                     : "Could not install Headroom. Install Python 3.10+ (or pipx/uv), then retry.");
+    }
+
+    // ---- native toolchain: ship binaries so the user downloads nothing ----
+    // Finds the bundled `tools/` payload (next to the exe or in the repo).
+    string FindToolsSource()
+    {
+        try
+        {
+            string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
+            string parent = Path.GetDirectoryName(exeDir) ?? exeDir;
+            string[] cands = {
+                Path.Combine(exeDir, "tools"),
+                Path.Combine(parent, "tools"),
+                Path.Combine(HomeDir, "Desktop", "CLAUDE-MANAGER", "tools")
+            };
+            foreach (var c in cands)
+                if (Directory.Exists(c) && File.Exists(Path.Combine(c, "manifest.json"))) return c;
+        }
+        catch { }
+        return null;
+    }
+
+    // Provision claude/rtk/caveman natively. Idempotent; slow parts run on a background thread.
+    void ProvisionNativeToolchain()
+    {
+        var th = new Thread(() =>
+        {
+            try
+            {
+                Directory.CreateDirectory(ManagedBin);
+                string src = FindToolsSource();
+
+                // 1) RTK — copy the bundled Windows binary into the managed bin (no download).
+                string rtkDst = Path.Combine(ManagedBin, "rtk.exe");
+                if (src != null)
+                {
+                    string bundledRtk = Path.Combine(src, "win-x64", "rtk.exe");
+                    if (File.Exists(bundledRtk) && (!File.Exists(rtkDst) ||
+                        new FileInfo(bundledRtk).Length != new FileInfo(rtkDst).Length))
+                    {
+                        try { File.Copy(bundledRtk, rtkDst, true); SetupLog("Native RTK ready (bundled, no download)."); } catch { }
+                    }
+                }
+                if (!File.Exists(rtkDst) && !OnPath("rtk.exe") && !OnPath("rtk"))
+                    { try { RunPowerShellScript(RtkDownloadScript()); } catch { } }
+                // Register the RTK input-compression hook using whichever rtk is available.
+                if (!RtkInstalled())
+                {
+                    string rtk = File.Exists(rtkDst) ? "\"" + rtkDst + "\"" : "rtk";
+                    try { RunLoggedCmd(rtk + " init -g --auto-patch"); } catch { }
+                }
+
+                // 2) Caveman — seed the marketplace locally so the plugin installs OFFLINE from
+                //    the bundled copy (no `npx github:…` fetch).
+                if (src != null)
+                {
+                    string bundledCaveman = Path.Combine(src, "caveman");
+                    string mkDst = Path.Combine(HomeDir, ".claude", "plugins", "marketplaces", "caveman");
+                    if (Directory.Exists(bundledCaveman) && !Directory.Exists(mkDst))
+                    {
+                        try { CopyDir(bundledCaveman, mkDst); SetupLog("Native Caveman marketplace seeded (offline)."); } catch { }
+                    }
+                    if (!CavemanInstalled() && HasNode())
+                    {
+                        string installer = Path.Combine(Directory.Exists(mkDst) ? mkDst : bundledCaveman, "bin", "install.js");
+                        if (File.Exists(installer))
+                            try { RunLoggedCmd("node \"" + installer + "\" --only claude"); } catch { }
+                    }
+                }
+
+                // 3) Claude CLI — not redistributable; install once, silently, if missing.
+                if (!OnPath("claude.exe") && !OnPath("claude") && HasNpm())
+                {
+                    SetupLog("Claude CLI not found — installing it once…");
+                    try { RunLoggedCmd("npm install -g @anthropic-ai/claude-code@latest"); } catch { }
+                }
+            }
+            catch { }
+            try { BeginInvoke((Action)DetectStatus); } catch { }
+        });
+        th.IsBackground = true; th.Start();
     }
 
     string FindSkillsSource()

@@ -71,7 +71,7 @@ final class AppState: ObservableObject {
         clearOldEvents()
         startTimers()
         autoInstallBundledSkillsIfEmpty()   // seed bundled skills once (marker-guarded)
-        ensureDefaultCompressionFirstRun()
+        provisionNativeToolchain()          // make claude/rtk/caveman native — no manual download
     }
 
     // ---- persistence (same key=value format as the Windows settings.txt) ----
@@ -151,6 +151,13 @@ final class AppState: ObservableObject {
             }
         }
         return r == 0
+    }
+
+    /// True once the core toolchain is fully present — used to hide "Install everything"
+    /// and let the Setup tab focus on keeping things up to date. Headroom is optional.
+    var allCoreInstalled: Bool {
+        let sh = Shell.shared
+        return sh.onPath("claude") && sh.onPath("node") && rtkInstalled && cavemanInstalled
     }
 
     func updateStatusLine() {

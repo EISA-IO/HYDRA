@@ -67,6 +67,20 @@ if [ -d "$SKILLS_SRC" ]; then
   echo "  bundled $(ls -1 "$RES/skills" 2>/dev/null | wc -l | tr -d ' ') skills"
 fi
 
+# ---- bundle the native toolchain (rtk binary, caveman marketplace) so the app
+#      provisions them with NO user download. Shared at the repo root; local fallback. ----
+TOOLS_SRC="$HERE/../tools"
+[ -d "$TOOLS_SRC" ] || TOOLS_SRC="$HERE/tools"
+if [ -d "$TOOLS_SRC" ]; then
+  echo "› Bundling native toolchain…"
+  rm -rf "$RES/tools"
+  mkdir -p "$RES/tools"
+  cp -R "$TOOLS_SRC/." "$RES/tools/" 2>/dev/null || true
+  # keep the shipped rtk binaries executable
+  find "$RES/tools" -type f -name rtk -exec chmod +x {} \; 2>/dev/null || true
+  echo "  bundled tools: $(ls -1 "$RES/tools" 2>/dev/null | tr '\n' ' ')"
+fi
+
 # ---- bundle the logo + build an .icns app icon from bot.png ----
 if [ -f "$HERE/bot.png" ]; then
   cp "$HERE/bot.png" "$RES/bot.png"

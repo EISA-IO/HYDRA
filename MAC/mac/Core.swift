@@ -25,6 +25,7 @@ enum Theme {
 enum Paths {
     static let home        = FileManager.default.homeDirectoryForCurrentUser.path
     static let stateDir    = home + "/.claude-manager"
+    static let managedBin  = stateDir + "/bin"   // native toolchain the app provisions (on PATH)
     static let recentFile  = stateDir + "/recent.txt"
     static let settingsFile = stateDir + "/settings.txt"
     static let eventsDir    = stateDir + "/events"
@@ -81,6 +82,12 @@ final class Shell {
 
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var parts = resolved.split(separator: ":").map(String.init)
+        // The app's OWN managed bin comes FIRST so the natively-bundled tools (rtk, and any
+        // vendored claude/headroom) always resolve — even on a machine where the user has
+        // installed nothing. This is what makes Claude Manager self-dependent.
+        let managed = home + "/.claude-manager/bin"
+        parts.removeAll { $0 == managed }
+        parts.insert(managed, at: 0)
         // Always include the standard install locations even if they don't exist yet — an
         // installer (Node pkg, RTK, npm -g) may create them mid-session, and the next step
         // must be able to find the freshly-installed binary.

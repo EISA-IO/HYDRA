@@ -216,21 +216,34 @@ struct SettingsView: View {
                             .font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.textDim)
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 10) {
-                            Button {
-                                app.installEverything()
-                            } label: { Text("Install everything  (Node · CLI · RTK · Caveman · skills)") }
-                            .accentButton()
-                            .disabled(app.setupBusy)
-                            Button("Update core packages") { app.updateCore() }
-                                .blueButton()
+                            // Once everything's installed, "Install everything" is just noise —
+                            // the tab focuses on the Update button (now the primary action).
+                            if app.allCoreInstalled {
+                                Button("Update core packages") { app.updateCore() }
+                                    .accentButton()
+                                    .disabled(app.setupBusy)
+                                    .help("Update npm · Claude CLI · RTK · Caveman to the latest versions")
+                                Text("Everything's installed ✓")
+                                    .font(.system(size: 11)).foregroundStyle(Theme.green)
+                            } else {
+                                Button {
+                                    app.installEverything()
+                                } label: { Text("Install everything  (Node · CLI · RTK · Caveman · skills)") }
+                                .accentButton()
                                 .disabled(app.setupBusy)
-                                .help("Update npm · Claude CLI · RTK · Caveman to the latest versions")
+                                Button("Update core packages") { app.updateCore() }
+                                    .blueButton()
+                                    .disabled(app.setupBusy)
+                                    .help("Update npm · Claude CLI · RTK · Caveman to the latest versions")
+                            }
                             if app.setupBusy {
                                 ProgressView().controlSize(.small)
                                 Text("working…").font(.system(size: 11)).foregroundStyle(Theme.yellow)
                             }
                         }
-                        Text("Fresh machine? “Install everything” installs Node.js first (via Homebrew, or the official pkg with an admin prompt), then the latest CLI + tools. “Update core packages” bumps everything already installed.")
+                        Text(app.allCoreInstalled
+                             ? "Your toolchain is complete. “Update core packages” bumps npm · Claude CLI · RTK · Caveman to the latest versions. Individual buttons below are there if you ever need them."
+                             : "Fresh machine? “Install everything” installs Node.js first (via Homebrew, or the official pkg with an admin prompt), then the latest CLI + tools. “Update core packages” bumps everything already installed.")
                             .font(.system(size: 10.5)).foregroundStyle(Theme.textFaint)
                             .fixedSize(horizontal: false, vertical: true)
                         FlowButtons {
