@@ -2075,12 +2075,13 @@ try {
         sb.Append("    \"UserPromptSubmit\": [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("work") + "\"}]}],\n");
         sb.Append("    \"Notification\":     [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("notify") + "\"}]}],\n");
         sb.Append("    \"Stop\":             [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("stop") + "\"}]}]");
-        // RTK (input compression) is a global PreToolUse/Bash hook. Claude MERGES hooks across
+        // RTK (input compression) is a global PreToolUse hook. Claude MERGES hooks across
         // settings sources and DEDUPES identical commands, so re-declaring it here guarantees it
         // runs in this embedded session and makes the per-terminal RTK toggle meaningful — never
-        // double-compressing.
+        // double-compressing. On Windows the CLI issues shell commands through the PowerShell
+        // tool (not Bash), so the matcher must cover both or RTK never fires.
         if (rtk)
-            sb.Append(",\n    \"PreToolUse\": [{\"matcher\":\"Bash\",\"hooks\":[{\"type\":\"command\",\"command\":\"rtk hook claude\"}]}]");
+            sb.Append(",\n    \"PreToolUse\": [{\"matcher\":\"Bash|PowerShell\",\"hooks\":[{\"type\":\"command\",\"command\":\"rtk hook claude\"}]}]");
         sb.Append("\n  }");
         // Caveman (output compression) is a PLUGIN. enabledPlugins is not guaranteed to merge from
         // user settings when we pass --settings, so declare it per-session so it reliably loads in
