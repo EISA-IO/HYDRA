@@ -1112,28 +1112,45 @@ final class SaaSModel: ObservableObject {
             - Create a charge: `POST /charges`. Required fields:
               - `amount` — **DECIMAL in the currency unit, NOT minor units.** 10.00 SAR is sent as `10.00`. Do NOT multiply by 100.
               - `currency` — `"SAR"`
-              - `customer` — object with `first_name` and `email`
-              - `source` — object with `id`; `"src_all"` shows all methods, or `src_card`/`src_mada`/`src_apple_pay`, or a tokenized card id
-              - `redirect` — object with `url` (3-D Secure return)
-              - `post` — object with `url` (server webhook)
-            - Saudi methods: mada, Apple Pay, Visa/Mastercard, STC Pay.
-            - Webhook: verify the `hashstring` HMAC header before trusting `status == "CAPTURED"`.
-            - Dashboard: https://dashboard.tap.company  •  Docs: https://developers.tap.company/
+              - `customer` — object with `first_name` and `email` (optional `phone: { country_code: 966, number: ... }`)
+              - `source` — object with `id`; `"src_all"` shows all methods, or `src_card`/`src_mada`/`src_apple_pay`, or a tokenized card id from the SDK
+              - `redirect` — object with `url` (customer returns here after 3-D Secure)
+              - `post` — object with `url` (server webhook that receives the charge object)
+              - `threeDSecure` — boolean (default true)
+            - Saudi methods: mada, Apple Pay, Visa/Mastercard, Benefit, KNET, STC Pay.
+            - Frontend: Tap **Web Card SDK v2** (`tap-card-sdk`) or hosted **goSell** checkout — tokenizes the card in-browser and returns a `source` id you pass to `POST /charges`.
+            - Webhook: Tap POSTs the charge to your `post.url`; verify the `hashstring` HMAC header before trusting `status == "CAPTURED"`.
+            - Dashboard / keys: https://dashboard.tap.company  •  Docs: https://developers.tap.company/
             """
         } else if key == "moyasar" {
             s += """
             # Payment integration — Moyasar (KSA)
 
             - API base: `https://api.moyasar.com/v1/`
-            - Auth: **HTTP Basic** — secret key is the username, password EMPTY. `sk_test_…`/`sk_live_…`; publishable `pk_…` is client-safe.
+            - Auth: **HTTP Basic** — the secret key is the username and the password is left EMPTY. Secret keys are `sk_test_…` / `sk_live_…`; publishable `pk_test_…` / `pk_live_…` is safe in client code.
             - Create a payment: `POST /payments`. Required fields:
-              - `amount` — **INTEGER in halalas, ×100.** 10.00 SAR is `1000`. OPPOSITE of Tap.
+              - `amount` — **INTEGER in the smallest unit (halalas), i.e. ×100.** 10.00 SAR is sent as `1000`. This is the OPPOSITE of Tap.
               - `currency` — `"SAR"`
-              - `source` — `type` is `creditcard` | `token` | `applepay` | `stcpay`
-              - `callback_url` — required for creditcard/token
-            - Frontend: **moyasar.js** hosted form (amount in halalas).
-            - Webhook: verify the `secret_token` before marking a payment `paid`.
-            - Dashboard: https://dashboard.moyasar.com  •  Docs: https://docs.moyasar.com/
+              - `source` — object whose `type` is `creditcard` | `token` | `applepay` | `stcpay`
+              - `callback_url` — required for `creditcard`/`token`; the payer is returned here after the card flow
+              - `description` — optional label
+            - Saudi methods: creditcard (Visa, Mastercard, mada, UnionPay), Apple Pay, STC Pay.
+            - Frontend: **moyasar.js** hosted form. Init example:
+              ```js
+              Moyasar.init({
+                element: '.mysr-form',
+                amount: 1000,               // 10.00 SAR in halalas
+                currency: 'SAR',
+                description: 'Order #1',
+                publishable_api_key: 'pk_test_xxx',
+                callback_url: 'https://your.app/thanks',
+                methods: ['creditcard', 'applepay', 'stcpay'],
+                supported_networks: ['visa', 'mastercard', 'mada']
+              });
+              ```
+              (Load moyasar.js + its CSS from the Moyasar CDN.)
+            - Webhook: configure in the dashboard; verify the `secret_token` in the payload before marking a payment `paid`.
+            - Dashboard / keys: https://dashboard.moyasar.com  •  Docs: https://docs.moyasar.com/
             """
         } else {
             s += "# Payment integration — \(pay)\n\nOpen SaaS ships first-class support for Stripe and Lemon Squeezy.\nSee https://docs.opensaas.sh/guides/payments-integration/ and wire keys in `.env.server`.\n"

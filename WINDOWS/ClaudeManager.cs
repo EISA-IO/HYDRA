@@ -83,6 +83,7 @@ class ClaudeManager : Form
     ComboBox saasTarget, saasBackend, saasRegion, saasRepoVis, saasSubProvider, saasEmailProvider;
     TextBox saasGcpProject, saasServiceName, saasPublicDir, saasTiers, saasTrial, saasFromEmail;
     Label saasProgress;   // live launch checklist
+    Label saasStackPreview;   // live "your stack" preview — what ⚡ instant build will use
 
     // setup / bootstrap (install the CLI + tools + skills from scratch)
     TextBox setupOut;
@@ -1314,6 +1315,7 @@ class ClaudeManager : Form
             Hoverize(b, n, hov); b.Click += click; tools.Controls.Add(b);
         };
         mk("Claude CLI", Color.FromArgb(70, 120, 85), Color.FromArgb(84, 140, 100), (s, e) => SetupRun(InstallClaudeCli));
+        mk("Node.js", Panel2, FieldHi, (s, e) => SetupRun(() => { EnsureNode(); }));
         mk("RTK", Panel2, FieldHi, (s, e) => SetupRun(InstallRtk));
         mk("Caveman", Panel2, FieldHi, (s, e) => SetupRun(InstallCaveman));
         mk("Headroom", Panel2, FieldHi, (s, e) => SetupRun(InstallHeadroom));
@@ -2631,10 +2633,15 @@ try {
         inst.Controls.Add(instBtn, 1, 0);
         row(inst, 52);
 
+        // Live stack preview — exactly what pressing ⚡ will build, before you press it.
+        row(RowCap("YOUR STACK — what ⚡ instant build uses (updates live; confirmed again before the run)"), 20);
+        saasStackPreview = new Label { Text = "", ForeColor = TextDim, Font = new Font("Consolas", 8.75f), Dock = DockStyle.Fill, TextAlign = ContentAlignment.TopLeft };
+        row(saasStackPreview, 172);
+
         saasProgress = new Label { Text = "", ForeColor = TextFaint, Font = new Font("Segoe UI", 8.75f), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
         row(saasProgress, 22);
         var chkTimer = new System.Windows.Forms.Timer { Interval = 3000 };
-        chkTimer.Tick += (s, e) => UpdateSaasProgress();
+        chkTimer.Tick += (s, e) => { UpdateSaasProgress(); RefreshSaasStackPreview(); };
         chkTimer.Start();
 
         // ================= STAGE 1 — VISION =================
@@ -2767,15 +2774,17 @@ try {
         tip.SetToolTip(saasEmailProvider, "Who sends your emails. Resend = modern & easy. Postmark = best deliverability for receipts. SendGrid = mature with campaigns. Used for receipts, dunning, and newsletters.");
         tip.SetToolTip(saasFromEmail, "The from address subscribers see. Use a domain you control — add SPF/DKIM/DMARC DNS records so email lands in the inbox.");
         tip.SetToolTip(saasPreset, "Pre-fills the pitch, features, and pricing tiers for a common SaaS type — Middle-East-first ideas at the top. Pick Custom to write everything yourself. Choosing a template overwrites those three fields.");
+        tip.SetToolTip(saasStackPreview, "This is the exact stack the ⚡ instant build uses — it updates live as you change the options below. Every build starts from the Open SaaS template (github.com/wasp-lang/open-saas): Wasp + React + Node.js + Prisma + PostgreSQL, whatever the use case. You'll also confirm this summary in a dialog before anything runs.");
         tip.SetToolTip(saasAI, "The brain behind your AI features — our own integrated router, not a third-party gateway. It calls providers in a best-to-cheapest priority order and falls back automatically when one is rate-limited. Smart fallback serves free users on commercial-free models (Groq, OpenRouter :free, Gemini) at $0 and unlocks frontier models (GPT-4o, Gemini 2.5 Pro, DeepSeek R1) for paid tiers. OpenRouter only = one key, 300+ models. Groq only = fastest free tokens. BYOK = each customer brings their own key, so AI costs you nothing. Every provider allows commercial use within its free limits. Claude drops a ready router (src/server/ai/router.ts) into the app.");
 
         // ---- restore the saved form, then autosave any change (via the checklist timer) ----
         LoadSaasForm();
         foreach (Control c in new Control[] { saasName, saasFolder, saasPitch, saasFeatures, saasGcpProject, saasServiceName, saasPublicDir, saasTiers, saasTrial, saasFromEmail })
-            c.TextChanged += (s, e) => saasDirty = true;
+            c.TextChanged += (s, e) => { saasDirty = true; RefreshSaasStackPreview(); };
         foreach (ComboBox c in new[] { saasAuth, saasPay, saasBuildModel, saasTarget, saasBackend, saasRegion, saasRepoVis, saasSubProvider, saasEmailProvider, saasPreset, saasAI })
-            c.SelectedIndexChanged += (s, e) => saasDirty = true;
+            c.SelectedIndexChanged += (s, e) => { saasDirty = true; RefreshSaasStackPreview(); };
         UpdateSaasProgress();
+        RefreshSaasStackPreview();
 
         tab.Controls.Add(root);
     }
@@ -2966,7 +2975,7 @@ try {
     {
         string p = Path.Combine(SaasDeployDir(), ".gitignore");
         if (File.Exists(p)) return;
-        try { File.WriteAllText(p, "node_modules\n.env\n.env.*\n!.env.example\n!.env.subscriptions.example\ndist\nbuild\n.next\n.firebase\n.vercel\n"); SaasLog("Wrote .gitignore (keeps secrets + build output out of git)."); } catch { }
+        try { File.WriteAllText(p, "node_modules\n.env\n.env.*\n!.env.example\n!.env.subscriptions.example\ndist\nbuild\n.next\n.DS_Store\n.firebase\n.vercel\n"); SaasLog("Wrote .gitignore (keeps secrets + build output out of git)."); } catch { }
     }
     void SaasPushToGitHub()
     {
@@ -3138,7 +3147,7 @@ try {
         sb.AppendLine("4. Customer Portal / self-service for upgrade/cancel/card update.");
         sb.AppendLine();
         if (key == "stripe")
-            sb.AppendLine("## Stripe\n- Create products + prices; store price_ ids in env by plan.\n- Checkout: stripe.checkout.sessions.create({ mode: 'subscription', customer, line_items, subscription_data: { trial_period_days: " + trial + " }, success_url, cancel_url, client_reference_id }).\n- Webhook /api/webhooks/stripe: verify RAW body + STRIPE_WEBHOOK_SECRET; handle checkout.session.completed, customer.subscription.updated/deleted, invoice.payment_failed. Idempotent on event.id.\n- Portal: stripe.billingPortal.sessions.create({ customer, return_url }).\n- Entitlement: [active,trialing] includes status && currentPeriodEnd > now.\n- Local: stripe listen --forward-to localhost:3000/api/webhooks/stripe.");
+            sb.AppendLine("## Stripe\n- Create products + prices; store `price_...` ids in env by plan.\n- Checkout: `stripe.checkout.sessions.create({ mode: \"subscription\", customer, line_items:[{price,quantity:1}], subscription_data:{ trial_period_days: " + trial + " }, success_url, cancel_url, client_reference_id: userId })`.\n- Webhook `/api/webhooks/stripe`: verify with the RAW body + `STRIPE_WEBHOOK_SECRET`; handle `checkout.session.completed`, `customer.subscription.updated/deleted`, `invoice.payment_failed`. Idempotent on `event.id`.\n- Portal: `stripe.billingPortal.sessions.create({ customer, return_url })`.\n- Entitlement: `[\"active\",\"trialing\"].includes(status) && currentPeriodEnd > now`.\n- Test locally: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`.");
         else if (key == "tap")
             sb.AppendLine("## Tap Payments (KSA) — recurring\n- Amount in MAJOR units (10.00 SAR = 10.00). Auth: Authorization: Bearer sk_ (server only).\n- Save a card token via the Card SDK, then charge the saved token on your own schedule (a cron each period). Your DB holds subscription state.\n- Webhook: verify the hashstring HMAC before trusting status == CAPTURED. Methods: mada, Apple Pay, STC Pay, cards.");
         else
@@ -3431,6 +3440,12 @@ try {
         sb.AppendLine("Billing:    " + (saasSubProvider.SelectedItem ?? "") + " · " + (saasTrial.Text ?? "14").Trim() + "-day trial · email via " + (saasEmailProvider.SelectedItem ?? ""));
         sb.AppendLine("Model:      " + (saasBuildModel.SelectedItem ?? "Default"));
         return sb.ToString();
+    }
+
+    // Keep the on-screen stack preview in sync with the form (mirrors the Mac live preview).
+    void RefreshSaasStackPreview()
+    {
+        try { if (saasStackPreview != null) saasStackPreview.Text = SaasStackSummary().TrimEnd(); } catch { }
     }
 
     void SaasBuildEverything()

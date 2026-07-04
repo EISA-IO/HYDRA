@@ -72,6 +72,7 @@ final class AppState: ObservableObject {
         startTimers()
         autoInstallBundledSkillsIfEmpty()   // seed bundled skills once (marker-guarded)
         provisionNativeToolchain()          // make claude/rtk/caveman native — no manual download
+        ensureDefaultCompressionFirstRun()  // first run only: quietly enable RTK + Caveman (parity with Windows)
     }
 
     // ---- persistence (same key=value format as the Windows settings.txt) ----
