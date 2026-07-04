@@ -59,13 +59,17 @@ extension AppState {
         """
     }
 
-    /// Install/update the Claude CLI. Prefer Anthropic's official self-contained installer
-    /// (installs to ~/.local/bin, no npm, no permission issues). Fall back to npm with a FRESH
-    /// cache dir + --force so a root-poisoned ~/.npm/_cacache (the EEXIST/EACCES failure seen on
-    /// shared machines) can't block it.
+    /// Install/update the Claude CLI as robustly as possible on a locked-down machine.
+    /// 1) Anthropic's official self-contained installer (no npm). If that succeeds, done.
+    /// 2) Otherwise npm into a USER-WRITABLE prefix we own (~/.claude-manager, whose /bin is
+    ///    already first on PATH) with a FRESH cache. This dodges BOTH failures seen on shared
+    ///    Macs: a root-owned global prefix (/usr/local/lib/node_modules → EACCES on mkdir) and
+    ///    a poisoned ~/.npm/_cacache (EEXIST). No sudo, no touching /usr/local.
     func claudeInstallCmd() -> String {
-        "curl -fsSL https://claude.ai/install.sh | bash || "
-        + "npm install -g @anthropic-ai/claude-code@latest --cache \"$(mktemp -d)\" --force"
+        "curl -fsSL https://claude.ai/install.sh | bash; "
+        + "claude --version >/dev/null 2>&1 || "   // must actually RUN, not just exist (native installer can half-fail)
+        + "npm install -g @anthropic-ai/claude-code@latest "
+        + "--prefix \"$HOME/.claude-manager\" --cache \"$(mktemp -d)\" --no-fund --no-audit --force"
     }
 
     func cavemanCmd() -> String {

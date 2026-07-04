@@ -492,12 +492,15 @@ class ClaudeManager : Form
         return false;
     }
 
-    // Robust Claude CLI install. Prefer Anthropic's official self-contained installer
-    // (PowerShell, no npm, no cache-permission issues); fall back to npm with a fresh cache.
+    // Robust Claude CLI install. 1) Anthropic's official self-contained installer (PowerShell,
+    // no npm). 2) If claude still isn't found, npm into a USER-WRITABLE prefix we own
+    // (%USERPROFILE%\.claude-manager\bin, already first on PATH) with a fresh cache — dodges a
+    // root/admin-owned global prefix (EACCES) and a poisoned npm cache (EEXIST). No admin needed.
     static string ClaudeInstallCmd()
     {
         return "powershell -NoProfile -Command \"irm https://claude.ai/install.ps1 | iex\" "
-             + "|| npm install -g @anthropic-ai/claude-code@latest --force";
+             + "|| npm install -g @anthropic-ai/claude-code@latest "
+             + "--prefix \"%USERPROFILE%\\.claude-manager\\bin\" --cache \"%TEMP%\\cmnpm%RANDOM%\" --no-fund --no-audit --force";
     }
     void UpdateCavemanStatus()
     {
