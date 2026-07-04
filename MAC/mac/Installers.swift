@@ -59,11 +59,13 @@ extension AppState {
         """
     }
 
-    /// Install/update the Claude CLI: npm if Node is present, else the native installer.
+    /// Install/update the Claude CLI. Prefer Anthropic's official self-contained installer
+    /// (installs to ~/.local/bin, no npm, no permission issues). Fall back to npm with a FRESH
+    /// cache dir + --force so a root-poisoned ~/.npm/_cacache (the EEXIST/EACCES failure seen on
+    /// shared machines) can't block it.
     func claudeInstallCmd() -> String {
-        Shell.shared.onPath("npm")
-            ? "npm install -g @anthropic-ai/claude-code@latest"
-            : "curl -fsSL https://claude.ai/install.sh | bash"
+        "curl -fsSL https://claude.ai/install.sh | bash || "
+        + "npm install -g @anthropic-ai/claude-code@latest --cache \"$(mktemp -d)\" --force"
     }
 
     func cavemanCmd() -> String {

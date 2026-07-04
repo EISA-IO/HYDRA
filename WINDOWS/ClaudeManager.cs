@@ -479,8 +479,25 @@ class ClaudeManager : Form
     // ---------- caveman (output compression, a global Claude Code plugin) ----------
     static bool CavemanInstalled()
     {
-        try { return File.Exists(PluginsFile) && File.ReadAllText(PluginsFile).IndexOf("caveman", StringComparison.OrdinalIgnoreCase) >= 0; }
-        catch { return false; }
+        try
+        {
+            // Plugin install (installed_plugins.json) …
+            if (File.Exists(PluginsFile) && File.ReadAllText(PluginsFile).IndexOf("caveman", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            // … or the standalone-hooks fallback the installer uses when the plugin path isn't
+            // available (e.g. claude not yet on PATH): it wires ~/.claude/hooks/caveman-*.js.
+            if (File.Exists(Path.Combine(HomeDir, ".claude", "hooks", "caveman-config.js"))) return true;
+            if (File.Exists(ClaudeSettings) && File.ReadAllText(ClaudeSettings).IndexOf("caveman", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+        }
+        catch { }
+        return false;
+    }
+
+    // Robust Claude CLI install. Prefer Anthropic's official self-contained installer
+    // (PowerShell, no npm, no cache-permission issues); fall back to npm with a fresh cache.
+    static string ClaudeInstallCmd()
+    {
+        return "powershell -NoProfile -Command \"irm https://claude.ai/install.ps1 | iex\" "
+             + "|| npm install -g @anthropic-ai/claude-code@latest --force";
     }
     void UpdateCavemanStatus()
     {
@@ -1527,9 +1544,9 @@ try {
 
     void InstallClaudeCli()
     {
-        if (!EnsureNode()) return;
-        SetupLog("Installing latest Claude CLI (npm install -g @anthropic-ai/claude-code@latest)…");
-        int rc = RunLoggedCmd("npm install -g @anthropic-ai/claude-code@latest");
+        EnsureNode();   // helpful for Caveman, but the native Claude installer doesn't need it
+        SetupLog("Installing latest Claude CLI (native installer, npm fallback)…");
+        int rc = RunLoggedCmd(ClaudeInstallCmd());
         SetupLog(rc == 0 ? "OK  Claude CLI installed (latest)." : "Claude CLI install returned exit " + rc + ".");
     }
 
@@ -1666,10 +1683,11 @@ try {
                 }
 
                 // 3) Claude CLI — not redistributable; install once, silently, if missing.
-                if (!OnPath("claude.exe") && !OnPath("claude") && HasNpm())
+                //    Native installer needs no npm, so don't gate on it.
+                if (!OnPath("claude.exe") && !OnPath("claude"))
                 {
                     SetupLog("Claude CLI not found — installing it once…");
-                    try { RunLoggedCmd("npm install -g @anthropic-ai/claude-code@latest"); } catch { }
+                    try { RunLoggedCmd(ClaudeInstallCmd()); } catch { }
                 }
             }
             catch { }
@@ -1762,8 +1780,8 @@ try {
         if (!EnsureNode()) return;
         SetupLog("> npm install -g npm@latest");
         RunLoggedCmd("npm install -g npm@latest");
-        SetupLog("> npm install -g @anthropic-ai/claude-code@latest");
-        int c = RunLoggedCmd("npm install -g @anthropic-ai/claude-code@latest");
+        SetupLog("> updating Claude CLI (native installer, npm fallback)");
+        int c = RunLoggedCmd(ClaudeInstallCmd());
         SetupLog(c == 0 ? "OK  Claude CLI up to date." : "Claude CLI update exit " + c + ".");
         // RTK: pull the latest release binary again, then re-register the hook
         SetupLog("Updating RTK to the latest release…");

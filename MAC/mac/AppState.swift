@@ -134,8 +134,13 @@ final class AppState: ObservableObject {
         return s.range(of: "rtk hook", options: .caseInsensitive) != nil
     }
     static func isCavemanInstalled() -> Bool {
-        guard let s = FS.read(Paths.pluginsFile) else { return false }
-        return s.range(of: "caveman", options: .caseInsensitive) != nil
+        // Plugin install (installed_plugins.json) …
+        if let s = FS.read(Paths.pluginsFile), s.range(of: "caveman", options: .caseInsensitive) != nil { return true }
+        // … or the standalone-hooks fallback the installer uses when the plugin path isn't
+        // available (e.g. claude not yet on PATH). Those wire ~/.claude/hooks/caveman-*.js.
+        if FS.exists(Paths.home + "/.claude/hooks/caveman-config.js") { return true }
+        if let s = FS.read(Paths.claudeSettings), s.range(of: "caveman", options: .caseInsensitive) != nil { return true }
+        return false
     }
     static func portOpen(_ port: Int) -> Bool {
         let sock = socket(AF_INET, SOCK_STREAM, 0)
