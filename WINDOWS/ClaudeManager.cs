@@ -2975,7 +2975,7 @@ try {
     {
         string p = Path.Combine(SaasDeployDir(), ".gitignore");
         if (File.Exists(p)) return;
-        try { File.WriteAllText(p, "node_modules\n.env\n.env.*\n!.env.example\n!.env.subscriptions.example\ndist\nbuild\n.next\n.DS_Store\n.firebase\n.vercel\n"); SaasLog("Wrote .gitignore (keeps secrets + build output out of git)."); } catch { }
+        try { File.WriteAllText(p, "node_modules\n.env\n.env.*\n!.env.example\n!.env.subscriptions.example\n!.env.analytics.example\n!.env.ai.example\ndist\nbuild\n.next\n.DS_Store\n.firebase\n.vercel\n"); SaasLog("Wrote .gitignore (keeps secrets + build output out of git)."); } catch { }
     }
     void SaasPushToGitHub()
     {
@@ -3411,7 +3411,8 @@ try {
                 mk(gitCfg.Contains("github.com"), "GitHub"),
                 mk(hasWorkflow, "CI/CD"),
                 mk(deployCfg, "Deploy config"),
-                mk(File.Exists(Path.Combine(dir, "SUBSCRIPTIONS.md")), "Billing")
+                mk(File.Exists(Path.Combine(dir, "SUBSCRIPTIONS.md")), "Billing"),
+                mk(File.Exists(Path.Combine(dir, "ANALYTICS.md")), "Analytics")
             });
         }
         catch { }
@@ -3435,6 +3436,7 @@ try {
         sb.AppendLine("Auth:       " + (saasAuth.SelectedItem ?? ""));
         sb.AppendLine("Payments:   " + (saasPay.SelectedItem ?? ""));
         sb.AppendLine("AI layer:   " + (saasAI.SelectedItem ?? ""));
+        sb.AppendLine("Analytics:  Google Analytics 4 — always on, cookie-consent gated (every use case)");
         sb.AppendLine("Deploy:     " + t + " · backend: " + (saasBackend.SelectedItem ?? "") + (t == "Cloud Run" ? " · " + saasRegion.SelectedItem : ""));
         sb.AppendLine("GitHub:     " + (saasRepoVis.SelectedItem ?? "Private").ToString().ToLower() + " repo + Actions CI/CD");
         sb.AppendLine("Billing:    " + (saasSubProvider.SelectedItem ?? "") + " · " + (saasTrial.Text ?? "14").Trim() + "-day trial · email via " + (saasEmailProvider.SelectedItem ?? ""));
@@ -3469,6 +3471,8 @@ try {
             File.WriteAllText(Path.Combine(app, "DEPLOY.md"), SaasDeploySpec());
             File.WriteAllText(Path.Combine(app, "SUBSCRIPTIONS.md"), SaasSubscriptionSpec());
             File.WriteAllText(Path.Combine(app, "EMAIL.md"), SaasEmailSpec());
+            File.WriteAllText(Path.Combine(app, "ANALYTICS.md"), AnalyticsSpec());
+            File.WriteAllText(Path.Combine(app, ".env.analytics.example"), AnalyticsEnvExample());
             File.WriteAllText(Path.Combine(app, ".env.subscriptions.example"), SaasSubEnvExample());
             if (AiEnabled())
             {
@@ -3477,12 +3481,12 @@ try {
             }
         }
         catch (Exception ex) { SaasLog("Could not write specs: " + ex.Message); return; }
-        SaasLog("Wrote VISION.md, DEPLOY.md, SUBSCRIPTIONS.md, EMAIL.md" + (AiEnabled() ? ", AI.md" : "") + " into " + app);
+        SaasLog("Wrote VISION.md, DEPLOY.md, SUBSCRIPTIONS.md, EMAIL.md, ANALYTICS.md" + (AiEnabled() ? ", AI.md" : "") + " into " + app);
         SaveSaasForm();
         string vis = (saasRepoVis.SelectedItem ?? "Private").ToString().ToLower();
-        string prompt = "You are building a complete SaaS end-to-end in this folder. Read VISION.md, PAYMENTS.md (if present), AI.md (if present), SUBSCRIPTIONS.md, EMAIL.md and DEPLOY.md, then do ALL of it in order: "
+        string prompt = "You are building a complete SaaS end-to-end in this folder. Read VISION.md, PAYMENTS.md (if present), AI.md (if present), SUBSCRIPTIONS.md, EMAIL.md, ANALYTICS.md and DEPLOY.md, then do ALL of it in order: "
             + "(1) If the app is not scaffolded yet (no main.wasp/package.json), scaffold the Open SaaS template (" + SaasTemplateRepo + ") here with `wasp new " + n + " -t saas` — the wasp CLI is available as `wasp` (if the folder having these .md files blocks `wasp new`, scaffold in a temp dir and move the result in, keeping the .md files). Open SaaS is the MANDATORY base for EVERY use case — never substitute Next.js, plain Vite, CRA, or any other starter. "
-            + "(2) Build the product in VISION.md: auth, every feature/page, premium non-templated UI. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) with the best→cheapest priority ladder and route EVERY AI feature through it. "
+            + "(2) Build the product in VISION.md: auth, every feature/page, premium non-templated UI. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) with the best→cheapest priority ladder and route EVERY AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — it is mandatory for every use case: consent-gated gtag via Open SaaS's cookie-consent banner, the required events, and the admin-dashboard stats job (env ids stubbed, never real). "
             + "(3) Implement the subscription billing + subscriber email described in SUBSCRIPTIONS.md and EMAIL.md, with env keys stubbed in .env.server (never real secrets). "
             + "(4) Initialize git, create a " + vis + " GitHub repo with `gh`, and add the GitHub Actions workflow per DEPLOY.md. "
             + "(5) Deploy to " + saasTarget.SelectedItem + " per DEPLOY.md and report the live URL. "
@@ -3569,6 +3573,8 @@ try {
         sb.AppendLine("- AI layer: " + (saasAI.SelectedItem ?? ""));
         if (AiEnabled())
             sb.AppendLine("  (see AI.md — our integrated multi-provider router with a best→cheapest priority ladder over OpenRouter + Groq + free commercial providers; wire ALL AI features through it)");
+        sb.AppendLine("- Analytics: Google Analytics 4 — MANDATORY for every use case");
+        sb.AppendLine("  (see ANALYTICS.md — consent-gated gtag via the Open SaaS cookie-consent banner, required events, and the admin-dashboard stats job)");
         sb.AppendLine("- Base template: Open SaaS (Wasp + React + Node + Prisma) — " + SaasTemplateRepo);
         sb.AppendLine("  (MANDATORY for every use case: if this folder is not an Open SaaS app yet, scaffold it with `wasp new -t saas` before anything else; never substitute another starter)");
         sb.AppendLine();
@@ -3578,8 +3584,9 @@ try {
         sb.AppendLine("2. Configure auth to match the choice above; remove unused providers.");
         sb.AppendLine("3. Wire the chosen payment processor. If PAYMENTS.md exists, follow it EXACTLY (esp. the amount-unit rule) and stub the listed .env.server keys with clear TODOs.");
         sb.AppendLine("4. Build each feature/page listed, updating the Wasp config, routes, entities, and UI.");
-        sb.AppendLine("5. Keep it runnable at every step (wasp start). Explain each change briefly.");
-        sb.AppendLine("6. Do NOT commit real secrets. Ask the user before any destructive or paid action.");
+        sb.AppendLine("5. Wire Google Analytics 4 exactly as ANALYTICS.md describes (consent-gated gtag, required events, admin stats job; env ids stubbed).");
+        sb.AppendLine("6. Keep it runnable at every step (wasp start). Explain each change briefly.");
+        sb.AppendLine("7. Do NOT commit real secrets. Ask the user before any destructive or paid action.");
         return sb.ToString();
     }
 
@@ -3767,6 +3774,55 @@ try {
 
     // Verified integration facts (from developers.tap.company & docs.moyasar.com) so Claude
     // generates CORRECT code — especially the amount-unit gotcha, which is INVERTED between
+    // ---- analytics: Google Analytics 4, mandatory for every use case ----
+    string AnalyticsSpec()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("# Analytics — " + (saasName.Text ?? "").Trim());
+        sb.AppendLine();
+        sb.AppendLine("**Google Analytics 4 is REQUIRED for this app — every use case ships with it.** Open SaaS has first-class GA4 support (cookie-consent banner + admin-dashboard stats job); use it, do not hand-roll.");
+        sb.AppendLine();
+        sb.AppendLine("## 1. Create the GA4 property");
+        sb.AppendLine("- analytics.google.com → Admin → Create property → add a **Web** data stream → copy the **Measurement ID** (`G-XXXXXXXXXX`).");
+        sb.AppendLine();
+        sb.AppendLine("## 2. Client tracking (built into Open SaaS)");
+        sb.AppendLine("- Open SaaS ships a cookie-consent banner (vanilla-cookieconsent) that injects the gtag script ONLY after the visitor accepts — GDPR-safe by default. Keep that flow; never load gtag before consent.");
+        sb.AppendLine("- Put the Measurement ID in the client env (`.env.client`): `REACT_APP_GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX`.");
+        sb.AppendLine("- Make sure the cookie-consent config (src/client/components/cookie-consent/Config.ts or equivalent) reads that same id.");
+        sb.AppendLine();
+        sb.AppendLine("## 3. Admin dashboard stats (server side)");
+        sb.AppendLine("Open SaaS's daily stats job pulls GA metrics (page views, sources) into the admin dashboard via the **Google Analytics Data API**:");
+        sb.AppendLine("- Google Cloud console: enable \"Google Analytics Data API\", create a service account, download its JSON key.");
+        sb.AppendLine("- GA Admin → Property access management: add the service-account email as **Viewer**.");
+        sb.AppendLine("- `.env.server` keys (stub with TODOs, never commit real values):");
+        sb.AppendLine("  - `GOOGLE_ANALYTICS_CLIENT_EMAIL=service-account@project.iam.gserviceaccount.com`");
+        sb.AppendLine("  - `GOOGLE_ANALYTICS_PRIVATE_KEY=` (the key, base64-encoded, per the Open SaaS docs)");
+        sb.AppendLine("  - `GOOGLE_ANALYTICS_PROPERTY_ID=` (the NUMERIC property id, not the G-… id)");
+        sb.AppendLine("- Keep the daily stats job enabled in main.wasp so the admin dashboard fills in.");
+        sb.AppendLine();
+        sb.AppendLine("## 4. Events that MUST be tracked");
+        sb.AppendLine("Add a tiny `trackEvent(name, params)` helper that no-ops until consent, then wire it for:");
+        sb.AppendLine("`sign_up`, `login`, `begin_checkout`, `purchase` / subscription started, subscription cancelled,");
+        sb.AppendLine("and one event per core feature action listed in VISION.md (the product's \"aha\" moments).");
+        sb.AppendLine();
+        sb.AppendLine("## Rules");
+        sb.AppendLine("- Never block rendering on gtag; load async after consent.");
+        sb.AppendLine("- No PII in event params (no emails, names, phone numbers).");
+        sb.AppendLine("- Verify with GA DebugView before launch; docs: https://docs.opensaas.sh/guides/analytics/");
+        return sb.ToString();
+    }
+
+    string AnalyticsEnvExample()
+    {
+        return "# Google Analytics 4 — mandatory for every build. Never commit real values.\n"
+            + "# Client (.env.client) — the web stream Measurement ID:\n"
+            + "REACT_APP_GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX\n"
+            + "# Server (.env.server) — Google Analytics Data API service account (admin dashboard stats):\n"
+            + "GOOGLE_ANALYTICS_CLIENT_EMAIL=service-account@project.iam.gserviceaccount.com\n"
+            + "GOOGLE_ANALYTICS_PRIVATE_KEY=   # base64-encoded private key\n"
+            + "GOOGLE_ANALYTICS_PROPERTY_ID=   # numeric property id (not the G-… id)\n";
+    }
+
     // the two Saudi gateways (Tap = decimal SAR, Moyasar = integer halalas).
     string PaymentSpec(string key)
     {
@@ -3866,12 +3922,15 @@ try {
                 File.WriteAllText(Path.Combine(app, ".env.ai.example"), AiEnvExample());
                 SaasLog("Wrote AI.md + .env.ai.example (integrated multi-provider AI router).");
             }
+            File.WriteAllText(Path.Combine(app, "ANALYTICS.md"), AnalyticsSpec());
+            File.WriteAllText(Path.Combine(app, ".env.analytics.example"), AnalyticsEnvExample());
+            SaasLog("Wrote ANALYTICS.md + .env.analytics.example (Google Analytics 4 — mandatory).");
         }
         catch (Exception ex) { SaasLog("Could not write VISION.md: " + ex.Message); return; }
 
         // launch Claude in the app folder as a managed terminal, primed with the build prompt,
         // using the chosen build model.
-        string prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (" + SaasTemplateRepo + "). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Start by summarizing the plan and asking me to confirm before major changes." + SaasSkillsHint();
+        string prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (" + SaasTemplateRepo + "). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — mandatory for every use case (consent-gated gtag, required events, admin stats job; env ids stubbed). Start by summarizing the plan and asking me to confirm before major changes." + SaasSkillsHint();
         SaasLaunchClaude(app, prompt);
         SaasLog("Opened a Claude session in the Workspace to build it.");
     }

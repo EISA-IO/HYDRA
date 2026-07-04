@@ -230,7 +230,8 @@ final class SaaSModel: ObservableObject {
             CheckItem(id: "github", label: "On GitHub", done: gitCfg.contains("github.com")),
             CheckItem(id: "ci",     label: "CI/CD", done: hasWorkflow),
             CheckItem(id: "deploy", label: "Deploy config", done: deployCfg),
-            CheckItem(id: "subs",   label: "Billing spec", done: FS.exists(dir + "/SUBSCRIPTIONS.md"))
+            CheckItem(id: "subs",   label: "Billing spec", done: FS.exists(dir + "/SUBSCRIPTIONS.md")),
+            CheckItem(id: "ga",     label: "Analytics", done: FS.exists(dir + "/ANALYTICS.md"))
         ]
     }
 
@@ -250,6 +251,7 @@ final class SaaSModel: ObservableObject {
         lines.append("Auth       \(auth)")
         lines.append("Payments   \(pay)")
         lines.append("AI layer   \(aiProvider)")
+        lines.append("Analytics  Google Analytics 4 — always on, cookie-consent gated (every use case)")
         var deployLine = "Deploy     \(target) · backend: \(backend)"
         if target == "Cloud Run" { deployLine += " · \(region)" }
         lines.append(deployLine)
@@ -285,15 +287,17 @@ final class SaaSModel: ObservableObject {
         FS.write(appDir + "/DEPLOY.md", deploySpec())
         FS.write(appDir + "/SUBSCRIPTIONS.md", subscriptionSpec())
         FS.write(appDir + "/EMAIL.md", emailSpec())
+        FS.write(appDir + "/ANALYTICS.md", analyticsSpec())
+        FS.write(appDir + "/.env.analytics.example", analyticsEnvExample())
         FS.write(appDir + "/.env.subscriptions.example", subEnvExample())
         if aiEnabled() {
             FS.write(appDir + "/AI.md", aiSpec())
             FS.write(appDir + "/.env.ai.example", aiEnvExample())
         }
-        out("Wrote VISION.md, DEPLOY.md, SUBSCRIPTIONS.md, EMAIL.md" + (aiEnabled() ? ", AI.md" : "") + (pk != "none" ? ", PAYMENTS.md" : "") + " into \(appDir)")
-        let prompt = "You are building a complete SaaS end-to-end in this folder. Read VISION.md, PAYMENTS.md (if present), AI.md (if present), SUBSCRIPTIONS.md, EMAIL.md and DEPLOY.md, then do ALL of it in order: "
+        out("Wrote VISION.md, DEPLOY.md, SUBSCRIPTIONS.md, EMAIL.md, ANALYTICS.md" + (aiEnabled() ? ", AI.md" : "") + (pk != "none" ? ", PAYMENTS.md" : "") + " into \(appDir)")
+        let prompt = "You are building a complete SaaS end-to-end in this folder. Read VISION.md, PAYMENTS.md (if present), AI.md (if present), SUBSCRIPTIONS.md, EMAIL.md, ANALYTICS.md and DEPLOY.md, then do ALL of it in order: "
             + "(1) If the app is not scaffolded yet (no main.wasp/package.json), scaffold the Open SaaS template (\(Self.templateRepo)) here with `wasp new \(n) -t saas` — the wasp CLI is available as `wasp` (if the folder having these .md files blocks `wasp new`, scaffold in a temp dir and move the result in, keeping the .md files). Open SaaS is the MANDATORY base for EVERY use case — never substitute Next.js, plain Vite, CRA, or any other starter. "
-            + "(2) Build the product in VISION.md: auth, every feature/page, premium non-templated UI. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) with the best→cheapest priority ladder and route EVERY AI feature through it. "
+            + "(2) Build the product in VISION.md: auth, every feature/page, premium non-templated UI. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) with the best→cheapest priority ladder and route EVERY AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — it is mandatory for every use case: consent-gated gtag via Open SaaS's cookie-consent banner, the required events, and the admin-dashboard stats job (env ids stubbed, never real). "
             + "(3) Implement the subscription billing + subscriber email described in SUBSCRIPTIONS.md and EMAIL.md, with env keys stubbed in .env.server (never real secrets). "
             + "(4) Initialize git, create a \(repoVisibility.lowercased()) GitHub repo with `gh`, and add the GitHub Actions workflow per DEPLOY.md. "
             + "(5) Deploy to \(target) per DEPLOY.md and report the live URL. "
@@ -367,7 +371,10 @@ final class SaaSModel: ObservableObject {
             FS.write(appDir + "/.env.ai.example", aiEnvExample())
             out("Wrote AI.md + .env.ai.example (integrated multi-provider AI router).")
         }
-        let prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (\(Self.templateRepo)). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Start by summarizing the plan and asking me to confirm before major changes." + skillsHint
+        FS.write(appDir + "/ANALYTICS.md", analyticsSpec())
+        FS.write(appDir + "/.env.analytics.example", analyticsEnvExample())
+        out("Wrote ANALYTICS.md + .env.analytics.example (Google Analytics 4 — mandatory).")
+        let prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (\(Self.templateRepo)). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — mandatory for every use case (consent-gated gtag, required events, admin stats job; env ids stubbed). Start by summarizing the plan and asking me to confirm before major changes." + skillsHint
         app?.launch(folder: appDir, startupPrompt: prompt, modelOverride: buildModel)
         out("Opened a Claude session in the Workspace to build it.")
     }
@@ -539,7 +546,7 @@ final class SaaSModel: ObservableObject {
     private func ensureGitignore() {
         let p = deployDir() + "/.gitignore"
         guard !FS.exists(p) else { return }
-        FS.write(p, "node_modules\n.env\n.env.*\n!.env.example\n!.env.subscriptions.example\ndist\nbuild\n.next\n.DS_Store\n.firebase\n.vercel\n")
+        FS.write(p, "node_modules\n.env\n.env.*\n!.env.example\n!.env.subscriptions.example\n!.env.analytics.example\n!.env.ai.example\ndist\nbuild\n.next\n.DS_Store\n.firebase\n.vercel\n")
         out("Wrote .gitignore (keeps secrets + build output out of git).")
     }
 
@@ -770,6 +777,8 @@ final class SaaSModel: ObservableObject {
         if paymentKey() != "none" { s += "  (see PAYMENTS.md for the verified integration spec + .env.server keys)\n" }
         s += "- AI layer: \(aiProvider)\n"
         if aiEnabled() { s += "  (see AI.md — our integrated multi-provider router with a best→cheapest priority ladder over OpenRouter + Groq + free commercial providers; wire ALL AI features through it)\n" }
+        s += "- Analytics: Google Analytics 4 — MANDATORY for every use case\n"
+        s += "  (see ANALYTICS.md — consent-gated gtag via the Open SaaS cookie-consent banner, required events, and the admin-dashboard stats job)\n"
         s += "- Base template: Open SaaS (Wasp + React + Node + Prisma) — \(Self.templateRepo)\n"
         s += "  (MANDATORY for every use case: if this folder is not an Open SaaS app yet, scaffold it with `wasp new -t saas` before anything else; never substitute another starter)\n\n"
         s += """
@@ -779,8 +788,9 @@ final class SaaSModel: ObservableObject {
         2. Configure auth to match the choice above; remove unused providers.
         3. Wire the chosen payment processor. If PAYMENTS.md exists, follow it EXACTLY (esp. the amount-unit rule) and stub the listed .env.server keys with clear TODOs.
         4. Build each feature/page listed, updating the Wasp config, routes, entities, and UI.
-        5. Keep it runnable at every step (wasp start). Explain each change briefly.
-        6. Do NOT commit real secrets. Ask before any destructive or paid action.
+        5. Wire Google Analytics 4 exactly as ANALYTICS.md describes (consent-gated gtag, required events, admin stats job; env ids stubbed).
+        6. Keep it runnable at every step (wasp start). Explain each change briefly.
+        7. Do NOT commit real secrets. Ask before any destructive or paid action.
         """
         return s
     }
@@ -1078,6 +1088,55 @@ final class SaaSModel: ObservableObject {
         lines.append("APP_URL=https://your.app")
         lines.append("EMAIL_FROM=\(fromEmail)")
         return "# Never commit real values — add .env* to .gitignore\n" + lines.joined(separator: "\n") + "\n"
+    }
+
+    // ---- analytics: Google Analytics 4, mandatory for every use case ----
+    func analyticsSpec() -> String {
+        var s = "# Analytics — \(name.trimmingCharacters(in: .whitespaces))\n\n"
+        s += "**Google Analytics 4 is REQUIRED for this app — every use case ships with it.** "
+        s += "Open SaaS has first-class GA4 support (cookie-consent banner + admin-dashboard stats job); use it, do not hand-roll.\n\n"
+        s += """
+        ## 1. Create the GA4 property
+        - analytics.google.com → Admin → Create property → add a **Web** data stream → copy the **Measurement ID** (`G-XXXXXXXXXX`).
+
+        ## 2. Client tracking (built into Open SaaS)
+        - Open SaaS ships a cookie-consent banner (vanilla-cookieconsent) that injects the gtag script ONLY after the visitor accepts — GDPR-safe by default. Keep that flow; never load gtag before consent.
+        - Put the Measurement ID in the client env (`.env.client`): `REACT_APP_GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX`.
+        - Make sure the cookie-consent config (src/client/components/cookie-consent/Config.ts or equivalent) reads that same id.
+
+        ## 3. Admin dashboard stats (server side)
+        Open SaaS's daily stats job pulls GA metrics (page views, sources) into the admin dashboard via the **Google Analytics Data API**:
+        - Google Cloud console: enable "Google Analytics Data API", create a service account, download its JSON key.
+        - GA Admin → Property access management: add the service-account email as **Viewer**.
+        - `.env.server` keys (stub with TODOs, never commit real values):
+          - `GOOGLE_ANALYTICS_CLIENT_EMAIL=service-account@project.iam.gserviceaccount.com`
+          - `GOOGLE_ANALYTICS_PRIVATE_KEY=` (the key, base64-encoded, per the Open SaaS docs)
+          - `GOOGLE_ANALYTICS_PROPERTY_ID=` (the NUMERIC property id, not the G-… id)
+        - Keep the daily stats job enabled in main.wasp so the admin dashboard fills in.
+
+        ## 4. Events that MUST be tracked
+        Add a tiny `trackEvent(name, params)` helper that no-ops until consent, then wire it for:
+        `sign_up`, `login`, `begin_checkout`, `purchase` / subscription started, subscription cancelled,
+        and one event per core feature action listed in VISION.md (the product's "aha" moments).
+
+        ## Rules
+        - Never block rendering on gtag; load async after consent.
+        - No PII in event params (no emails, names, phone numbers).
+        - Verify with GA DebugView before launch; docs: https://docs.opensaas.sh/guides/analytics/
+        """
+        return s
+    }
+
+    func analyticsEnvExample() -> String {
+        return """
+        # Google Analytics 4 — mandatory for every build. Never commit real values.
+        # Client (.env.client) — the web stream Measurement ID:
+        REACT_APP_GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX
+        # Server (.env.server) — Google Analytics Data API service account (admin dashboard stats):
+        GOOGLE_ANALYTICS_CLIENT_EMAIL=service-account@project.iam.gserviceaccount.com
+        GOOGLE_ANALYTICS_PRIVATE_KEY=   # base64-encoded private key
+        GOOGLE_ANALYTICS_PROPERTY_ID=   # numeric property id (not the G-… id)
+        """
     }
 
     // ---- payment specs (verified KSA integration details) ----

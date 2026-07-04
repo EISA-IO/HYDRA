@@ -158,7 +158,7 @@ struct SaaSView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "bolt.fill").font(.system(size: 13)).foregroundStyle(Theme.yellow)
                             Text("Instant SaaS").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
-                            HelpButton(text: "The one-click path: writes ALL the specs (vision, payments, deploy, subscriptions, email) into your app folder and starts a single Claude session that scaffolds the app, builds every feature, wires billing + subscriber email, creates your GitHub repo with CI/CD, and deploys — reporting the live URL at the end. You only step in for sign-ins and real payment keys.")
+                            HelpButton(text: "The one-click path: writes ALL the specs (vision, payments, deploy, subscriptions, email, analytics) into your app folder and starts a single Claude session that scaffolds the app, builds every feature, wires billing + subscriber email + Google Analytics, creates your GitHub repo with CI/CD, and deploys — reporting the live URL at the end. You only step in for sign-ins and real payment keys.")
                         }
                         Text("Fill the pitch (or pick a preset), then let Claude take it from idea to a live URL in one run.")
                             .font(.system(size: 11)).foregroundStyle(Theme.textFaint)
