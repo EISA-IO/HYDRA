@@ -13,6 +13,7 @@ MAC/Claude Manager.app/
 
 # ---- Windows build output (compiled by Claude-Manager.bat) ----
 WINDOWS/*.exe
+!WINDOWS/ClaudeManager.exe
 *.exe
 *.dll
 *.pdb
