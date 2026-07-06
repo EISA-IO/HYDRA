@@ -833,6 +833,11 @@ final class SaaSModel: ObservableObject {
           `express.json({ verify: (req,_res,buf) => { req.rawBody = buf } })`.
         - Postgres JSONB does NOT preserve key order — any content-hash/diff over stored JSON must
           hash SORTED entries or every reread looks changed.
+        - Prerendered routes run your components in NODE at build time: any touch of
+          localStorage / window / document outside useEffect (including useState INITIALIZERS)
+          throws "ReferenceError: localStorage is not defined" and kills the CI build. Guard with
+          `typeof window === "undefined"` and move browser reads into useEffect. Always run the
+          production client build locally before pushing UI that touches browser APIs.
         - Entitlement lives in the DB, flipped ONLY by verified webhooks. Never trust the
           checkout redirect. Idempotency table for webhook event ids.
         - Background jobs (pg-boss) need an always-on process — see Phase 3 hosting choice.
