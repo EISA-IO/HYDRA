@@ -876,34 +876,61 @@ final class SaaSModel: ObservableObject {
           X-Signature HMAC over the RAW body syncing subscription_* events into the DB, customer
           portal URL from the subscription for card updates, cancel/resume via the LS API.
           EXCLUDE MoR-managed users from any local renewal cron — the MoR owns their recurrence.
+          Before shipping the webhook, drive the WHOLE lifecycle locally with hand-signed
+          payloads (created → payment_failed → cancelled → expired → duplicate replay): a
+          20-line script catches mapping bugs that only surface with real subscribers.
         - KSA-local only (mada/STC Pay) → **Moyasar** (fastest onboarding, amounts in HALALAS ×100)
           or Tap (amounts in MAJOR units — the two are opposite; read the spec, not your memory).
           Tap approval takes weeks — never put it on the critical path.
         - Stripe is NOT available to KSA-domiciled businesses (only via a foreign entity).
         - Hybrid pattern: MoR primary + local gateway later; keep both behind one /api/checkout.
 
-        ## Phase 6 — Custom domain: Namecheap → Firebase Hosting
-        1. Buy: namecheap.com → search the name → prefer .com (~$10/yr) → enable the free
-           Domain Privacy (WhoisGuard) → checkout. Domain is usable in minutes.
-        2. Firebase console → Hosting → your site → "Add custom domain" → enter `yourdomain.com`
-           (tick "redirect www" or add www separately). Firebase shows a TXT record.
-        3. Namecheap → Domain List → Manage → Advanced DNS:
-           - Add the TXT record (Host `@`, value from Firebase) → back in Firebase click Verify.
-           - Firebase then shows the A records (two IPs). In Namecheap add BOTH:
-             `A  @  <ip1>` and `A  @  <ip2>`; for www either `CNAME  www  yourdomain.com` or the
-             same two A records on `www`. DELETE Namecheap's default parking CNAME/URL-redirect
-             records first or they shadow yours.
-        4. Wait: DNS minutes-to-hours; Firebase auto-provisions the SSL cert after propagation
-           (status flips Pending → Connected; up to 24h, usually well under 1h).
-        5. THE STEP EVERYONE FORGETS — update every reference to the old .web.app URL:
-           - Firebase console → Authentication → Settings → Authorized domains → ADD the new
-             domain (sign-in silently fails on it otherwise).
+        ## Phase 6 — Custom domain: Namecheap → Firebase Hosting (proven ~40 min end to end)
+        Nearly everything is HEADLESS via the Hosting REST API — the console is never needed.
+        The only human steps are buying the domain and pasting 3 DNS records.
+        1. Buy: namecheap.com → search the name → .com/.ai/.io → enable the free Domain Privacy
+           (WhoisGuard) → checkout, skip every upsell. Domain is usable in minutes.
+        2. Register the domain with Hosting via API (access token minted from the CI refresh
+           token — NOTE: those access tokens expire in ~1h, re-mint per session, never cache):
+           - apex: `POST https://firebasehosting.googleapis.com/v1beta1/projects/<p>/sites/<s>/customDomains?customDomainId=yourdomain.com` body `{"redirectTarget":""}`
+           - www:  same endpoint, `customDomainId=www.yourdomain.com`, body `{"redirectTarget":"yourdomain.com"}` (301 to apex)
+           - `GET .../customDomains/yourdomain.com` → `requiredDnsUpdates.desired[].records[]`
+             gives the EXACT records. Current Firebase infra wants just:
+             `TXT @ hosting-site=<site-id>`, `A @ 199.36.158.100`, `CNAME www <site>.web.app`.
+        3. User pastes those 3 rows in Namecheap → Domain List → Manage → Advanced DNS.
+           DELETE Namecheap's default parking CNAME/URL-redirect records first — they shadow yours.
+        4. Poll (all observable, no console): `dig` until the A + TXT resolve (Namecheap ≈ minutes),
+           then GET the customDomain until `hostState: HOST_ACTIVE` (A seen) and
+           `ownershipState: OWNERSHIP_ACTIVE` (TXT verified). Cert: it will sit at
+           `cert.type: TEMPORARY, state: CERT_PROPAGATING` while ALREADY serving real TLS
+           (Google Trust Services) — the site is live at this point; do NOT wait for CERT_ACTIVE,
+           the dedicated cert swaps in on its own.
+        5. THE STEPS EVERYONE FORGETS — update every reference to the old .web.app URL:
+           - Auth authorized domains, headless: `PATCH identitytoolkit .../config?updateMask=authorizedDomains`
+             appending the new apex + www (sign-in silently fails on them otherwise).
            - Fly server secrets: WASP_WEB_CLIENT_URL + APP_URL → https://yourdomain.com (CORS
-             breaks otherwise); redeploy or restart machines.
+             breaks otherwise); `fly secrets set` restarts machines; verify with an OPTIONS
+             preflight from the new Origin (expect 200).
            - Repo secret REACT_APP_API_URL stays the server URL; if the server gets its own
              subdomain: `fly certs add api.yourdomain.com -a <name>-server` + Namecheap
              `CNAME api → <name>-server.fly.dev`, then update REACT_APP_API_URL and push.
-           - Payment provider store/redirect URLs, GA4 property, sitemap/OG urls.
+           - Payment provider store/redirect URLs, GA4 stream URL, sitemap/OG urls.
+           - Finish with a real e2e from the new origin: signup → authed API call → delete user.
+
+        ## Phase 6b — Analytics & monitoring implementation (per ANALYTICS.md, proven pattern)
+        - Client: `src/analytics/ga.ts` — consent state in localStorage, gtag injected ONLY after
+          Accept, `trackEvent()` no-ops before consent/without a measurement id, plus SPA
+          `trackPageView` on route change. A ~40-line ConsentBanner component beats a cookie lib.
+        - Wire funnel events at the SUCCESS points, not the clicks: sign_up/login (with method)
+          right before the post-auth redirect, trial_started after the API confirms,
+          begin_checkout before handing off to the processor, one event per core action.
+        - Server: `src/analytics/mp.ts` — GA4 Measurement Protocol with a sha256(userId) client id.
+          Fire `purchase` ONLY on the payment-success webhook event (money moved), never also on
+          subscription_created — the two arrive in any order and double-count revenue.
+        - Health: `GET /api/health` runs `SELECT 1` so "up" means serving, wired into
+          `[[http_service.checks]]` in fly-server.toml — unhealthy machines self-restart.
+        - All of it ships with EMPTY env ids and no-ops gracefully; the user creates the GA4
+          property (property + web stream + MP api_secret = 3 minutes) whenever ready.
 
         ## Phase 7 — Email deliverability (before the first real send)
         Resend → add sending domain → it lists SPF + DKIM (+ DMARC) records → add them in
@@ -922,9 +949,14 @@ final class SaaSModel: ObservableObject {
 
         ## Sequencing summary (the fast path)
         Phase 0 all-at-once → 1 scaffold → 3 skeleton deploy (yes, before the product) →
-        2 product build → 4 auth clicks (user, 2 min) → 5 payments → 6 domain → 7 email → 8 accept.
+        2 product build → 4 auth clicks (user, 2 min) → 5 payments → 6 domain → 6b monitoring →
+        7 email → 8 accept.
         Human-blocking steps (0, 4, parts of 5/6) get requested EARLY and in BATCHES —
         never serialize a build behind a waiting human.
+        Reference timings from a real run (Page Byte, 2026-07): scaffold→compiling ~15 min,
+        skeleton live on Hosting same hour, Fly server + Postgres ~20 min, Auth enablement
+        2 clicks + 5 min, LS integration incl. lifecycle tests ~1h, domain purchase→live TLS
+        ~40 min, GA4+monitoring ~45 min. A focused end-to-end is a same-day ship.
         """
     }
 
