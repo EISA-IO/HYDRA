@@ -3961,14 +3961,27 @@ never serialize a build behind a waiting human.
         sb.AppendLine("  - `GOOGLE_ANALYTICS_PROPERTY_ID=` (the NUMERIC property id, not the G-… id)");
         sb.AppendLine("- Keep the daily stats job enabled in main.wasp so the admin dashboard fills in.");
         sb.AppendLine();
-        sb.AppendLine("## 4. Events that MUST be tracked");
-        sb.AppendLine("Add a tiny `trackEvent(name, params)` helper that no-ops until consent, then wire it for:");
-        sb.AppendLine("`sign_up`, `login`, `begin_checkout`, `purchase` / subscription started, subscription cancelled,");
-        sb.AppendLine("and one event per core feature action listed in VISION.md (the product's \"aha\" moments).");
+        sb.AppendLine("## 4. Events that MUST be tracked (the full SaaS funnel)");
+        sb.AppendLine("Add a tiny `trackEvent(name, params)` helper that no-ops until consent, then wire EVERY stage:");
+        sb.AppendLine("- **Acquisition**: `page_view` (automatic), `cta_click` (which CTA, which section).");
+        sb.AppendLine("- **Activation**: `sign_up` (method: email/google/apple), `login`, plus the product's FIRST \"aha\" action from VISION.md as `activation` — the metric that predicts retention.");
+        sb.AppendLine("- **Revenue**: `begin_checkout` (plan), `trial_started` (plan), `purchase` (plan, value, currency — fire SERVER-SIDE from the payment webhook via the GA4 Measurement Protocol so ad blockers can't hide revenue), `subscription_renewed`, `subscription_cancelled` (plan, days_subscribed), `payment_failed`.");
+        sb.AppendLine("- **Engagement**: one event per core feature action in VISION.md, plus `limit_reached` (which limit — the strongest upgrade signal there is) and `api_key_created`.");
+        sb.AppendLine("- Mark `sign_up`, `trial_started`, and `purchase` as CONVERSIONS in GA4 Admin → Events.");
+        sb.AppendLine();
+        sb.AppendLine("## 5. Beyond GA4 — the full monitoring stack (all free tiers, all mandatory)");
+        sb.AppendLine("A SaaS you can't observe is a SaaS you can't run. Wire ALL of these:");
+        sb.AppendLine("- **Error monitoring — Sentry** (free tier): `@sentry/react` on the client (wrap the app, upload sourcemaps in CI) + `@sentry/node` on the server (capture in the API error handler and job failures). Env: `SENTRY_DSN` / `REACT_APP_SENTRY_DSN`, stubbed. Tag events with plan + release so paid-user bugs surface first.");
+        sb.AppendLine("- **Uptime — Better Stack or UptimeRobot** (free): monitor the site AND the server health endpoint every 60s with alerts. Add `GET /api/health` returning `{status:\"ok\", db:true}` (touch the DB so it proves real health).");
+        sb.AppendLine("- **Host-level checks**: Fly.io `[[http_service.checks]]` hitting /api/health so dead machines restart themselves; keep structured console.log JSON lines for greppability.");
+        sb.AppendLine("- **Business KPI snapshot**: extend the daily stats job to compute and store MRR, active subscribers, trials in flight, trial→paid conversion %, churn, signups/day — the admin dashboard answers \"how is the business\" in one glance.");
+        sb.AppendLine("- **Search Console**: verify the domain (DNS TXT), submit the sitemap — free SEO diagnostics and the only place Google reports indexing problems.");
+        sb.AppendLine("- **Alerting rule**: uptime + payment-webhook failures page you; everything else is a weekly dashboard.");
         sb.AppendLine();
         sb.AppendLine("## Rules");
         sb.AppendLine("- Never block rendering on gtag; load async after consent.");
         sb.AppendLine("- No PII in event params (no emails, names, phone numbers).");
+        sb.AppendLine("- Server-side revenue events use the GA4 Measurement Protocol (`GA4_API_SECRET` in .env.server, stubbed).");
         sb.AppendLine("- Verify with GA DebugView before launch; docs: https://docs.opensaas.sh/guides/analytics/");
         return sb.ToString();
     }
@@ -3981,7 +3994,12 @@ never serialize a build behind a waiting human.
             + "# Server (.env.server) — Google Analytics Data API service account (admin dashboard stats):\n"
             + "GOOGLE_ANALYTICS_CLIENT_EMAIL=service-account@project.iam.gserviceaccount.com\n"
             + "GOOGLE_ANALYTICS_PRIVATE_KEY=   # base64-encoded private key\n"
-            + "GOOGLE_ANALYTICS_PROPERTY_ID=   # numeric property id (not the G-… id)\n";
+            + "GOOGLE_ANALYTICS_PROPERTY_ID=   # numeric property id (not the G-… id)\n"
+            + "# Server-side revenue events (GA4 Measurement Protocol, from the payment webhook):\n"
+            + "GA4_API_SECRET=\n"
+            + "# Error monitoring (Sentry, free tier — client + server):\n"
+            + "REACT_APP_SENTRY_DSN=\n"
+            + "SENTRY_DSN=\n";
     }
 
     // the two Saudi gateways (Tap = decimal SAR, Moyasar = integer halalas).

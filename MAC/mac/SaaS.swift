@@ -1292,14 +1292,46 @@ final class SaaSModel: ObservableObject {
           - `GOOGLE_ANALYTICS_PROPERTY_ID=` (the NUMERIC property id, not the G-… id)
         - Keep the daily stats job enabled in main.wasp so the admin dashboard fills in.
 
-        ## 4. Events that MUST be tracked
-        Add a tiny `trackEvent(name, params)` helper that no-ops until consent, then wire it for:
-        `sign_up`, `login`, `begin_checkout`, `purchase` / subscription started, subscription cancelled,
-        and one event per core feature action listed in VISION.md (the product's "aha" moments).
+        ## 4. Events that MUST be tracked (the full SaaS funnel)
+        Add a tiny `trackEvent(name, params)` helper that no-ops until consent, then wire EVERY stage:
+        - **Acquisition**: `page_view` (automatic), `cta_click` (which CTA, which section).
+        - **Activation**: `sign_up` (with method: email/google/apple), `login`,
+          plus the product's FIRST "aha" action from VISION.md (e.g. first record created) as
+          `activation` — this is the metric that predicts retention.
+        - **Revenue**: `begin_checkout` (plan), `trial_started` (plan), `purchase` (plan, value,
+          currency — fire SERVER-SIDE from the payment webhook via the GA4 Measurement Protocol so
+          ad blockers can't hide revenue), `subscription_renewed`, `subscription_cancelled` (plan,
+          days_subscribed), `payment_failed`.
+        - **Engagement**: one event per core feature action in VISION.md, plus `limit_reached`
+          (which limit — the strongest upgrade signal there is) and `api_key_created`.
+        - Mark `sign_up`, `trial_started`, and `purchase` as CONVERSIONS in GA4 Admin → Events.
+
+        ## 5. Beyond GA4 — the full monitoring stack (all free tiers, all mandatory)
+        A SaaS you can't observe is a SaaS you can't run. Wire ALL of these:
+        - **Error monitoring — Sentry** (free tier): `@sentry/react` on the client (wrap the app,
+          upload sourcemaps in CI) + `@sentry/node` on the server (capture in the API error
+          handler and job failures). Env: `SENTRY_DSN` / `REACT_APP_SENTRY_DSN`, stubbed. Tag
+          events with plan + release so paid-user bugs surface first.
+        - **Uptime — Better Stack or UptimeRobot** (free): monitor `https://<domain>/` AND the
+          server health endpoint every 60s with email/phone alerts. Add a `GET /api/health`
+          endpoint returning `{status:"ok", db:true}` (touch the DB so it actually proves health).
+        - **Host-level checks**: Fly.io `[[http_service.checks]]` hitting /api/health so dead
+          machines restart themselves; `fly logs` is the raw stream, keep structured
+          `console.log` JSON lines for greppability.
+        - **Business KPI snapshot**: extend the daily stats job to also compute and store MRR,
+          active subscriber count, trials in flight, trial→paid conversion %, churn (cancels /
+          active), and signups per day — the admin dashboard should answer "how is the business"
+          in one glance without opening GA.
+        - **Search Console**: verify the domain (DNS TXT), submit the sitemap — free SEO
+          diagnostics and the only place Google tells you about indexing problems.
+        - **Alerting rule of thumb**: uptime + payment-webhook failures page you (email/push);
+          everything else is a dashboard you check weekly.
 
         ## Rules
         - Never block rendering on gtag; load async after consent.
         - No PII in event params (no emails, names, phone numbers).
+        - Server-side revenue events use the GA4 Measurement Protocol (api_secret from the data
+          stream settings — `GA4_API_SECRET` in .env.server, stubbed).
         - Verify with GA DebugView before launch; docs: https://docs.opensaas.sh/guides/analytics/
         """
         return s
@@ -1314,6 +1346,11 @@ final class SaaSModel: ObservableObject {
         GOOGLE_ANALYTICS_CLIENT_EMAIL=service-account@project.iam.gserviceaccount.com
         GOOGLE_ANALYTICS_PRIVATE_KEY=   # base64-encoded private key
         GOOGLE_ANALYTICS_PROPERTY_ID=   # numeric property id (not the G-… id)
+        # Server-side revenue events (GA4 Measurement Protocol, from the payment webhook):
+        GA4_API_SECRET=                 # GA4 Admin → data stream → Measurement Protocol API secrets
+        # Error monitoring (Sentry, free tier — client + server):
+        REACT_APP_SENTRY_DSN=
+        SENTRY_DSN=
         """
     }
 
