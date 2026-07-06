@@ -39,6 +39,13 @@ or just double-click `MAC/Claude-Manager-Mac.command`.
 double-click `WINDOWS/Claude-Manager.bat` — it compiles `ClaudeManager.cs` on first run
 (and whenever the source is newer than the exe), then launches the GUI.
 
+## The SaaS production playbook
+
+Every project the SaaS builder creates gets a `PLAYBOOK.md` — the battle-tested sequence
+to a production site (accounts-first ordering, deploy-the-skeleton-early, Firebase Auth
+enablement, Lemon Squeezy / KSA payments decision tree, Namecheap domain → Firebase Hosting
+linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-PLAYBOOK.md`.
+
 ## Tabs
 
 - **Workspace** — create multiple embedded Claude terminals in tabs; per-terminal RTK + Caveman.

@@ -281,6 +281,7 @@ final class SaaSModel: ObservableObject {
         }
         try? FileManager.default.createDirectory(atPath: appDir, withIntermediateDirectories: true)
         // Write EVERY spec up front so one Claude session has the full picture.
+        FS.write(appDir + "/PLAYBOOK.md", playbookDoc())
         FS.write(appDir + "/VISION.md", visionDoc())
         let pk = paymentKey()
         if pk != "none" { FS.write(appDir + "/PAYMENTS.md", paymentSpec(pk)) }
@@ -294,8 +295,8 @@ final class SaaSModel: ObservableObject {
             FS.write(appDir + "/AI.md", aiSpec())
             FS.write(appDir + "/.env.ai.example", aiEnvExample())
         }
-        out("Wrote VISION.md, DEPLOY.md, SUBSCRIPTIONS.md, EMAIL.md, ANALYTICS.md" + (aiEnabled() ? ", AI.md" : "") + (pk != "none" ? ", PAYMENTS.md" : "") + " into \(appDir)")
-        let prompt = "You are building a complete SaaS end-to-end in this folder. Read VISION.md, PAYMENTS.md (if present), AI.md (if present), SUBSCRIPTIONS.md, EMAIL.md, ANALYTICS.md and DEPLOY.md, then do ALL of it in order: "
+        out("Wrote PLAYBOOK.md, VISION.md, DEPLOY.md, SUBSCRIPTIONS.md, EMAIL.md, ANALYTICS.md" + (aiEnabled() ? ", AI.md" : "") + (pk != "none" ? ", PAYMENTS.md" : "") + " into \(appDir)")
+        let prompt = "You are building a complete SaaS end-to-end in this folder. FIRST read PLAYBOOK.md — it is the battle-tested production sequence (accounts first, deploy the skeleton early, known pitfalls with exact fixes, Namecheap domain linking); follow its phase order and its rules throughout. Then read VISION.md, PAYMENTS.md (if present), AI.md (if present), SUBSCRIPTIONS.md, EMAIL.md, ANALYTICS.md and DEPLOY.md, then do ALL of it in order: "
             + "(1) If the app is not scaffolded yet (no main.wasp/package.json), scaffold the Open SaaS template (\(Self.templateRepo)) here with `wasp new \(n) -t saas` — the wasp CLI is available as `wasp` (if the folder having these .md files blocks `wasp new`, scaffold in a temp dir and move the result in, keeping the .md files). Open SaaS is the MANDATORY base for EVERY use case — never substitute Next.js, plain Vite, CRA, or any other starter. "
             + "(2) Build the product in VISION.md: auth, every feature/page, premium non-templated UI. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) with the best→cheapest priority ladder and route EVERY AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — it is mandatory for every use case: consent-gated gtag via Open SaaS's cookie-consent banner, the required events, and the admin-dashboard stats job (env ids stubbed, never real). "
             + "(3) Implement the subscription billing + subscriber email described in SUBSCRIPTIONS.md and EMAIL.md, with env keys stubbed in .env.server (never real secrets). "
@@ -359,8 +360,9 @@ final class SaaSModel: ObservableObject {
     func build() {
         guard FS.isDir(appDir) else { app?.alert("Not scaffolded", "App folder not found. Create the app first:\n\(appDir)"); return }
         guard !pitch.trimmingCharacters(in: .whitespaces).isEmpty else { app?.alert("Add a pitch", "Add a one-line pitch first so Claude understands the vision."); return }
+        FS.write(appDir + "/PLAYBOOK.md", playbookDoc())
         FS.write(appDir + "/VISION.md", visionDoc())
-        out("Wrote VISION.md into \(appDir)")
+        out("Wrote PLAYBOOK.md + VISION.md into \(appDir)")
         let pk = paymentKey()
         if pk != "none" {
             FS.write(appDir + "/PAYMENTS.md", paymentSpec(pk))
@@ -374,7 +376,7 @@ final class SaaSModel: ObservableObject {
         FS.write(appDir + "/ANALYTICS.md", analyticsSpec())
         FS.write(appDir + "/.env.analytics.example", analyticsEnvExample())
         out("Wrote ANALYTICS.md + .env.analytics.example (Google Analytics 4 — mandatory).")
-        let prompt = "Read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (\(Self.templateRepo)). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — mandatory for every use case (consent-gated gtag, required events, admin stats job; env ids stubbed). Start by summarizing the plan and asking me to confirm before major changes." + skillsHint
+        let prompt = "FIRST read PLAYBOOK.md in this folder — the battle-tested production sequence and pitfall list; follow its phase order throughout. Then read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (\(Self.templateRepo)). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — mandatory for every use case (consent-gated gtag, required events, admin stats job; env ids stubbed). Start by summarizing the plan and asking me to confirm before major changes." + skillsHint
         app?.launch(folder: appDir, startupPrompt: prompt, modelOverride: buildModel)
         out("Opened a Claude session in the Workspace to build it.")
     }
@@ -772,6 +774,160 @@ final class SaaSModel: ObservableObject {
     }
 
     // ============================================================ generators
+
+    /// The production playbook — every lesson from real end-to-end builds
+    /// (Page Byte, 2026-07), ordered for the FASTEST path to a production
+    /// site. Written into every new project as PLAYBOOK.md.
+    func playbookDoc() -> String {
+        return """
+        # Production Playbook — fastest correct sequence to a live SaaS
+
+        Battle-tested order. Each phase unblocks the next; account/authorization
+        steps come FIRST because they are the only steps that ever block for hours.
+        Keys can trickle in later — the codebase must no-op gracefully when a key
+        is missing (a feature without its key logs to console instead of failing).
+
+        ## Phase 0 — Accounts & authorizations (do these before writing code)
+        These block everything downstream and need the human. Fire them all at once:
+        1. GitHub CLI: `gh auth login`, then IMMEDIATELY `gh auth refresh -h github.com -s workflow`
+           (without the workflow scope, the FIRST push containing .github/workflows/ is rejected —
+           this bit us in production; the default token never has it).
+        2. Firebase: `firebase login:ci` in a REAL terminal (never works in non-TTY shells) →
+           store the token. It can headlessly: create projects, create web apps, fetch sdkconfig,
+           deploy hosting. It canNOT enable Auth (see Phase 4).
+        3. Fly.io (if server hosting): `fly auth login` + card. Then set `send_metrics: false`
+           in ~/.fly/config.yml or its stdout warnings corrupt wasp's JSON parsing.
+        4. AI: at minimum a free Groq key (console.groq.com/keys) — free tier serves real traffic.
+        5. Payments: create the Lemon Squeezy store NOW (self-serve, no approval gate) if
+           international; Moyasar if KSA-local-only. Seller verification runs in the background
+           while you build.
+        6. Store every token/key in Claude Manager → Settings → Access & API keys — they inject
+           into every terminal and every future project reuses them.
+
+        ## Phase 1 — Scaffold (goal: `wasp start` green in 15 minutes)
+        - `wasp new <name> -t saas` (Open SaaS is the mandatory base). If the target folder
+          already has spec .md files, scaffold in a temp dir and move contents in.
+        - Machine quirks that WILL appear: root-owned npm cache → `npm config set cache <writable>`;
+          root-owned global prefix → install CLIs with `--prefix ~/.npm-global`; Wasp 0.24+ needs
+          Node 24; no Docker → `brew install postgresql@17 && brew services start postgresql@17`
+          and put DATABASE_URL in .env.server.
+        - `wasp install && wasp db migrate-dev && wasp compile` must all pass before feature work.
+        - If prisma migrate-dev hits "non-interactive not supported": hand-write the migration SQL
+          under migrations/<timestamp>_name/migration.sql and apply with
+          `DATABASE_URL=... npx prisma migrate deploy --schema .wasp/out/db/schema.prisma`.
+
+        ## Phase 2 — Build the product (architecture rules that held up)
+        - Firebase Auth means SKIPPING Wasp auth entirely: client Firebase Web SDK + an
+          AuthContext; server = wasp `api()` REST endpoints with a `requireUser(req)` helper that
+          verifies the Bearer ID token via firebase-admin and upserts the user by firebaseUid.
+          This REST surface doubles as the public API (X-Api-Key auth) for Zapier/Make.
+        - Dev fallback: accept `dev:<email>` bearer tokens when NODE_ENV=development — and keep
+          accepting them even after Firebase gets configured, or local testing dies later.
+        - firebase-admin verifies ID tokens with ONLY a project id (initializeApp({projectId})) —
+          the service-account JSON is needed only for extras (Google Sheets etc.).
+        - Wasp api() handler gotchas: signature must accept a 3rd context arg
+          `(req, res, _context?: unknown)`; cast `String(req.params.id)` (its string|string[] type
+          poisons Prisma query inference with baffling errors); webhooks that verify HMAC over the
+          raw body need `middlewareConfigFn` replacing 'express.json' with
+          `express.json({ verify: (req,_res,buf) => { req.rawBody = buf } })`.
+        - Postgres JSONB does NOT preserve key order — any content-hash/diff over stored JSON must
+          hash SORTED entries or every reread looks changed.
+        - Entitlement lives in the DB, flipped ONLY by verified webhooks. Never trust the
+          checkout redirect. Idempotency table for webhook event ids.
+        - Background jobs (pg-boss) need an always-on process — see Phase 3 hosting choice.
+
+        ## Phase 3 — Deploy the skeleton EARLY (before the product is finished)
+        A live URL on day one surfaces CI/hosting problems while they are cheap.
+        - Client → Firebase Hosting: `firebase projects:create <id>`, `firebase apps:create WEB`,
+          `firebase apps:sdkconfig WEB <appId>` (all headless with the CI token). Build with
+          `wasp build` then `npx vite build` in app/ — output lands in
+          `app/.wasp/out/web-app/build`; copy to the hosting public dir ("dist").
+          The client build hard-fails without REACT_APP_API_URL in env.
+        - CI (GitHub Actions): Node 24, PIN the wasp CLI (`npm i -g @wasp.sh/wasp-cli@<local
+          version>`), deploy with `npx firebase-tools deploy --only hosting --non-interactive
+          --token "$FIREBASE_TOKEN"` (no service account needed).
+        - Server → Fly.io (default: always-on for cron jobs, cheapest at ~$5-10/mo, native
+          `wasp deploy fly launch <name> <region>`; fra is closest to KSA). Known failure modes:
+          the launch dies on a "Press any key" prompt after postgres attach in non-TTY shells —
+          resume with `yes "" | wasp deploy fly deploy`; later server-only redeploys are
+          `wasp build && fly deploy .wasp/out --config "$PWD/fly-server.toml" -a <name>-server
+          --remote-only`. Verify fly-server.toml has `min_machines_running = 1` (pg-boss cron
+          dies on scale-to-zero — this is also why Cloud Run is the WRONG host for this stack).
+        - Server secrets BEFORE first boot: WASP_WEB_CLIENT_URL (CORS — the Firebase Hosting URL),
+          WASP_SERVER_URL, APP_URL, FIREBASE_PROJECT_ID. Set with `fly secrets set --stage`.
+        - Wire them together: set repo secret REACT_APP_API_URL=https://<name>-server.fly.dev,
+          push, verify the live bundle references the server and an OPTIONS preflight from the
+          client origin returns 200. If wasp also deployed a redundant fly client app, destroy it.
+
+        ## Phase 4 — Firebase Auth enablement (the 2-click wall)
+        Free-tier Auth CANNOT be enabled headlessly: config PATCH 404s until Auth exists, and
+        identityPlatform:initializeAuth demands GCP billing. Ask the user for exactly 2 clicks:
+        console → Authentication → "Get started", then Google provider → Enable + support email.
+        After that, flip Email/Password via API: exchange the CI token for an access token
+        (oauth2.googleapis.com/token with firebase-tools' public client id/secret), then
+        `PATCH .../admin/v2/projects/<id>/config?updateMask=signIn.email`. Verify by creating and
+        deleting a real user via accounts:signUp with the web API key. Apple sign-in needs a paid
+        Apple Developer account — ship without it.
+
+        ## Phase 5 — Payments (decision tree, learned the hard way)
+        - International customers matter → **Lemon Squeezy** (merchant of record): self-serve
+          store, live in days, handles global sales tax, cards + PayPal + Apple/Google Pay.
+          Integration: hosted checkout via POST /v1/checkouts (pass custom user_id), webhook with
+          X-Signature HMAC over the RAW body syncing subscription_* events into the DB, customer
+          portal URL from the subscription for card updates, cancel/resume via the LS API.
+          EXCLUDE MoR-managed users from any local renewal cron — the MoR owns their recurrence.
+        - KSA-local only (mada/STC Pay) → **Moyasar** (fastest onboarding, amounts in HALALAS ×100)
+          or Tap (amounts in MAJOR units — the two are opposite; read the spec, not your memory).
+          Tap approval takes weeks — never put it on the critical path.
+        - Stripe is NOT available to KSA-domiciled businesses (only via a foreign entity).
+        - Hybrid pattern: MoR primary + local gateway later; keep both behind one /api/checkout.
+
+        ## Phase 6 — Custom domain: Namecheap → Firebase Hosting
+        1. Buy: namecheap.com → search the name → prefer .com (~$10/yr) → enable the free
+           Domain Privacy (WhoisGuard) → checkout. Domain is usable in minutes.
+        2. Firebase console → Hosting → your site → "Add custom domain" → enter `yourdomain.com`
+           (tick "redirect www" or add www separately). Firebase shows a TXT record.
+        3. Namecheap → Domain List → Manage → Advanced DNS:
+           - Add the TXT record (Host `@`, value from Firebase) → back in Firebase click Verify.
+           - Firebase then shows the A records (two IPs). In Namecheap add BOTH:
+             `A  @  <ip1>` and `A  @  <ip2>`; for www either `CNAME  www  yourdomain.com` or the
+             same two A records on `www`. DELETE Namecheap's default parking CNAME/URL-redirect
+             records first or they shadow yours.
+        4. Wait: DNS minutes-to-hours; Firebase auto-provisions the SSL cert after propagation
+           (status flips Pending → Connected; up to 24h, usually well under 1h).
+        5. THE STEP EVERYONE FORGETS — update every reference to the old .web.app URL:
+           - Firebase console → Authentication → Settings → Authorized domains → ADD the new
+             domain (sign-in silently fails on it otherwise).
+           - Fly server secrets: WASP_WEB_CLIENT_URL + APP_URL → https://yourdomain.com (CORS
+             breaks otherwise); redeploy or restart machines.
+           - Repo secret REACT_APP_API_URL stays the server URL; if the server gets its own
+             subdomain: `fly certs add api.yourdomain.com -a <name>-server` + Namecheap
+             `CNAME api → <name>-server.fly.dev`, then update REACT_APP_API_URL and push.
+           - Payment provider store/redirect URLs, GA4 property, sitemap/OG urls.
+
+        ## Phase 7 — Email deliverability (before the first real send)
+        Resend → add sending domain → it lists SPF + DKIM (+ DMARC) records → add them in
+        Namecheap Advanced DNS → wait for Verified. Transactional and broadcast stay separate
+        streams; every broadcast carries List-Unsubscribe + a one-click unsubscribe endpoint.
+        Until RESEND_API_KEY exists, email code logs to console — never blocks the build.
+
+        ## Phase 8 — Production acceptance (nothing ships without this)
+        - Real end-to-end on PRODUCTION: create a real user (Firebase accounts:signUp with the
+          web API key), exercise the core product action via the live API, confirm the DB row,
+          then delete the test user via accounts:delete.
+        - Webhooks: unsigned POST → 401; signed replay of the same event → duplicate:true.
+        - CI: push to main → green run → live site actually updated (grep the deployed bundle).
+        - Record the project state (URLs, accounts, stubbed keys, quirks) in memory/docs so the
+          next session resumes instead of rediscovering.
+
+        ## Sequencing summary (the fast path)
+        Phase 0 all-at-once → 1 scaffold → 3 skeleton deploy (yes, before the product) →
+        2 product build → 4 auth clicks (user, 2 min) → 5 payments → 6 domain → 7 email → 8 accept.
+        Human-blocking steps (0, 4, parts of 5/6) get requested EARLY and in BATCHES —
+        never serialize a build behind a waiting human.
+        """
+    }
+
     func visionDoc() -> String {
         var s = "# Product Vision — \(name.trimmingCharacters(in: .whitespaces))\n\n"
         s += "## One-liner\n\(pitch.trimmingCharacters(in: .whitespaces))\n\n"
