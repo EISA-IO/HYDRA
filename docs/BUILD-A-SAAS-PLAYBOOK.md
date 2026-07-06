@@ -165,6 +165,27 @@ Until RESEND_API_KEY exists, email code logs to console — never blocks the bui
 - Record the project state (URLs, accounts, stubbed keys, quirks) in memory/docs so the
   next session resumes instead of rediscovering.
 
+## Skills to load, per phase (MANDATORY — load BEFORE the phase's work, not after)
+The installed Claude skills encode taste and guardrails this playbook depends on.
+Skipping them produces generic output that later needs redoing — slower, not faster.
+- **Whole build, always on**: `karpathy-guidelines` (surgical changes, no
+  overengineering, verifiable success criteria) + `full-output-enforcement`
+  (no stubs, no placeholders, complete files only).
+- **Phase 2 UI work**: `design-taste-frontend` (the anti-slop design system: dial
+  calibration, banned AI-tells, layout discipline) — load it BEFORE writing the first
+  component, declare the design read, and run its pre-flight check before shipping
+  pages. Complement with `high-end-visual-design` / `gpt-taste` when the brief wants
+  premium polish, `imagegen-frontend-web` + `image-to-code` when real visuals are needed.
+- **All user-facing COPY (landing, about, emails, empty states)**: `stop-slop` — strip
+  the AI writing tells (em-dashes are banned everywhere anyway, hedging, "delve",
+  mirrored parallelisms). Copy reads like a person wrote it or it gets rewritten.
+- **Phase 2 AI features**: `ai-integration` (the router ladder is its reference impl).
+- **Phase 3 deploys**: `cloud-deployment`.
+- **Phase 5 billing + email**: `subscription-billing` (four pillars, webhook rules,
+  KSA specifics, deliverability).
+- **Before any commit of nontrivial product code**: run `verify` (drive the changed
+  flow end-to-end) and a `/code-review` pass on the diff.
+
 ## Sequencing summary (the fast path)
 Phase 0 all-at-once → 1 scaffold → 3 skeleton deploy (yes, before the product) →
 2 product build → 4 auth clicks (user, 2 min) → 5 payments → 6 domain → 6b monitoring →

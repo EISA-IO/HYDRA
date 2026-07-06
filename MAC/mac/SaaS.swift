@@ -317,7 +317,8 @@ final class SaaSModel: ObservableObject {
         + "image-to-code for turning designs into code; full-output-enforcement so nothing is left as a stub; "
         + "cloud-deployment when deploying; subscription-billing for payments and subscriber email; "
         + "ai-integration for the multi-provider AI router (OpenRouter + Groq + free providers, best→cheapest fallback); "
-        + "karpathy-guidelines / gpt-taste for clean code. Pick the relevant skills for each step and apply them."
+        + "karpathy-guidelines / gpt-taste for clean code; stop-slop for ALL user-facing copy (landing, emails, empty states) so nothing reads AI-written. "
+        + "Load each skill BEFORE its phase of work (PLAYBOOK.md maps skills to phases), not after."
     }
 
     // ============================================================ VISION
@@ -946,6 +947,27 @@ final class SaaSModel: ObservableObject {
         - CI: push to main → green run → live site actually updated (grep the deployed bundle).
         - Record the project state (URLs, accounts, stubbed keys, quirks) in memory/docs so the
           next session resumes instead of rediscovering.
+
+        ## Skills to load, per phase (MANDATORY — load BEFORE the phase's work, not after)
+        The installed Claude skills encode taste and guardrails this playbook depends on.
+        Skipping them produces generic output that later needs redoing — slower, not faster.
+        - **Whole build, always on**: `karpathy-guidelines` (surgical changes, no
+          overengineering, verifiable success criteria) + `full-output-enforcement`
+          (no stubs, no placeholders, complete files only).
+        - **Phase 2 UI work**: `design-taste-frontend` (the anti-slop design system: dial
+          calibration, banned AI-tells, layout discipline) — load it BEFORE writing the first
+          component, declare the design read, and run its pre-flight check before shipping
+          pages. Complement with `high-end-visual-design` / `gpt-taste` when the brief wants
+          premium polish, `imagegen-frontend-web` + `image-to-code` when real visuals are needed.
+        - **All user-facing COPY (landing, about, emails, empty states)**: `stop-slop` — strip
+          the AI writing tells (em-dashes are banned everywhere anyway, hedging, "delve",
+          mirrored parallelisms). Copy reads like a person wrote it or it gets rewritten.
+        - **Phase 2 AI features**: `ai-integration` (the router ladder is its reference impl).
+        - **Phase 3 deploys**: `cloud-deployment`.
+        - **Phase 5 billing + email**: `subscription-billing` (four pillars, webhook rules,
+          KSA specifics, deliverability).
+        - **Before any commit of nontrivial product code**: run `verify` (drive the changed
+          flow end-to-end) and a `/code-review` pass on the diff.
 
         ## Sequencing summary (the fast path)
         Phase 0 all-at-once → 1 scaffold → 3 skeleton deploy (yes, before the product) →
