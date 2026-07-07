@@ -3600,6 +3600,30 @@ These block everything downstream and need the human. Fire them all at once:
   poisons Prisma query inference with baffling errors); webhooks that verify HMAC over the
   raw body need `middlewareConfigFn` replacing 'express.json' with
   `express.json({ verify: (req,_res,buf) => { req.rawBody = buf } })`.
+- CORS PREFLIGHT (cost us a full debugging cycle — do this from the start): Wasp attaches
+  its cors middleware PER-ROUTE by the route's HTTP method, so a browser OPTIONS preflight
+  matches NO route and returns without Access-Control-Allow-Origin — blocking EVERY authed
+  browser call (any request with an Authorization or JSON content-type header triggers a
+  preflight). It is invisible to curl/server-to-server tests (they send no preflight), so
+  it only shows up in a real browser. Fix: add ONE `apiNamespace(""/api"", { middlewareConfigFn })`
+  in a spec file (a passthrough `(c)=>c` is enough) — apiNamespace mounts via router.use,
+  which DOES match OPTIONS. Verify with `curl -X OPTIONS <server>/api/me -H ""Origin: <client>""
+  -H ""Access-Control-Request-Method: GET"" -H ""Access-Control-Request-Headers: authorization""`
+  → expect 204 + access-control-allow-origin. Test in an actual browser before calling auth done.
+- IDENTITY CONFLICT (unique email vs firebaseUid upsert): mirror users keyed by firebaseUid,
+  but User.email is unique. If the same person signs in under a NEW uid while a row already
+  holds their email (switched Google↔password, or a leftover test row), a plain
+  `upsert({where:{firebaseUid}})` throws P2002 on email → /api/me 500s → the app looks
+  totally broken (no login, no admin). requireUser must: find by uid → else find by email
+  and CLAIM that row (update its firebaseUid) → else create. Never leave orphaned auth rows
+  from test accounts; deleting the Firebase user does NOT delete the mirrored DB row.
+- ADMIN PANEL from day one (every SaaS needs it): an admin-only /admin page gated by an
+  `isAdmin` User flag (granted when the email is in ADMIN_EMAILS on sign-in — set that Fly
+  secret BEFORE first admin login). Include: business KPIs (MRR/ARR, subscribers, trials,
+  trial→paid, signups, past-due), a support INBOX reading the contact-form table (reply
+  emails the customer + marks handled), and a user directory with per-user detail + controls
+  (grant/revoke admin — guard against self-lockout, change plan, reset usage). Every admin
+  endpoint calls requireAdmin; verify a non-admin token gets 403.
 - Postgres JSONB does NOT preserve key order — any content-hash/diff over stored JSON must
   hash SORTED entries or every reread looks changed.
 - Prerendered routes run your components in NODE at build time: any touch of
@@ -3659,6 +3683,13 @@ Apple Developer account — ship without it.
   Tap approval takes weeks — never put it on the critical path.
 - Stripe is NOT available to KSA-domiciled businesses (only via a foreign entity).
 - Hybrid pattern: MoR primary + local gateway later; keep both behind one /api/checkout.
+- DISPLAY CURRENCY = the MoR's currency (LS bills in USD and localizes at checkout), which
+  is usually NOT the local currency you first hardcoded. Keep ONE canonical `priceUsd` (or
+  whatever the processor charges) in a shared plans module; the dormant local gateway
+  converts at charge time. Sweeping SAR→USD across UI + emails + analytics after the fact
+  is tedious — pick the processor's currency from the start.
+- When no processor key is set yet, /api/checkout must return a clean 4xx (""payments not
+  live yet""), never a stack trace mentioning a specific unconfigured gateway.
 
 ## Phase 6 — Custom domain: Namecheap → Firebase Hosting (proven ~40 min end to end)
 Nearly everything is HEADLESS via the Hosting REST API — the console is never needed.
@@ -3707,11 +3738,26 @@ The only human steps are buying the domain and pasting 3 DNS records.
 - All of it ships with EMPTY env ids and no-ops gracefully; the user creates the GA4
   property (property + web stream + MP api_secret = 3 minutes) whenever ready.
 
-## Phase 7 — Email deliverability (before the first real send)
-Resend → add sending domain → it lists SPF + DKIM (+ DMARC) records → add them in
-Namecheap Advanced DNS → wait for Verified. Transactional and broadcast stay separate
-streams; every broadcast carries List-Unsubscribe + a one-click unsubscribe endpoint.
-Until RESEND_API_KEY exists, email code logs to console — never blocks the build.
+## Phase 7 — Email: inbound + outbound (two separate jobs, both easy to get wrong)
+INBOUND (support@yourdomain — customers reach you): Namecheap → Domain → Manage → Email
+Forwarding (free): add `support` → your inbox. It auto-adds root MX (eforward1-5.registrar-
+servers.com). Verify `dig MX yourdomain` shows them.
+OUTBOUND (send receipts/replies): Resend → add sending domain → it lists DKIM (TXT) + an SPF
+TXT + an MX, all on a `send.` subdomain. Add them, click Verify (poll the Resend domains API
+for status:""verified""; DKIM alone won't flip it — the send MX is required). Then set
+RESEND_API_KEY + EMAIL_FROM=support@yourdomain and send a live test.
+- THE CONFLICT (cost us a broken inbox): Namecheap ""Email Forwarding"" and ""Custom MX"" are
+  MUTUALLY EXCLUSIVE in the Mail Settings dropdown. Resend's send-subdomain MX needs Custom
+  MX, and switching to it WIPES the eforward forwarding records — silently killing inbound
+  support mail. Fix: under Custom MX, re-add ALL of it by hand — the 5 eforward MX on host
+  `@` (restores forwarding) PLUS the Resend MX on host `send`. Verify BOTH directions after:
+  `dig MX yourdomain` (eforward present) and `dig MX send.yourdomain` (Resend present).
+- RESILIENT SENDS: the contact form / any user-facing action must STORE first and treat the
+  email as best-effort (try/catch, never 500 on a send failure — the domain may still be
+  verifying). But an admin ""reply"" should check Resend's returned `error` and NOT mark the
+  ticket resolved if the send actually failed. Until RESEND_API_KEY exists, log to console.
+- Transactional and broadcast stay separate streams; every broadcast carries
+  List-Unsubscribe + a one-click unsubscribe endpoint.
 
 ## Phase 8 — Production acceptance (nothing ships without this)
 - Real end-to-end on PRODUCTION: create a real user (Firebase accounts:signUp with the
@@ -3743,16 +3789,34 @@ Skipping them produces generic output that later needs redoing — slower, not f
 - **Before any commit of nontrivial product code**: run `verify` (drive the changed
   flow end-to-end) and a `/code-review` pass on the diff.
 
+## Human-blocking steps — collect these ALL at the start (they gate, code doesn't)
+Everything a human must click sits behind an account or a payment. Ask for them in ONE
+batch up front, build while they trickle in, and make every feature no-op gracefully
+until its key/value lands. The full list for a Firebase+Fly+LS+Resend SaaS:
+- `gh auth refresh -s workflow`, `firebase login:ci`, `fly auth login` (+card).
+- Firebase console: Authentication → Get started + enable Google (the 2 clicks).
+- Payments: create the LS store + 2 subscription products (products are DASHBOARD-ONLY;
+  the API can't create them). Then 5 values: API key, Store ID, webhook secret, and the
+  2 monthly variant IDs (the rest — store lookup, webhook creation, variant discovery — I
+  do via the LS API from just the API key).
+- GA4: create property + web stream + a Measurement Protocol secret (Google gates account
+  creation to the owner's browser; my token can't).
+- Domain: buy it; add DNS rows I hand you; set up email forwarding + Resend records.
+Each of these is the ONLY thing that ever blocks for real time. Request early, in bulk.
+
 ## Sequencing summary (the fast path)
 Phase 0 all-at-once → 1 scaffold → 3 skeleton deploy (yes, before the product) →
-2 product build → 4 auth clicks (user, 2 min) → 5 payments → 6 domain → 6b monitoring →
-7 email → 8 accept.
-Human-blocking steps (0, 4, parts of 5/6) get requested EARLY and in BATCHES —
-never serialize a build behind a waiting human.
+2 product build (incl. admin panel + contact/support form) → 4 auth clicks (user, 2 min) →
+5 payments → 6 domain → 6b monitoring → 7 email (inbound + outbound) → 8 accept.
+Human-blocking steps get requested EARLY and in BATCHES — never serialize a build behind
+a waiting human.
 Reference timings from a real run (Page Byte, 2026-07): scaffold→compiling ~15 min,
 skeleton live on Hosting same hour, Fly server + Postgres ~20 min, Auth enablement
 2 clicks + 5 min, LS integration incl. lifecycle tests ~1h, domain purchase→live TLS
-~40 min, GA4+monitoring ~45 min. A focused end-to-end is a same-day ship.
+~40 min, GA4+monitoring ~45 min, admin panel + support inbox ~45 min. Same-day ship.
+The debugging cycles that DIDN'T need to happen (and now shouldn't): CORS preflight,
+the unique-email identity 500, prerender localStorage crash, forwarding-vs-CustomMX
+inbox wipe. All are pre-empted above — read Phase 2 and Phase 7 before writing code.
 ";
     }
 
