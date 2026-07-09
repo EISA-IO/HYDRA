@@ -14,13 +14,20 @@ extension AppState {
         return ""
     }
 
+    func codexPermissionFlags() -> String {
+        if permission.hasPrefix("Bypass") { return " --dangerously-bypass-approvals-and-sandbox" }
+        if permission.hasPrefix("Plan") { return " --sandbox read-only --ask-for-approval on-request" }
+        if permission.hasPrefix("Accept") { return " --ask-for-approval never" }
+        return " --ask-for-approval on-request"
+    }
+
     var launchButtonLabel: String {
         var tail = ""
         if headroom { tail += " +Headroom" }
         if rtk { tail += " +RTK" }
         if caveman { tail += " +Caveman" }
         let m = model.trimmingCharacters(in: .whitespaces).isEmpty ? "Default" : model
-        return "Launch Claude  (\(m))\(tail)"
+        return "Launch \(agent)  (\(m))\(tail)"
     }
 
     /// Write a per-session settings.json whose hooks touch event files so the app
@@ -40,14 +47,14 @@ extension AppState {
             "Notification":     entry(hook("notify")),
             "Stop":             entry(hook("stop"))
         ]
-        // RTK (input compression) is a global PreToolUse/Bash hook. Claude MERGES hooks across
+        // RTK (input compression) is a global PreToolUse hook. Claude MERGES hooks across
         // settings sources and DEDUPES identical command strings, so re-declaring it in this
         // per-session file guarantees it runs in this embedded terminal — even if the user's
         // global hook were ever missing/overridden — without ever double-compressing. It also
         // makes the per-terminal RTK toggle actually meaningful.
         if rtk {
             hooks["PreToolUse"] = [[
-                "matcher": "Bash",
+                "matcher": "Bash|PowerShell",
                 "hooks": [["type": "command", "command": "rtk hook claude"]]
             ]]
         }
@@ -67,6 +74,44 @@ extension AppState {
             try? data.write(to: URL(fileURLWithPath: path))
         }
         return path
+    }
+
+    private var codexCavemanBlock: String {
+        """
+
+        <!-- claude-manager-caveman-codex -->
+        # Caveman Mode
+
+        Respond terse like smart caveman. Keep all technical substance, code, commands, API names, errors, security warnings, and irreversible-action warnings precise. Drop filler, pleasantries, hedging, and repetition. Use normal technical English for code, commits, diffs, legal/security risk, or when terse fragments could confuse. Resume terse mode after the risky/precise part. Stop only when user says "stop caveman" or "normal mode".
+        <!-- /claude-manager-caveman-codex -->
+        """
+    }
+
+    private func ensureCodexCavemanInstructions() {
+        try? FileManager.default.createDirectory(atPath: Paths.codexDir, withIntermediateDirectories: true)
+        let start = "<!-- claude-manager-caveman-codex -->"
+        let end = "<!-- /claude-manager-caveman-codex -->"
+        let existing = FS.read(Paths.codexAgents) ?? ""
+        if existing.contains(start), let sr = existing.range(of: start), let er = existing.range(of: end, range: sr.upperBound..<existing.endIndex) {
+            let updated = String(existing[..<sr.lowerBound]) + codexCavemanBlock + String(existing[er.upperBound...])
+            FS.write(Paths.codexAgents, updated.trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
+        } else {
+            FS.write(Paths.codexAgents, (existing.trimmingCharacters(in: .whitespacesAndNewlines) + codexCavemanBlock).trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
+        }
+    }
+
+    private func ensureCodexCompressionForLaunch(useRtk: Bool, useCaveman: Bool) {
+        var changed = false
+        if useRtk, Shell.shared.onPath("rtk") {
+            _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30)
+            changed = true
+        }
+        if useCaveman {
+            ensureCodexCavemanInstructions()
+            installBundledCavemanForCodexIfPossible()
+            changed = true
+        }
+        if changed { refreshAll() }
     }
 
     /// Auto-trust a folder in ~/.claude.json so the CLI never shows the trust prompt.
@@ -105,35 +150,50 @@ extension AppState {
         guard FS.isDir(f) else {
             alert("Folder not found", f); return
         }
-        if headroom && !ensureProxy() { return }
+        if headroom && agent == "Claude" && !ensureProxy() { return }
 
-        trustFolder(f)
         let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased())
-        let settings = writeSessionSettings(id: id, rtk: rtk, caveman: caveman)
-
-        var cli = "claude --settings \(TerminalLauncher.shellQuote(settings))"
         let m = (modelOverride ?? model).trimmingCharacters(in: .whitespaces)
-        if !m.isEmpty && m != "Default" { cli += " --model \(m)" }
-        cli += permissionFlag()
-        if continueLast { cli += " --continue" }
         let extra = extraArgs.trimmingCharacters(in: .whitespaces)
-        if !extra.isEmpty { cli += " " + extra }
-        if let p = startupPrompt, !p.isEmpty { cli += " " + TerminalLauncher.shellQuote(p) }
+        var cli: String
+        if agent == "Codex" {
+            ensureCodexCompressionForLaunch(useRtk: rtk, useCaveman: caveman)
+            cli = "codex -C \(TerminalLauncher.shellQuote(f))"
+            if !m.isEmpty && m != "Default" { cli += " --model \(TerminalLauncher.shellQuote(m))" }
+            cli += codexPermissionFlags()
+            if caveman { cli += " --enable hooks --dangerously-bypass-hook-trust" }
+            if !extra.isEmpty { cli += " " + extra }
+            if continueLast {
+                cli += " resume --last"
+            } else if let p = startupPrompt, !p.isEmpty {
+                cli += " " + TerminalLauncher.shellQuote(p)
+            }
+        } else {
+            trustFolder(f)
+            let settings = writeSessionSettings(id: id, rtk: rtk, caveman: caveman)
+            cli = "claude --settings \(TerminalLauncher.shellQuote(settings))"
+            if !m.isEmpty && m != "Default" { cli += " --model \(m)" }
+            cli += permissionFlag()
+            if continueLast { cli += " --continue" }
+            if !extra.isEmpty { cli += " " + extra }
+            if let p = startupPrompt, !p.isEmpty { cli += " " + TerminalLauncher.shellQuote(p) }
+        }
 
         // Run inside a login shell in the target folder so PATH/shims resolve; exec so the
-        // CLI owns the PTY. When Claude exits, the shell ends and the tab shows "exited".
+        // CLI owns the PTY. When the agent exits, the shell ends and the tab shows "exited".
         let shellCommand = "cd \(TerminalLauncher.shellQuote(f)) && exec \(cli)"
 
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = Shell.shared.path
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
-        if headroom { env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:\(ProxyPort)" }
+        env["CODEX_HOME"] = Paths.codexDir
+        if headroom && agent == "Claude" { env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:\(ProxyPort)" }
         applyCreds(to: &env)   // shared tokens/keys (Settings → Access & API keys)
         let envArr = env.map { "\($0.key)=\($0.value)" }
 
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
-                        headroom: headroom, rtk: rtk, caveman: caveman)
+                        agent: agent, headroom: agent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman)
         saveRecent(f)
         saveSettings()
         refreshRecents()

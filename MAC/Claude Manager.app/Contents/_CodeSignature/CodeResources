@@ -746,7 +746,11 @@
 		</data>
 		<key>Resources/tools/README.md</key>
 		<data>
-		Pn81YkljFrL7MFTQzM0RkPZ0ZGQ=
+		VW9J2uqlppvJSW6qFNn+kt0F8U0=
+		</data>
+		<key>Resources/tools/caveman/.agents/plugins/marketplace.json</key>
+		<data>
+		tE/Oyo0vw3faeWP9xspxV0QsouM=
 		</data>
 		<key>Resources/tools/caveman/.claude-plugin/marketplace.json</key>
 		<data>
@@ -2726,7 +2730,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			QlAkaqZBXSwnti58+I8HwVd/+M1pG1ZTP5A78nGr0pk=
+			QDcf1ZUUU7HOkPiB1G9+h4hU8QxnZExFsgoSTkzVoiM=
+			</data>
+		</dict>
+		<key>Resources/tools/caveman/.agents/plugins/marketplace.json</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			L379iJEnQkz3kBanDVDsYn3xG5lLPHkA5lrw0KGW0bw=
 			</data>
 		</dict>
 		<key>Resources/tools/caveman/.claude-plugin/marketplace.json</key>

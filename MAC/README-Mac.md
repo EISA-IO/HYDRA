@@ -1,20 +1,20 @@
 # Claude Manager — macOS
 
 A native SwiftUI app (v1, by Ahmed Al-Eissa) that mirrors the Windows Claude Manager:
-launch and manage multiple Claude CLI sessions, toggle the token-compression toolchain,
+launch and manage multiple Claude CLI or Codex CLI sessions, toggle the token-compression toolchain,
 manage skills, scaffold a SaaS, and browse a CLI reference — all in one dark, native window.
 
 ## What's in it
 
 Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossary**
 
-- **Workspace** — the home tab. Click **New** to launch a Claude session that runs
+- **Workspace** — the home tab. Pick **Claude** or **Codex**, then click **New** to launch a session that runs
   **inside the app as a tab** (a real embedded terminal via a PTY, powered by SwiftTerm).
   Open as many as you like and switch between them. Each tab shows live status
-  (working / needs-you / idle) driven by per-session Claude hooks.
+  (working / needs-you / idle) driven by per-session Claude hooks where available.
 - **Settings** — launch defaults (model, permissions, `--continue`, extra flags), the
   token-compression toggles (RTK / Caveman / Headroom) with live status + a "don't overlap"
-  advisory, and a one-click **Install & setup** section (Node, Claude CLI, RTK, Caveman,
+  advisory, and a one-click **Install & setup** section (Node, Claude CLI, Codex CLI, RTK, Caveman,
   Headroom, skills, "Install everything", "Update core") that streams to a log.
 - **SaaS** — capture a product vision, scaffold Open SaaS (Wasp), then hand it to Claude to
   build. Generates `VISION.md` and a verified `PAYMENTS.md` (incl. the Tap vs Moyasar
@@ -39,10 +39,13 @@ then launches it. If Swift isn't available it falls back to a lightweight folder
 
 - **PATH fix** — a Finder-launched `.app` inherits a bare PATH, so the app resolves your real
   login-shell PATH once (`$SHELL -lic 'echo $PATH'`) and injects it into every child process.
-  That's why `claude`, `node`, `rtk`, and `headroom` are found even when launched from Finder.
+  That's why `claude`, `codex`, `node`, `rtk`, and `headroom` are found even when launched from Finder.
 - **Embedded terminals** — macOS can't reparent Terminal.app windows the way Windows reparents
   conhost, so each session is a real terminal emulator (`LocalProcessTerminalView`) hosted in
-  the SwiftUI window, running `zsh -l -c "cd <folder> && exec claude …"` in a PTY.
+  the SwiftUI window, running `zsh -l -c "cd <folder> && exec claude …"` or `codex …` in a PTY.
+- **Codex compression** — RTK is installed into Codex global instructions with
+  `rtk init -g --codex`; Caveman is installed from the bundled local Codex marketplace and a
+  guarded `~/.codex/AGENTS.md` block is written so every Codex terminal starts terse.
 - **State** lives in `~/.claude-manager/` (`settings.txt`, `recent.txt`, `sessions/`, `events/`) —
   the same layout as the Windows app.
 

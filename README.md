@@ -1,8 +1,8 @@
 # Claude Manager  ·  by Ahmed Al-Eissa
 
-A launcher + toolchain manager for Claude Code, with an embedded multi-terminal Workspace,
-a token-compression toolchain (RTK + Caveman + Headroom), a bundled skills library, and a
-guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).
+A launcher + toolchain manager for Claude Code and Codex CLI, with an embedded multi-terminal
+Workspace, a token-compression toolchain (RTK + Caveman + Headroom), a bundled skills library,
+and a guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).
 
 ## Repository layout
 
@@ -48,8 +48,10 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
 
 ## Tabs
 
-- **Workspace** — create multiple embedded Claude terminals in tabs; per-terminal RTK + Caveman.
-- **Settings** — launch defaults, token-compression toggles, one-click "Install everything" / "Update core packages".
+- **Workspace** — create multiple embedded Claude and Codex terminals in tabs; each terminal gets
+  RTK + Caveman when enabled.
+- **Settings** — choose the default agent, launch defaults, token-compression toggles, one-click
+  "Install everything" / "Update core packages".
 - **SaaS** — the guided *Build a SaaS* lifecycle: describe your idea, scaffold Open SaaS, deploy
   (Firebase / Vercel / Cloud Run via a private GitHub repo + GitHub Actions CI/CD), and add
   subscription billing + subscriber email. KSA-first payments (Tap / Moyasar) by default.

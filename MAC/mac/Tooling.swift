@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 // ============================================================================
-// Native toolchain — makes Claude CLI, RTK, Caveman (and Headroom) work WITHOUT
+// Native toolchain — makes Claude/Codex CLI, RTK, Caveman (and Headroom) work WITHOUT
 // the user downloading anything. The app ships the binaries it legally can inside
 // its bundle (Resources/tools), and on launch provisions them into a managed bin
 // dir (~/.claude-manager/bin) that is first on PATH for every embedded terminal.
@@ -90,8 +90,61 @@ extension AppState {
                 _ = sh.bash(self.claudeInstallCmd(), timeout: 300)
             }
 
+            // 4) Codex CLI — install from npm if missing, then wire the same RTK/Caveman defaults
+            //    that launch() enforces synchronously for each Codex terminal.
+            if !sh.onPath("codex"), sh.onPath("npm") {
+                DispatchQueue.main.async { self.setupLog += "Codex CLI not found — installing it once…\n" }
+                _ = sh.bash(self.codexInstallCmd(), timeout: 300)
+            }
+            if sh.onPath("codex") {
+                _ = sh.run("rtk", ["init", "-g", "--codex"], timeout: 30)
+                self.ensureCodexCavemanInstructionsForProvisioning()
+                self.installBundledCavemanForCodexIfPossible()
+            }
+
             DispatchQueue.main.async { self.refreshAll() }
         }
+    }
+
+    func codexInstallCmd() -> String {
+        "npm install -g @openai/codex@latest --prefix \"$HOME/.claude-manager\" --cache \"$(mktemp -d)\" --no-fund --no-audit --force"
+    }
+
+    func installBundledCavemanForCodexIfPossible() {
+        guard let src = toolsSource(), Shell.shared.onPath("codex") else { return }
+        let marker = Paths.stateDir + "/.codex-caveman-installed"
+        let marketplaceRoot = src + "/caveman"
+        guard FS.exists(marketplaceRoot + "/.agents/plugins/marketplace.json") else { return }
+        if !FS.exists(marker) {
+            _ = Shell.shared.run("codex", ["plugin", "marketplace", "add", marketplaceRoot], env: ["CODEX_HOME": Paths.codexDir], timeout: 60)
+        }
+        let listed = Shell.shared.run("codex", ["plugin", "list"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
+        let cavemanInstalled = (listed.out + listed.err).split(separator: "\n").contains { line in
+            line.contains("caveman@caveman") && line.contains("installed") && !line.contains("not installed")
+        }
+        if !cavemanInstalled {
+            _ = Shell.shared.run("codex", ["plugin", "add", "caveman@caveman"], env: ["CODEX_HOME": Paths.codexDir], timeout: 120)
+        }
+        let updated = Shell.shared.run("codex", ["plugin", "list"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
+        let installed = (updated.out + updated.err).split(separator: "\n").contains { line in
+            line.contains("caveman@caveman") && line.contains("installed") && !line.contains("not installed")
+        }
+        if installed { FS.write(marker, "") }
+    }
+
+    private func ensureCodexCavemanInstructionsForProvisioning() {
+        let start = "<!-- claude-manager-caveman-codex -->"
+        if FS.read(Paths.codexAgents)?.contains(start) == true { return }
+        let block = """
+
+        <!-- claude-manager-caveman-codex -->
+        # Caveman Mode
+
+        Respond terse like smart caveman. Keep all technical substance, code, commands, API names, errors, security warnings, and irreversible-action warnings precise. Drop filler, pleasantries, hedging, and repetition. Use normal technical English for code, commits, diffs, legal/security risk, or when terse fragments could confuse. Resume terse mode after the risky/precise part. Stop only when user says "stop caveman" or "normal mode".
+        <!-- /claude-manager-caveman-codex -->
+        """
+        let existing = FS.read(Paths.codexAgents) ?? ""
+        FS.write(Paths.codexAgents, (existing.trimmingCharacters(in: .whitespacesAndNewlines) + block).trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
     }
 
     // ---- helpers ----

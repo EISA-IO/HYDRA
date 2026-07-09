@@ -35,9 +35,14 @@ enum Paths {
     static let pluginsFile  = home + "/.claude/plugins/installed_plugins.json"
     static let claudeSettings = home + "/.claude/settings.json"
     static let claudeJson   = home + "/.claude.json"
+    static let codexDir     = (ProcessInfo.processInfo.environment["CODEX_HOME"]?.isEmpty == false)
+        ? ProcessInfo.processInfo.environment["CODEX_HOME"]!
+        : home + "/.codex"
+    static let codexAgents  = codexDir + "/AGENTS.md"
+    static let codexRtk     = codexDir + "/RTK.md"
 
     static func ensureDirs() {
-        for d in [stateDir, eventsDir, sessDir] {
+        for d in [stateDir, eventsDir, sessDir, codexDir] {
             try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
         }
     }

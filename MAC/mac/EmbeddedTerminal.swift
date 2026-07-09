@@ -6,6 +6,7 @@ import SwiftTerm
 final class TermTab: ObservableObject, Identifiable {
     let id: String
     let folder: String
+    let agent: String
     let headroom: Bool
     let rtk: Bool
     let caveman: Bool
@@ -16,13 +17,14 @@ final class TermTab: ObservableObject, Identifiable {
     // Strong owner for the process delegate (SwiftTerm holds it weakly, so the tab must retain it).
     var coordinator: AnyObject?
 
-    init(id: String, folder: String, headroom: Bool, rtk: Bool, caveman: Bool) {
+    init(id: String, folder: String, agent: String, headroom: Bool, rtk: Bool, caveman: Bool) {
         self.id = id
         self.folder = folder
+        self.agent = agent
         self.headroom = headroom
         self.rtk = rtk
         self.caveman = caveman
-        self.title = "T · " + FS.base(folder)
+        self.title = (agent == "Codex" ? "Cx · " : "Cl · ") + FS.base(folder)
         self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         view.nativeBackgroundColor = NSColor(srgbRed: 16/255, green: 16/255, blue: 18/255, alpha: 1)
         view.nativeForegroundColor = NSColor(srgbRed: 235/255, green: 235/255, blue: 240/255, alpha: 1)
@@ -49,8 +51,8 @@ final class TerminalManager: ObservableObject {
 
     /// Spawn a Claude session in a new embedded tab.
     func spawn(id: String, folder: String, shellCommand: String, env: [String],
-               headroom: Bool, rtk: Bool, caveman: Bool) {
-        let t = TermTab(id: id, folder: folder, headroom: headroom, rtk: rtk, caveman: caveman)
+               agent: String = "Claude", headroom: Bool, rtk: Bool, caveman: Bool) {
+        let t = TermTab(id: id, folder: folder, agent: agent, headroom: headroom, rtk: rtk, caveman: caveman)
         let coord = Coordinator(manager: self, tabId: id)
         t.coordinator = coord                 // retain it — processDelegate below is weak
         t.view.processDelegate = coord
@@ -96,7 +98,7 @@ final class TerminalManager: ObservableObject {
             guard !title.isEmpty else { return }
             DispatchQueue.main.async {
                 // keep our folder-based label; only adopt CLI titles that look meaningful
-                if let t = self.manager?.tab(self.tabId), title.count < 40, !title.hasPrefix("Claude ") {
+                if let t = self.manager?.tab(self.tabId), title.count < 40, !title.hasPrefix("Claude "), !title.hasPrefix("Codex ") {
                     t.title = title
                 }
             }

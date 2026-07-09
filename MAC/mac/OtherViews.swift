@@ -147,6 +147,14 @@ struct SettingsView: View {
                 Card {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionCap(text: "Launch defaults")
+                        VStack(alignment: .leading, spacing: 8) {
+                            FieldLabel(text: "Agent")
+                            Picker("", selection: $app.agent) {
+                                ForEach(app.agentOptions, id: \.self) { Text($0).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 220)
+                        }
                         HStack(alignment: .top, spacing: 16) {
                             VStack(alignment: .leading, spacing: 8) {
                                 FieldLabel(text: "Model")
@@ -157,10 +165,11 @@ struct SettingsView: View {
                                 DarkPicker(options: app.permissionOptions, selection: $app.permission)
                             }
                         }
+                        .onChange(of: app.agent) { app.saveSettings() }
                         .onChange(of: app.model) { app.saveSettings() }
                         .onChange(of: app.permission) { app.saveSettings() }
                         Toggle(isOn: $app.continueLast) {
-                            Text("Continue last conversation (--continue)")
+                            Text(app.agent == "Codex" ? "Resume last Codex conversation" : "Continue last conversation (--continue)")
                                 .font(.system(size: 12.5)).foregroundStyle(.white)
                         }
                         .toggleStyle(.checkbox).tint(Theme.accent)
@@ -174,14 +183,14 @@ struct SettingsView: View {
                         SectionCap(text: "Token compression")
                         Text("Each toggle is independent — mix & match freely:")
                             .font(.system(size: 11)).foregroundStyle(Theme.textFaint)
-                        ToggleRow(title: "RTK — filter shell/test/build output (global hook)",
+                        ToggleRow(title: "RTK — filter shell/test/build output (Claude hook + Codex instructions)",
                                   status: app.rtkInstalled ? "● installed — shell output filtered before it hits context"
                                                            : "○ not installed — toggle to add (needs rtk on PATH)",
                                   statusColor: app.rtkInstalled ? Theme.green : Theme.yellow,
                                   isOn: $app.rtk) { on in if on != app.rtkInstalled { app.setRtk(on) } }
                         Divider().overlay(Color.white.opacity(0.05))
-                        ToggleRow(title: "Caveman — compress Claude's replies (global plugin)",
-                                  status: app.cavemanInstalled ? "● installed — Claude replies terse every session"
+                        ToggleRow(title: "Caveman — compress agent replies (Claude plugin + Codex instructions)",
+                                  status: app.cavemanInstalled ? "● installed — Claude/Codex replies terse every session"
                                                                : "○ not installed — toggle to add (needs Node 18+)",
                                   statusColor: app.cavemanInstalled ? Theme.green : Theme.yellow,
                                   isOn: $app.caveman) { on in if on != app.cavemanInstalled { app.setCaveman(on) } }
@@ -253,6 +262,7 @@ struct SettingsView: View {
                             [
                                 AnyView(Button("Node.js") { app.installNode() }.ghostButton()),
                                 AnyView(Button("Claude CLI") { app.installClaude() }.ghostButton()),
+                                AnyView(Button("Codex CLI") { app.installCodex() }.ghostButton()),
                                 AnyView(Button("RTK") { app.installRtk() }.ghostButton()),
                                 AnyView(Button("Caveman") { app.installCaveman() }.ghostButton()),
                                 AnyView(Button("Headroom") { app.installHeadroom() }.ghostButton()),

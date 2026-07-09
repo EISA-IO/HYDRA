@@ -23,6 +23,9 @@ class ClaudeManager : Form
     static readonly string DisabledDir = Path.Combine(HomeDir, ".claude", "skills-disabled");
     static readonly string PluginsFile = Path.Combine(HomeDir, ".claude", "plugins", "installed_plugins.json");
     static readonly string ClaudeSettings = Path.Combine(HomeDir, ".claude", "settings.json");
+    static readonly string CodexDir    = Environment.GetEnvironmentVariable("CODEX_HOME") ?? Path.Combine(HomeDir, ".codex");
+    static readonly string CodexAgents = Path.Combine(CodexDir, "AGENTS.md");
+    static readonly string CodexRtk    = Path.Combine(CodexDir, "RTK.md");
     static readonly string EventsDir   = Path.Combine(StateDir, "events");
     static readonly string SessDir     = Path.Combine(StateDir, "sessions");
 
@@ -45,13 +48,13 @@ class ClaudeManager : Form
     readonly List<Control> contentPanels = new List<Control>();
 
     TextBox pathBox, extraBox, glossarySearch;
-    ComboBox modelCombo, permCombo;
+    ComboBox agentCombo, modelCombo, permCombo;
     CheckBox hrCheck, rtCheck, cvCheck, continueChk;
     Label hrStatus, rtStatus, cvStatus, skillsCount, compAdvisory;
     bool suppressCaveman, suppressRtk;
     Button launchBtn;   // the "+ New" terminal button; shows the active model + compression mix
     ToolTip tabTip;
-    ComboBox recentCombo;
+    ComboBox recentCombo, termAgentCombo;
     ListView skillsList, glossaryList;
     List<GEntry> glossary;
 
@@ -432,7 +435,16 @@ class ClaudeManager : Form
             if (!File.Exists(SettingsFile)) return;
             foreach (var line in File.ReadAllLines(SettingsFile))
             {
-                if (line.StartsWith("model=")) { var v = line.Substring(6); if (v.Length > 0) modelCombo.Text = v; }
+                if (line.StartsWith("agent="))
+                {
+                    var v = line.Substring(6);
+                    if (v == "Claude" || v == "Codex")
+                    {
+                        if (agentCombo != null) agentCombo.SelectedItem = v;
+                        if (termAgentCombo != null) termAgentCombo.SelectedItem = v;
+                    }
+                }
+                else if (line.StartsWith("model=")) { var v = line.Substring(6); if (v.Length > 0) modelCombo.Text = v; }
                 else if (line.StartsWith("headroom=")) hrCheck.Checked = line.Substring(9).Trim() == "1";
                 else if (line.StartsWith("cont=")) continueChk.Checked = line.Substring(5).Trim() == "1";
                 else if (line.StartsWith("extra=")) { if (extraBox != null) extraBox.Text = line.Substring(6); }
@@ -451,6 +463,7 @@ class ClaudeManager : Form
         try
         {
             File.WriteAllLines(SettingsFile, new[] {
+                "agent=" + ((agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude"),
                 "model=" + modelCombo.Text.Trim(),
                 "headroom=" + (hrCheck.Checked ? "1" : "0"),
                 "perm=" + (permCombo.SelectedItem ?? ""),
@@ -488,6 +501,7 @@ class ClaudeManager : Form
             // available (e.g. claude not yet on PATH): it wires ~/.claude/hooks/caveman-*.js.
             if (File.Exists(Path.Combine(HomeDir, ".claude", "hooks", "caveman-config.js"))) return true;
             if (File.Exists(ClaudeSettings) && File.ReadAllText(ClaudeSettings).IndexOf("caveman", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (File.Exists(CodexAgents) && File.ReadAllText(CodexAgents).IndexOf("claude-manager-caveman-codex", StringComparison.OrdinalIgnoreCase) >= 0) return true;
         }
         catch { }
         return false;
@@ -503,11 +517,16 @@ class ClaudeManager : Form
              + "|| npm install -g @anthropic-ai/claude-code@latest "
              + "--prefix \"%USERPROFILE%\\.claude-manager\\bin\" --cache \"%TEMP%\\cmnpm%RANDOM%\" --no-fund --no-audit --force";
     }
+    static string CodexInstallCmd()
+    {
+        return "npm install -g @openai/codex@latest "
+             + "--prefix \"%USERPROFILE%\\.claude-manager\\bin\" --cache \"%TEMP%\\cmnpm%RANDOM%\" --no-fund --no-audit --force";
+    }
     void UpdateCavemanStatus()
     {
         bool on = CavemanInstalled();
         suppressCaveman = true; cvCheck.Checked = on; suppressCaveman = false;
-        if (on) { cvStatus.Text = "● installed — Claude talks terse every session"; cvStatus.ForeColor = Green; }
+        if (on) { cvStatus.Text = "● installed — Claude/Codex talk terse every session"; cvStatus.ForeColor = Green; }
         else    { cvStatus.Text = "○ not installed — tick to add (needs Node 18+)"; cvStatus.ForeColor = Yellow; }
         UpdateCompressionAdvisory();
     }
@@ -520,7 +539,7 @@ class ClaudeManager : Form
             UpdateCavemanStatus(); return;
         }
         string verb = install ? "Install" : "Remove";
-        if (MessageBox.Show(verb + " Caveman for Claude Code?\n\nThis is a global change to every Claude session on this machine.\nCaveman shrinks Claude's replies (~65% fewer output tokens).",
+        if (MessageBox.Show(verb + " Caveman for Claude Code and Codex CLI?\n\nThis is a global change to every Claude/Codex session on this machine.\nCaveman shrinks agent replies (~65% fewer output tokens).",
                 "Claude Manager", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
         { UpdateCavemanStatus(); return; }
 
@@ -531,12 +550,13 @@ class ClaudeManager : Form
             string err = null;
             try
             {
-                string args = "-y github:JuliusBrussee/caveman --only claude" + (install ? "" : " --uninstall");
+                string args = "-y github:JuliusBrussee/caveman --only claude --only codex" + (install ? "" : " --uninstall");
                 var psi = new ProcessStartInfo("npx", args) { UseShellExecute = false, CreateNoWindow = true,
                     RedirectStandardOutput = true, RedirectStandardError = true };
                 var p = Process.Start(psi);
                 p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd();
                 p.WaitForExit(120000);
+                if (install) { EnsureCodexCavemanInstructions(); InstallBundledCavemanForCodexIfPossible(); }
             }
             catch (Exception ex) { err = ex.Message; }
             try { BeginInvoke((Action)(() =>
@@ -552,7 +572,11 @@ class ClaudeManager : Form
     // ---------- rtk (input compression via a global Claude Code PreToolUse hook) ----------
     static bool RtkInstalled()
     {
-        try { return File.Exists(ClaudeSettings) && File.ReadAllText(ClaudeSettings).IndexOf("rtk hook", StringComparison.OrdinalIgnoreCase) >= 0; }
+        try {
+            bool claude = File.Exists(ClaudeSettings) && File.ReadAllText(ClaudeSettings).IndexOf("rtk hook", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool codex = File.Exists(CodexRtk) && File.Exists(CodexAgents) && File.ReadAllText(CodexAgents).IndexOf("RTK.md", StringComparison.OrdinalIgnoreCase) >= 0;
+            return claude || codex;
+        }
         catch { return false; }
     }
     void UpdateRtkStatus()
@@ -572,7 +596,7 @@ class ClaudeManager : Form
             UpdateRtkStatus(); return;
         }
         string verb = install ? "Install" : "Remove";
-        if (MessageBox.Show(verb + " RTK's Claude Code hook?\n\nGlobal change: rewrites shell commands (git status -> rtk git status) so their\noutput is filtered — 60-90% fewer INPUT tokens from ls/cat/grep/git/tests.",
+        if (MessageBox.Show(verb + " RTK for Claude Code and Codex CLI?\n\nGlobal change: Claude gets a shell hook; Codex gets global AGENTS.md instructions to prefix shell commands with rtk.",
                 "Claude Manager", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
         { UpdateRtkStatus(); return; }
 
@@ -589,6 +613,10 @@ class ClaudeManager : Form
                 var p = Process.Start(psi);
                 p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd();
                 p.WaitForExit(60000);
+                if (install)
+                    RunLoggedCmd("rtk init -g --codex");
+                else
+                    RunLoggedCmd("rtk init -g --codex --uninstall");
             }
             catch (Exception ex) { err = ex.Message; }
             try { BeginInvoke((Action)(() =>
@@ -639,6 +667,7 @@ class ClaudeManager : Form
             var p = Process.Start(psi);
             p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd();
             p.WaitForExit(30000);
+            RunLoggedCmd("rtk init -g --codex");
         }
         catch { }
         UpdateRtkStatus();
@@ -654,11 +683,13 @@ class ClaudeManager : Form
         {
             try
             {
-                var psi = new ProcessStartInfo("npx", "-y github:JuliusBrussee/caveman --only claude")
+                var psi = new ProcessStartInfo("npx", "-y github:JuliusBrussee/caveman --only claude --only codex")
                 { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
                 var p = Process.Start(psi);
                 p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd();
                 p.WaitForExit(120000);
+                EnsureCodexCavemanInstructions();
+                InstallBundledCavemanForCodexIfPossible();
             }
             catch { }
             try { BeginInvoke((Action)(() => { UpdateCavemanStatus(); UpdateLaunchText(); UpdateCompressionAdvisory(); })); } catch { }
@@ -673,6 +704,76 @@ class ClaudeManager : Form
         if (p.StartsWith("Plan")) return " --permission-mode plan";
         if (p.StartsWith("Accept")) return " --permission-mode acceptEdits";
         return "";
+    }
+    string CodexPermFlag()
+    {
+        string p = (permCombo.SelectedItem as string) ?? "";
+        if (p.StartsWith("Bypass")) return " --dangerously-bypass-approvals-and-sandbox";
+        if (p.StartsWith("Plan")) return " --sandbox read-only --ask-for-approval on-request";
+        if (p.StartsWith("Accept")) return " --ask-for-approval never";
+        return " --ask-for-approval on-request";
+    }
+    static string CmdQ(string s) { return "\"" + s.Replace("\"", "\\\"") + "\""; }
+    int RunCodexCmd(string args)
+    {
+        return RunLoggedCmd("set \"CODEX_HOME=" + CodexDir + "\" && codex " + args);
+    }
+    static string CodexCavemanBlock()
+    {
+        return "\r\n<!-- claude-manager-caveman-codex -->\r\n"
+             + "# Caveman Mode\r\n\r\n"
+             + "Respond terse like smart caveman. Keep all technical substance, code, commands, API names, errors, security warnings, and irreversible-action warnings precise. "
+             + "Drop filler, pleasantries, hedging, and repetition. Use normal technical English for code, commits, diffs, legal/security risk, or when terse fragments could confuse. "
+             + "Resume terse mode after the risky/precise part. Stop only when user says \"stop caveman\" or \"normal mode\".\r\n"
+             + "<!-- /claude-manager-caveman-codex -->\r\n";
+    }
+    static void EnsureCodexCavemanInstructions()
+    {
+        try
+        {
+            Directory.CreateDirectory(CodexDir);
+            string start = "<!-- claude-manager-caveman-codex -->";
+            string end = "<!-- /claude-manager-caveman-codex -->";
+            string text = File.Exists(CodexAgents) ? File.ReadAllText(CodexAgents) : "";
+            string block = CodexCavemanBlock();
+            int si = text.IndexOf(start, StringComparison.OrdinalIgnoreCase);
+            if (si >= 0)
+            {
+                int ei = text.IndexOf(end, si, StringComparison.OrdinalIgnoreCase);
+                if (ei >= 0) text = text.Substring(0, si) + block + text.Substring(ei + end.Length);
+            }
+            else text = text.Trim() + block;
+            File.WriteAllText(CodexAgents, text.Trim() + "\r\n");
+        }
+        catch { }
+    }
+    void InstallBundledCavemanForCodexIfPossible()
+    {
+        try
+        {
+            if (!HasCodex()) return;
+            string marker = Path.Combine(StateDir, ".codex-caveman-installed");
+            string src = FindToolsSource();
+            if (src == null) return;
+            string root = Path.Combine(src, "caveman");
+            if (!File.Exists(Path.Combine(root, ".agents", "plugins", "marketplace.json"))) return;
+            if (!File.Exists(marker))
+            {
+                int marketplace = RunCodexCmd("plugin marketplace add " + CmdQ(root));
+                int plugin = RunCodexCmd("plugin add caveman@caveman");
+                if (marketplace == 0 && plugin == 0) File.WriteAllText(marker, "");
+            }
+        }
+        catch { }
+    }
+    void EnsureCodexCompressionForLaunch(bool useRtk, bool useCaveman)
+    {
+        if (useRtk && HasRtk()) RunLoggedCmd("rtk init -g --codex");
+        if (useCaveman)
+        {
+            EnsureCodexCavemanInstructions();
+            InstallBundledCavemanForCodexIfPossible();
+        }
     }
     void StartClaude(string folder)
     {
@@ -1223,22 +1324,31 @@ class ClaudeManager : Form
 
         // ---- launch defaults ----
         row(SectionCap("Launch defaults"), 26);
-        var mp = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        var mp = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        mp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130f));
         mp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
         mp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
         mp.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f));
         mp.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
+        var acap = RowCap("Agent"); acap.Margin = new Padding(0, 0, 6, 0);
         var mcap = RowCap("Model"); mcap.Margin = new Padding(0, 0, 6, 0);
         var pcap = RowCap("Permissions"); pcap.Margin = new Padding(6, 0, 0, 0);
+        agentCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
+        agentCombo.Items.AddRange(new object[] { "Claude", "Codex" });
+        agentCombo.SelectedIndex = 0;
+        agentCombo.SelectedIndexChanged += (s, e) => {
+            if (termAgentCombo != null && termAgentCombo.SelectedItem != agentCombo.SelectedItem) termAgentCombo.SelectedItem = agentCombo.SelectedItem;
+            UpdateLaunchText(); SaveSettings();
+        };
         modelCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
-        modelCombo.Items.AddRange(new object[] { "Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5" });
+        modelCombo.Items.AddRange(new object[] { "Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5", "gpt-5.5" });
         modelCombo.Text = "Default";
         modelCombo.TextChanged += (s, e) => UpdateLaunchText();
         permCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(6, 1, 0, 1) };
         permCombo.Items.AddRange(new object[] { "Bypass – skip all prompts", "Plan mode (read-only)", "Accept edits automatically", "Ask for each action" });
         permCombo.SelectedIndex = 0;
-        mp.Controls.Add(mcap, 0, 0); mp.Controls.Add(pcap, 1, 0);
-        mp.Controls.Add(modelCombo, 0, 1); mp.Controls.Add(permCombo, 1, 1);
+        mp.Controls.Add(acap, 0, 0); mp.Controls.Add(mcap, 1, 0); mp.Controls.Add(pcap, 2, 0);
+        mp.Controls.Add(agentCombo, 0, 1); mp.Controls.Add(modelCombo, 1, 1); mp.Controls.Add(permCombo, 2, 1);
         row(mp, 52);
 
         continueChk = new CheckBox { Text = "Continue last conversation (--continue)", AutoSize = false };
@@ -1255,7 +1365,7 @@ class ClaudeManager : Form
             Margin = new Padding(20, 0, 0, 0), Font = new Font("Segoe UI", 8.5f) };
         row(hrStatus, 20);
 
-        rtCheck = new CheckBox { Text = "RTK — filter shell/test/build command output (global hook)",
+        rtCheck = new CheckBox { Text = "RTK — filter shell/test/build command output (Claude hook + Codex instructions)",
             AutoSize = false, UseMnemonic = false, TextAlign = ContentAlignment.MiddleLeft };
         rtCheck.CheckedChanged += (s, e) => { if (!suppressRtk) SetRtk(rtCheck.Checked); else UpdateLaunchText(); };
         row(rtCheck, 26);
@@ -1263,7 +1373,7 @@ class ClaudeManager : Form
             Margin = new Padding(20, 0, 0, 0), Font = new Font("Segoe UI", 8.5f) };
         row(rtStatus, 20);
 
-        cvCheck = new CheckBox { Text = "Caveman — compress Claude's replies (global plugin)",
+        cvCheck = new CheckBox { Text = "Caveman — compress agent replies (Claude plugin + Codex instructions)",
             AutoSize = false, UseMnemonic = false, TextAlign = ContentAlignment.MiddleLeft };
         cvCheck.CheckedChanged += (s, e) => { if (!suppressCaveman) SetCaveman(cvCheck.Checked); else UpdateLaunchText(); };
         row(cvCheck, 26);
@@ -1288,17 +1398,17 @@ class ClaudeManager : Form
         setupStatus = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Consolas", 9f) };
         row(setupStatus, 20);
 
-        var allBtn = new Button { Text = "Install everything  (Node + CLI + RTK + Caveman + skills)", Dock = DockStyle.Fill,
+        var allBtn = new Button { Text = "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + skills)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.Black, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
         Hoverize(allBtn, Accent, AccentHi);
         allBtn.Click += (s, e) => SetupRun(InstallEverything);
         setupAllBtn = allBtn;
         row(allBtn, 40);
 
-        setupAllCap = RowCap("Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest CLI + tools.");
+        setupAllCap = RowCap("Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest Claude/Codex CLI + tools.");
         row(setupAllCap, 18);
 
-        var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · RTK · Caveman)", Dock = DockStyle.Fill,
+        var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Font = new Font("Segoe UI", 10f, FontStyle.Bold) };
         Hoverize(updBtn, Color.FromArgb(70, 110, 150), Color.FromArgb(86, 130, 172));
         updBtn.Click += (s, e) => SetupRun(UpdateCore);
@@ -1315,6 +1425,7 @@ class ClaudeManager : Form
             Hoverize(b, n, hov); b.Click += click; tools.Controls.Add(b);
         };
         mk("Claude CLI", Color.FromArgb(70, 120, 85), Color.FromArgb(84, 140, 100), (s, e) => SetupRun(InstallClaudeCli));
+        mk("Codex CLI", Color.FromArgb(70, 120, 85), Color.FromArgb(84, 140, 100), (s, e) => SetupRun(InstallCodexCli));
         mk("Node.js", Panel2, FieldHi, (s, e) => SetupRun(() => { EnsureNode(); }));
         mk("RTK", Panel2, FieldHi, (s, e) => SetupRun(InstallRtk));
         mk("Caveman", Panel2, FieldHi, (s, e) => SetupRun(InstallCaveman));
@@ -1383,6 +1494,7 @@ class ClaudeManager : Form
     static bool HasNpm() { return OnPath("npm.cmd") || OnPath("npm.exe") || OnPath("npm"); }
     static bool HasNpx() { return OnPath("npx.cmd") || OnPath("npx.exe") || OnPath("npx"); }
     static bool HasClaude() { return OnPath("claude.cmd") || OnPath("claude.exe") || OnPath("claude"); }
+    static bool HasCodex() { return OnPath("codex.cmd") || OnPath("codex.exe") || OnPath("codex"); }
     static string RtkLocalPath() { return Path.Combine(HomeDir, ".local", "bin", "rtk.exe"); }
     static bool HasRtk() { return OnPath("rtk.exe") || OnPath("rtk") || File.Exists(RtkLocalPath()); }
     static bool HasNode() { return OnPath("node.exe") || OnPath("node"); }
@@ -1468,14 +1580,14 @@ try {
     // is pointless, so we hide it and let the Setup tab focus on the Update button.
     bool AllCoreInstalled()
     {
-        return HasClaude() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled();
+        return HasClaude() && HasCodex() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled();
     }
 
     void DetectStatus()
     {
         if (setupStatus == null) return;
         bool node = OnPath("node.exe") || OnPath("node");
-        setupStatus.Text = "Claude " + Mark(HasClaude()) + "   Node " + Mark(node) + "   RTK " + Mark(HasRtk() && RtkInstalled())
+        setupStatus.Text = "Claude " + Mark(HasClaude()) + "   Codex " + Mark(HasCodex()) + "   Node " + Mark(node) + "   RTK " + Mark(HasRtk() && RtkInstalled())
             + "   Caveman " + Mark(CavemanInstalled()) + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom"))
             + "   Skills " + CountSkills();
 
@@ -1485,11 +1597,11 @@ try {
         if (setupAllCap != null)
             setupAllCap.Text = all
                 ? "Your toolchain is complete — just keep it fresh with \"Update core packages\" below."
-                : "Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest CLI + tools.";
+                : "Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest Claude/Codex CLI + tools.";
         if (setupUpdBtn != null)
         {
-            setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · RTK · Caveman)   ✓ everything installed"
-                                   : "Update core packages  (npm · Claude CLI · RTK · Caveman)";
+            setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman)   ✓ everything installed"
+                                   : "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman)";
             // promote Update to the primary (accent) style when it's the main action
             Hoverize(setupUpdBtn, all ? Accent : Color.FromArgb(70, 110, 150),
                                   all ? AccentHi : Color.FromArgb(86, 130, 172));
@@ -1555,6 +1667,18 @@ try {
         SetupLog(rc == 0 ? "OK  Claude CLI installed (latest)." : "Claude CLI install returned exit " + rc + ".");
     }
 
+    void InstallCodexCli()
+    {
+        if (!EnsureNode()) return;
+        SetupLog("Installing latest Codex CLI (npm)…");
+        int rc = RunLoggedCmd(CodexInstallCmd());
+        SetupLog(rc == 0 ? "OK  Codex CLI installed (latest)." : "Codex CLI install returned exit " + rc + ".");
+        if (HasRtk()) RunLoggedCmd("rtk init -g --codex");
+        EnsureCodexCavemanInstructions();
+        InstallBundledCavemanForCodexIfPossible();
+    }
+
+
     void InstallRtk()
     {
         if (!(OnPath("rtk.exe") || OnPath("rtk") || File.Exists(RtkLocalPath())))
@@ -1566,6 +1690,7 @@ try {
         string rtk = File.Exists(RtkLocalPath()) ? "\"" + RtkLocalPath() + "\"" : "rtk";
         SetupLog("Registering RTK hook (rtk init -g --auto-patch)…");
         int rc = RunLoggedCmd(rtk + " init -g --auto-patch");
+        RunLoggedCmd(rtk + " init -g --codex");
         SetupLog(rc == 0 ? "OK  RTK hook registered (default input compression)." : "RTK init returned exit " + rc + ".");
         try { BeginInvoke((Action)UpdateRtkStatus); } catch { }
     }
@@ -1594,8 +1719,10 @@ try {
     {
         if (CavemanInstalled()) { SetupLog("Caveman already installed."); return; }
         if (!EnsureNode()) return;
-        SetupLog("Installing Caveman plugin (npx -y github:JuliusBrussee/caveman --only claude)…");
-        int rc = RunLoggedCmd("npx -y github:JuliusBrussee/caveman --only claude");
+        SetupLog("Installing Caveman plugin/instructions for Claude Code + Codex CLI…");
+        int rc = RunLoggedCmd("npx -y github:JuliusBrussee/caveman --only claude --only codex");
+        EnsureCodexCavemanInstructions();
+        InstallBundledCavemanForCodexIfPossible();
         SetupLog(rc == 0 ? "OK  Caveman installed (default output compression)." : "Caveman install returned exit " + rc + ".");
         try { BeginInvoke((Action)(() => { UpdateCavemanStatus(); UpdateLaunchText(); })); } catch { }
     }
@@ -1668,6 +1795,11 @@ try {
                     string rtk = File.Exists(rtkDst) ? "\"" + rtkDst + "\"" : "rtk";
                     try { RunLoggedCmd(rtk + " init -g --auto-patch"); } catch { }
                 }
+                if (File.Exists(rtkDst) || OnPath("rtk.exe") || OnPath("rtk"))
+                {
+                    string rtk = File.Exists(rtkDst) ? "\"" + rtkDst + "\"" : "rtk";
+                    try { RunLoggedCmd(rtk + " init -g --codex"); } catch { }
+                }
 
                 // 2) Caveman — seed the marketplace locally so the plugin installs OFFLINE from
                 //    the bundled copy (no `npx github:…` fetch).
@@ -1683,8 +1815,10 @@ try {
                     {
                         string installer = Path.Combine(Directory.Exists(mkDst) ? mkDst : bundledCaveman, "bin", "install.js");
                         if (File.Exists(installer))
-                            try { RunLoggedCmd("node \"" + installer + "\" --only claude"); } catch { }
+                            try { RunLoggedCmd("node \"" + installer + "\" --only claude --only codex"); } catch { }
                     }
+                    EnsureCodexCavemanInstructions();
+                    InstallBundledCavemanForCodexIfPossible();
                 }
 
                 // 3) Claude CLI — not redistributable; install once, silently, if missing.
@@ -1693,6 +1827,12 @@ try {
                 {
                     SetupLog("Claude CLI not found — installing it once…");
                     try { RunLoggedCmd(ClaudeInstallCmd()); } catch { }
+                }
+
+                if (!HasCodex() && HasNpm())
+                {
+                    SetupLog("Codex CLI not found — installing it once…");
+                    try { RunLoggedCmd(CodexInstallCmd()); } catch { }
                 }
             }
             catch { }
@@ -1761,13 +1901,14 @@ try {
     void InstallEverything()
     {
         SetupLog("");
-        SetupLog("===== Installing everything (Node + Claude CLI + RTK + Caveman + skills) =====");
+        SetupLog("===== Installing everything (Node + Claude CLI + Codex CLI + RTK + Caveman + skills) =====");
         if (!EnsureNode())
         {
             SetupLog("Node.js is required and could not be installed automatically. Fix that, then click Install everything again.");
             return;
         }
         InstallClaudeCli();
+        InstallCodexCli();
         InstallRtk();
         InstallCaveman();
         string src = FindSkillsSource();
@@ -1788,16 +1929,22 @@ try {
         SetupLog("> updating Claude CLI (native installer, npm fallback)");
         int c = RunLoggedCmd(ClaudeInstallCmd());
         SetupLog(c == 0 ? "OK  Claude CLI up to date." : "Claude CLI update exit " + c + ".");
+        SetupLog("> updating Codex CLI");
+        int cx = RunLoggedCmd(CodexInstallCmd());
+        SetupLog(cx == 0 ? "OK  Codex CLI up to date." : "Codex CLI update exit " + cx + ".");
         // RTK: pull the latest release binary again, then re-register the hook
         SetupLog("Updating RTK to the latest release…");
         RunPowerShellScript(RtkDownloadScript());
         RefreshPathFromRegistry();
         string rtk = File.Exists(RtkLocalPath()) ? "\"" + RtkLocalPath() + "\"" : "rtk";
         RunLoggedCmd(rtk + " init -g --auto-patch");
+        RunLoggedCmd(rtk + " init -g --codex");
         try { BeginInvoke((Action)UpdateRtkStatus); } catch { }
         // Caveman: npx re-fetches the latest from GitHub each run
         SetupLog("Updating Caveman (npx pulls latest)…");
-        RunLoggedCmd("npx -y github:JuliusBrussee/caveman --only claude");
+        RunLoggedCmd("npx -y github:JuliusBrussee/caveman --only claude --only codex");
+        EnsureCodexCavemanInstructions();
+        InstallBundledCavemanForCodexIfPossible();
         try { BeginInvoke((Action)(() => { UpdateCavemanStatus(); UpdateLaunchText(); })); } catch { }
         // Headroom is optional: only bump it if it's already present
         if (OnPath("headroom.exe") || OnPath("headroom"))
@@ -1826,16 +1973,16 @@ try {
     void UpdateLaunchText()
     {
         string m = (modelCombo.Text ?? "").Trim(); if (m.Length == 0) m = "Default";
+        string agent = (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
         string tail = "";
-        if (hrCheck != null && hrCheck.Checked) tail += " +Headroom";
+        if (agent != "Codex" && hrCheck != null && hrCheck.Checked) tail += " +Headroom";
         if (rtCheck != null && rtCheck.Checked) tail += " +RTK";
         if (cvCheck != null && cvCheck.Checked) tail += " +Caveman";
         if (launchBtn != null)
         {
-            string mShow = m.Length > 12 ? m.Substring(0, 11) + "…" : m;
-            launchBtn.Text = "+ New  (" + mShow + ")";
+            launchBtn.Text = "+ New " + (agent == "Codex" ? "Codex" : "Claude");
             if (tabTip == null) tabTip = new ToolTip { ShowAlways = true, InitialDelay = 250 };
-            tabTip.SetToolTip(launchBtn, "Start an embedded Claude session in the chosen folder.\nModel: " + m + (tail.Length > 0 ? "\nCompression:" + tail : "\nCompression: none"));
+            tabTip.SetToolTip(launchBtn, "Start an embedded " + agent + " session in the chosen folder.\nModel: " + m + (tail.Length > 0 ? "\nCompression:" + tail : "\nCompression: none"));
         }
     }
 
@@ -1950,7 +2097,7 @@ try {
 
     class TermSession
     {
-        public string Id, Name, Folder, Status = "starting";
+        public string Id, Name, Folder, Agent = "Claude", Status = "starting";
         public Color Color = Color.Gray;
         public Process Proc;
         public IntPtr Hwnd = IntPtr.Zero;
@@ -1992,8 +2139,9 @@ try {
 
         // ---- toolbar: New | folder path | Recent ▾ | Browse | Close | Pop out ----
         var bar = new TableLayoutPanel {
-            Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 1, BackColor = Color.Transparent, Margin = new Padding(0) };
+            Dock = DockStyle.Fill, ColumnCount = 8, RowCount = 1, BackColor = Color.Transparent, Margin = new Padding(0) };
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112f)); // Agent
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 168f)); // New (shows model)
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));  // path (stretches)
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58f));  // Recent label
@@ -2003,29 +2151,37 @@ try {
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 66f));  // Pop out
         root.Controls.Add(bar, 0, 0);
 
+        var agentPick = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList,
+            FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 6, 8, 6) };
+        agentPick.Items.AddRange(new object[] { "Claude", "Codex" });
+        agentPick.SelectedItem = agentCombo != null ? agentCombo.SelectedItem : "Claude";
+        termAgentCombo = agentPick;
+        agentPick.SelectedIndexChanged += (s, e) => { if (agentCombo != null && agentCombo.SelectedItem != agentPick.SelectedItem) agentCombo.SelectedItem = agentPick.SelectedItem; };
+        bar.Controls.Add(agentPick, 0, 0);
+
         var newBtn = AccentBtn("+ New");
         newBtn.Dock = DockStyle.Fill; newBtn.Margin = new Padding(0, 4, 8, 4);
         newBtn.Click += (s, e) => NewTerminal(termPathBox.Text);
-        bar.Controls.Add(newBtn, 0, 0);
+        bar.Controls.Add(newBtn, 1, 0);
         launchBtn = newBtn;   // UpdateLaunchText keeps its caption in sync with model + compression
 
         string startFolder = (pathBox != null && Directory.Exists(pathBox.Text)) ? pathBox.Text : HomeDir;
         // Single-line TextBox ignores Dock=Fill width in a TLP cell — anchor L|R to stretch reliably.
         termPathBox = new TextBox { Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 26, Margin = new Padding(0, 7, 8, 7),
             BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle, Text = startFolder };
-        bar.Controls.Add(termPathBox, 1, 0);
+        bar.Controls.Add(termPathBox, 2, 0);
         pathBox = termPathBox;   // single source of truth for the launch folder
 
         var recCap = new Label { Dock = DockStyle.Fill, Text = "Recent", TextAlign = ContentAlignment.MiddleRight,
             ForeColor = TextDim, Font = new Font("Segoe UI", 8.5f), Margin = new Padding(0, 0, 6, 0) };
-        bar.Controls.Add(recCap, 2, 0);
+        bar.Controls.Add(recCap, 3, 0);
 
         // Recent-folders quick-pick: the ONLY leftover launch control from the old left panel,
         // now a compact dropdown so the terminals get essentially all the space.
         recentCombo = new ComboBox { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 8, 6),
             DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Field, ForeColor = Color.White };
         recentCombo.SelectedIndexChanged += (s, e) => { if (recentCombo.SelectedItem != null) termPathBox.Text = recentCombo.SelectedItem.ToString(); };
-        bar.Controls.Add(recentCombo, 3, 0);
+        bar.Controls.Add(recentCombo, 4, 0);
 
         var browseBtn = GhostBtn("Browse…");
         browseBtn.Dock = DockStyle.Fill; browseBtn.Margin = new Padding(0, 4, 8, 4);
@@ -2033,17 +2189,17 @@ try {
             using (var dlg = new FolderBrowserDialog { Description = "Folder for the next Claude session", ShowNewFolderButton = true })
             { if (Directory.Exists(termPathBox.Text)) dlg.SelectedPath = termPathBox.Text; if (dlg.ShowDialog() == DialogResult.OK) termPathBox.Text = dlg.SelectedPath; }
         };
-        bar.Controls.Add(browseBtn, 4, 0);
+        bar.Controls.Add(browseBtn, 5, 0);
 
         var closeBtn = DangerBtn("Close");
         closeBtn.Dock = DockStyle.Fill; closeBtn.Margin = new Padding(0, 4, 8, 4);
         closeBtn.Click += (s, e) => CloseSelectedTerminal();
-        bar.Controls.Add(closeBtn, 5, 0);
+        bar.Controls.Add(closeBtn, 6, 0);
 
         var focusBtn = GhostBtn("Pop out");
         focusBtn.Dock = DockStyle.Fill; focusBtn.Margin = new Padding(0, 4, 0, 4);
         focusBtn.Click += (s, e) => FocusSelectedTerminal();
-        bar.Controls.Add(focusBtn, 6, 0);
+        bar.Controls.Add(focusBtn, 7, 0);
 
         // ---- browser-style tab strip: one switchable tab per running session ----
         termTabs = new FlowLayoutPanel {
@@ -2059,7 +2215,7 @@ try {
         termHost.Resize += (s, e) => ResizeEmbedded();
         root.Controls.Add(termHost, 0, 2);
 
-        termHint = new Label { Text = "No terminals yet. Click “+ New” to start a Claude session here.\n\nH Headroom · R RTK · C Caveman",
+        termHint = new Label { Text = "No terminals yet. Choose Claude or Codex, then click “+ New”.\n\nH Headroom · R RTK · C Caveman",
             AutoSize = false, TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, ForeColor = TextDim, BackColor = Color.Black };
         termHost.Controls.Add(termHint);
     }
@@ -2164,36 +2320,52 @@ try {
                 folder = dlg.SelectedPath;
             }
         }
-        TrustFolder(folder);   // always auto-trust the workspace: no trust prompt inside the embedded terminal
-
         bool useHeadroom = hrCheck != null && hrCheck.Checked;
-        if (useHeadroom && !EnsureProxy()) return;
+        string agent = (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
+        if (agent != "Codex") TrustFolder(folder);   // Claude trust prompt is noisy inside embedded terminals
+        if (agent != "Codex" && useHeadroom && !EnsureProxy()) return;
 
         string id = Guid.NewGuid().ToString("N").Substring(0, 12);
         bool useRtk = rtCheck != null && rtCheck.Checked;
         bool useCaveman = cvCheck != null && cvCheck.Checked;
-        string settings = WriteSessionSettings(id, useRtk, useCaveman);
 
         string model = (modelCombo.Text ?? "").Trim();
-        string cmd = "claude --settings \"" + settings + "\"";
-        if (model.Length > 0 && model != "Default") cmd += " --model " + model;
-        cmd += PermFlag();
-        if (continueChk.Checked) cmd += " --continue";
         string extra = (extraBox.Text ?? "").Trim();
-        if (extra.Length > 0) cmd += " " + extra;
+        string cmd;
+        if (agent == "Codex")
+        {
+            EnsureCodexCompressionForLaunch(useRtk, useCaveman);
+            cmd = "codex -C " + CmdQ(folder);
+            if (model.Length > 0 && model != "Default") cmd += " --model " + CmdQ(model);
+            cmd += CodexPermFlag();
+            if (useCaveman) cmd += " --enable hooks --dangerously-bypass-hook-trust";
+            if (extra.Length > 0) cmd += " " + extra;
+            if (continueChk.Checked) cmd += " resume --last";
+        }
+        else
+        {
+            string settings = WriteSessionSettings(id, useRtk, useCaveman);
+            cmd = "claude --settings \"" + settings + "\"";
+            if (model.Length > 0 && model != "Default") cmd += " --model " + model;
+            cmd += PermFlag();
+            if (continueChk.Checked) cmd += " --continue";
+            if (extra.Length > 0) cmd += " " + extra;
+        }
 
         var sess = new TermSession { Id = id, Folder = folder,
-            Name = "T" + (sessions.Count + 1) + "  " + new DirectoryInfo(folder).Name,
-            CHeadroom = useHeadroom,
+            Agent = agent,
+            Name = (agent == "Codex" ? "Cx" : "Cl") + (sessions.Count + 1) + "  " + new DirectoryInfo(folder).Name,
+            CHeadroom = agent == "Codex" ? false : useHeadroom,
             CRtk = useRtk,
             CCaveman = useCaveman };
         try
         {
             // Force a CLASSIC conhost window (bypass Windows Terminal, which cannot be reparented).
             // conhost.exe launches the command in a legacy console we own and can embed.
-            var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title Claude " + id + " & " + cmd)
+            var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title " + agent + " " + id + " & " + cmd)
             { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = folder };
-            if (useHeadroom) psi.EnvironmentVariables["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:" + ProxyPort;
+            psi.EnvironmentVariables["CODEX_HOME"] = CodexDir;
+            if (agent != "Codex" && useHeadroom) psi.EnvironmentVariables["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:" + ProxyPort;
             sess.Proc = Process.Start(psi);
         }
         catch (Exception ex)
@@ -2420,7 +2592,7 @@ try {
         var on = new List<string>();
         if (s.CHeadroom) on.Add("Headroom (proxy compresses tool output & context)");
         if (s.CRtk) on.Add("RTK (filters shell/test/build output)");
-        if (s.CCaveman) on.Add("Caveman (compresses Claude's replies)");
+        if (s.CCaveman) on.Add("Caveman (compresses " + s.Agent + "'s replies)");
         string head = s.Name.Trim() + "  •  " + s.Folder;
         if (on.Count == 0) return head + "\n\nToken compression: none enabled for this session";
         return head + "\n\nToken compression enabled:\n • " + string.Join("\n • ", on.ToArray());
@@ -2482,12 +2654,12 @@ try {
         if (ev == "notify")
         {
             s.Status = "AWAITING YOU"; s.Color = Yellow;
-            Alert(s.Name, "Claude is waiting for your answer.");
+            Alert(s.Name, s.Agent + " is waiting for your answer.");
         }
         else if (ev == "stop")
         {
             s.Status = "done / idle"; s.Color = Green;
-            Alert(s.Name, "Task finished — Claude is idle.");
+            Alert(s.Name, "Task finished — " + s.Agent + " is idle.");
         }
         else if (ev == "work")
         {

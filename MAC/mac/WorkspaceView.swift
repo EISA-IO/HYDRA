@@ -8,6 +8,14 @@ struct WorkspaceView: View {
         VStack(alignment: .leading, spacing: 12) {
             // ---- toolbar ----
             HStack(spacing: 10) {
+                Picker("", selection: $app.agent) {
+                    ForEach(app.agentOptions, id: \.self) { Text($0).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 150)
+                .onChange(of: app.agent) { app.saveSettings() }
+                .help("Choose which CLI the next terminal launches")
+
                 Button {
                     app.launch()
                 } label: {
@@ -15,7 +23,7 @@ struct WorkspaceView: View {
                 }
                 .accentButton()
                 .keyboardShortcut("t", modifiers: .command)
-                .help("Open a new Claude terminal in the folder at right")
+                .help("Open a new \(app.agent) terminal in the folder at right")
 
                 DarkField(placeholder: "~/path/to/project", text: $app.folder)
 
@@ -28,7 +36,7 @@ struct WorkspaceView: View {
                     .menuStyle(.borderlessButton).frame(width: 30).help("Recent folders")
                 }
                 Button("Browse…") {
-                    if let f = chooseFolder(prompt: "Folder for the next Claude session", start: app.folder) { app.folder = f }
+                    if let f = chooseFolder(prompt: "Folder for the next \(app.agent) session", start: app.folder) { app.folder = f }
                 }.ghostButton()
             }
 
@@ -51,7 +59,7 @@ struct WorkspaceView: View {
                     VStack(spacing: 10) {
                         Image(systemName: "terminal").font(.system(size: 30)).foregroundStyle(Theme.textFaint)
                         Text("No terminals yet").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.textDim)
-                        Text("Click “New” to start a Claude session. It runs right here as a tab —\nopen as many as you like and switch between them.")
+                        Text("Click “New” to start a Claude or Codex session. It runs right here as a tab —\nopen as many as you like and switch between them.")
                             .font(.system(size: 12)).foregroundStyle(Theme.textFaint)
                             .multilineTextAlignment(.center)
                         Text("H Headroom · R RTK · C Caveman   ·   ⌘T new terminal")

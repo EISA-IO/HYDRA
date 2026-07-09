@@ -72,8 +72,15 @@ extension AppState {
         + "--prefix \"$HOME/.claude-manager\" --cache \"$(mktemp -d)\" --no-fund --no-audit --force"
     }
 
+    func installCodex() {
+        runSteps("Installing / updating the Codex CLI", [("Node.js", nodeEnsureScript()), ("Codex CLI", codexInstallCmd())]) {
+            self.installBundledCavemanForCodexIfPossible()
+            if Shell.shared.onPath("rtk") { _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30) }
+        }
+    }
+
     func cavemanCmd() -> String {
-        "npx -y github:JuliusBrussee/caveman --only claude"
+        "npx -y github:JuliusBrussee/caveman --only claude --only codex"
     }
 
     /// Download the macOS RTK binary (if missing) AND register its Claude hook.
@@ -223,6 +230,7 @@ extension AppState {
         let steps: [(String, String)] = [
             ("Node.js", nodeEnsureScript()),
             ("Claude CLI", claudeInstallCmd()),
+            ("Codex CLI", codexInstallCmd()),
             ("RTK", rtkFullScript()),
             ("Caveman", cavemanCmd() + " || echo '(Caveman needs Node.js — install Node then retry)'")
         ]
@@ -234,6 +242,8 @@ extension AppState {
                 self.log("No bundled skills found next to the app — use the Skills button to add a folder.")
             }
             self.rtkInstalled = Self.isRtkInstalled(); self.rtk = self.rtkInstalled
+            if Shell.shared.onPath("rtk") { _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30) }
+            self.installBundledCavemanForCodexIfPossible()
             self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
         }
     }
@@ -243,11 +253,14 @@ extension AppState {
         let steps: [(String, String)] = [
             ("npm", Shell.shared.onPath("npm") ? "npm install -g npm@latest" : "echo '(skip npm — Node not installed)'"),
             ("Claude CLI", claudeInstallCmd()),
+            ("Codex CLI", Shell.shared.onPath("npm") ? codexInstallCmd() : "echo '(skip Codex CLI — Node not installed)'"),
             ("RTK", rtkFullScript()),
             ("Caveman", hasNode ? cavemanCmd() : "echo '(skip Caveman — needs Node.js)'")
         ]
         runSteps("Updating core packages to latest", steps) {
             self.rtkInstalled = Self.isRtkInstalled(); self.rtk = self.rtkInstalled
+            if Shell.shared.onPath("rtk") { _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30) }
+            self.installBundledCavemanForCodexIfPossible()
             self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
         }
     }

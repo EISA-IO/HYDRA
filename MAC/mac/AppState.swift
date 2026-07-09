@@ -20,6 +20,7 @@ let ProxyPort = 8787
 
 final class AppState: ObservableObject {
     // Launch config
+    @Published var agent: String = "Claude"
     @Published var folder: String = Paths.home
     @Published var model: String = "Default"
     @Published var permission: String = "Bypass – skip all prompts"
@@ -59,7 +60,9 @@ final class AppState: ObservableObject {
     let glossary: [GlossaryEntry] = Glossary.all
 
     let modelOptions = ["Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5",
-                        "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"]
+                        "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5",
+                        "gpt-5.5"]
+    let agentOptions = ["Claude", "Codex"]
     let permissionOptions = ["Bypass – skip all prompts", "Plan mode (read-only)",
                              "Accept edits automatically", "Ask for each action"]
 
@@ -86,7 +89,11 @@ final class AppState: ObservableObject {
         guard let text = FS.read(Paths.settingsFile) else { return }
         for line in text.split(separator: "\n") {
             let l = String(line)
-            if l.hasPrefix("model=") { let v = String(l.dropFirst(6)); if !v.isEmpty { model = v } }
+            if l.hasPrefix("agent=") {
+                let v = String(l.dropFirst(6))
+                if agentOptions.contains(v) { agent = v }
+            }
+            else if l.hasPrefix("model=") { let v = String(l.dropFirst(6)); if !v.isEmpty { model = v } }
             else if l.hasPrefix("headroom=") { headroom = l.dropFirst(9).trimmingCharacters(in: .whitespaces) == "1" }
             else if l.hasPrefix("cont=") { continueLast = l.dropFirst(5).trimmingCharacters(in: .whitespaces) == "1" }
             else if l.hasPrefix("extra=") { extraArgs = String(l.dropFirst(6)) }
@@ -99,6 +106,7 @@ final class AppState: ObservableObject {
 
     func saveSettings() {
         let lines = [
+            "agent=" + agent,
             "model=" + model.trimmingCharacters(in: .whitespaces),
             "headroom=" + (headroom ? "1" : "0"),
             "perm=" + permission,
@@ -152,8 +160,10 @@ final class AppState: ObservableObject {
     }
 
     static func isRtkInstalled() -> Bool {
-        guard let s = FS.read(Paths.claudeSettings) else { return false }
-        return s.range(of: "rtk hook", options: .caseInsensitive) != nil
+        let claude = FS.read(Paths.claudeSettings)?.range(of: "rtk hook", options: .caseInsensitive) != nil
+        let codex = FS.exists(Paths.codexRtk)
+            && (FS.read(Paths.codexAgents)?.range(of: "RTK.md", options: .caseInsensitive) != nil)
+        return claude || codex
     }
     static func isCavemanInstalled() -> Bool {
         // Plugin install (installed_plugins.json) …
@@ -162,6 +172,7 @@ final class AppState: ObservableObject {
         // available (e.g. claude not yet on PATH). Those wire ~/.claude/hooks/caveman-*.js.
         if FS.exists(Paths.home + "/.claude/hooks/caveman-config.js") { return true }
         if let s = FS.read(Paths.claudeSettings), s.range(of: "caveman", options: .caseInsensitive) != nil { return true }
+        if let s = FS.read(Paths.codexAgents), s.range(of: "claude-manager-caveman-codex", options: .caseInsensitive) != nil { return true }
         return false
     }
     static func portOpen(_ port: Int) -> Bool {
@@ -184,14 +195,14 @@ final class AppState: ObservableObject {
     /// and let the Setup tab focus on keeping things up to date. Headroom is optional.
     var allCoreInstalled: Bool {
         let sh = Shell.shared
-        return sh.onPath("claude") && sh.onPath("node") && rtkInstalled && cavemanInstalled
+        return sh.onPath("claude") && sh.onPath("codex") && sh.onPath("node") && rtkInstalled && cavemanInstalled
     }
 
     func updateStatusLine() {
         let sh = Shell.shared
         func mark(_ ok: Bool) -> String { ok ? "OK" : "—" }
         let node = sh.onPath("node")
-        statusLine = "Claude \(mark(sh.onPath("claude")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
+        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
     }
 
     func countSkills() -> Int {

@@ -6,7 +6,8 @@ On launch the app copies the right binary for the current OS into `~/.claude-man
 
 ## What's bundled
 - `mac-arm64/rtk`, `mac-x64/rtk`, `win-x64/rtk.exe` — RTK input-compression binary (per platform).
-- `caveman/` — the Caveman marketplace (a local, offline plugin source + Node installer).
+- `caveman/` — the Caveman marketplace (a local, offline Claude plugin source, Codex plugin
+  marketplace, and Node installer).
 
 ## Completing cross-platform coverage
 This repo is built on Apple Silicon, so only `mac-arm64/rtk` ships prefilled. To make the app
@@ -16,6 +17,6 @@ fully self-contained on the other targets, drop the matching binary into its slo
 The manifest lists a `fallbackInstall` command the app runs automatically if a slot is empty,
 so the app still self-provisions — bundling just makes it instant and offline.
 
-## Claude CLI
-Anthropic's `claude` binary isn't redistributable, so it isn't vendored. If it's missing the app
-installs it once, silently, via the official installer — the user still does nothing.
+## Agent CLIs
+Anthropic's `claude` binary and OpenAI's `codex` binary are not vendored. If either is missing,
+the app installs it once into `~/.claude-manager/bin` and keeps that directory first on PATH.
