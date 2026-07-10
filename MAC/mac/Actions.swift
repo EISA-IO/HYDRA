@@ -150,7 +150,8 @@ extension AppState {
         if headroom && agent == "Claude" && !ensureProxy() { return }
 
         let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased())
-        let m = (modelOverride ?? model).trimmingCharacters(in: .whitespaces)
+        let selectedModel = (modelOverride ?? model).trimmingCharacters(in: .whitespaces)
+        let m = agent == "Codex" ? cliModelName(selectedModel) : selectedModel
         let extra = extraArgs.trimmingCharacters(in: .whitespaces)
         var cli: String
         if agent == "Codex" {

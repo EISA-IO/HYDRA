@@ -28,6 +28,8 @@ class ClaudeManager : Form
     static readonly string CodexRtk    = Path.Combine(CodexDir, "RTK.md");
     static readonly string EventsDir   = Path.Combine(StateDir, "events");
     static readonly string SessDir     = Path.Combine(StateDir, "sessions");
+    static readonly object[] ClaudeModelChoices = { "Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5" };
+    static readonly object[] ChatGptModelChoices = { "Default", "ChatGPT 5.6", "ChatGPT 5.5", "gpt-5.6", "gpt-5.5" };
 
     // palette — dark liquid-glass
     static readonly Color Bg        = Color.FromArgb(22, 22, 25);
@@ -709,6 +711,36 @@ class ClaudeManager : Form
     {
         return " --dangerously-bypass-approvals-and-sandbox";
     }
+    static string CliModelName(string selection)
+    {
+        string m = (selection ?? "").Trim();
+        if (string.Equals(m, "ChatGPT 5.6", StringComparison.OrdinalIgnoreCase)) return "gpt-5.6";
+        if (string.Equals(m, "ChatGPT 5.5", StringComparison.OrdinalIgnoreCase)) return "gpt-5.5";
+        return m;
+    }
+    static bool ChoiceContains(object[] choices, string value)
+    {
+        foreach (object c in choices)
+            if (string.Equals(c.ToString(), value, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+    void RefreshModelChoicesForAgent()
+    {
+        if (modelCombo == null) return;
+        string agent = (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
+        object[] choices = agent == "Codex" ? ChatGptModelChoices : ClaudeModelChoices;
+        string current = (modelCombo.Text ?? "").Trim();
+        modelCombo.BeginUpdate();
+        modelCombo.Items.Clear();
+        modelCombo.Items.AddRange(choices);
+        modelCombo.EndUpdate();
+        if (current.Length == 0 || string.Equals(current, "Default", StringComparison.OrdinalIgnoreCase))
+            modelCombo.Text = "Default";
+        else if (ChoiceContains(choices, current))
+            modelCombo.Text = current;
+        else
+            modelCombo.Text = "Default";
+    }
     static string CmdQ(string s) { return "\"" + s.Replace("\"", "\\\"") + "\""; }
     int RunCodexCmd(string args)
     {
@@ -1327,17 +1359,18 @@ class ClaudeManager : Form
         mp.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f));
         mp.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
         var acap = RowCap("Agent"); acap.Margin = new Padding(0, 0, 6, 0);
-        var mcap = RowCap("Model"); mcap.Margin = new Padding(0, 0, 6, 0);
+        var mcap = RowCap("Claude / ChatGPT model"); mcap.Margin = new Padding(0, 0, 6, 0);
         var pcap = RowCap("Permissions (Codex: YOLO)"); pcap.Margin = new Padding(6, 0, 0, 0);
         agentCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
         agentCombo.Items.AddRange(new object[] { "Claude", "Codex" });
         agentCombo.SelectedIndex = 0;
         agentCombo.SelectedIndexChanged += (s, e) => {
+            RefreshModelChoicesForAgent();
             if (termAgentCombo != null && termAgentCombo.SelectedItem != agentCombo.SelectedItem) termAgentCombo.SelectedItem = agentCombo.SelectedItem;
             UpdateLaunchText(); SaveSettings();
         };
         modelCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
-        modelCombo.Items.AddRange(new object[] { "Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5", "gpt-5.5" });
+        modelCombo.Items.AddRange(ClaudeModelChoices);
         modelCombo.Text = "Default";
         modelCombo.TextChanged += (s, e) => UpdateLaunchText();
         permCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(6, 1, 0, 1) };
@@ -2325,7 +2358,8 @@ try {
         bool useRtk = rtCheck != null && rtCheck.Checked;
         bool useCaveman = cvCheck != null && cvCheck.Checked;
 
-        string model = (modelCombo.Text ?? "").Trim();
+        string selectedModel = (modelCombo.Text ?? "").Trim();
+        string model = agent == "Codex" ? CliModelName(selectedModel) : selectedModel;
         string extra = (extraBox.Text ?? "").Trim();
         string cmd;
         if (agent == "Codex")

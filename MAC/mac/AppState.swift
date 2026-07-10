@@ -59,12 +59,25 @@ final class AppState: ObservableObject {
     // Glossary
     let glossary: [GlossaryEntry] = Glossary.all
 
-    let modelOptions = ["Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5",
-                        "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5",
-                        "gpt-5.5"]
+    let claudeModelOptions = ["Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5",
+                              "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"]
+    let chatGPTModelOptions = ["Default", "ChatGPT 5.6", "ChatGPT 5.5", "gpt-5.6", "gpt-5.5"]
+    var modelOptions: [String] { claudeModelOptions }
     let agentOptions = ["Claude", "Codex"]
     let permissionOptions = ["Bypass – skip all prompts", "Plan mode (read-only)",
                              "Accept edits automatically", "Ask for each action"]
+
+    func launchModelOptions(for agent: String) -> [String] {
+        agent == "Codex" ? chatGPTModelOptions : claudeModelOptions
+    }
+
+    func cliModelName(_ selection: String) -> String {
+        switch selection.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "chatgpt 5.6": return "gpt-5.6"
+        case "chatgpt 5.5": return "gpt-5.5"
+        default: return selection
+        }
+    }
 
     private var eventTimer: Timer?
     private var statusTimer: Timer?

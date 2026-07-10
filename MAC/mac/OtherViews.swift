@@ -157,15 +157,20 @@ struct SettingsView: View {
                         }
                         HStack(alignment: .top, spacing: 16) {
                             VStack(alignment: .leading, spacing: 8) {
-                                FieldLabel(text: "Model")
-                                DarkPicker(options: app.modelOptions, selection: $app.model)
+                                FieldLabel(text: app.agent == "Codex" ? "ChatGPT model" : "Claude model")
+                                DarkPicker(options: app.launchModelOptions(for: app.agent), selection: $app.model)
                             }
                             VStack(alignment: .leading, spacing: 8) {
                                 FieldLabel(text: app.agent == "Codex" ? "Permissions (Codex: YOLO)" : "Permissions")
                                 DarkPicker(options: app.permissionOptions, selection: $app.permission)
                             }
                         }
-                        .onChange(of: app.agent) { app.saveSettings() }
+                        .onChange(of: app.agent) {
+                            if !app.launchModelOptions(for: app.agent).contains(app.model) {
+                                app.model = "Default"
+                            }
+                            app.saveSettings()
+                        }
                         .onChange(of: app.model) { app.saveSettings() }
                         .onChange(of: app.permission) { app.saveSettings() }
                         Toggle(isOn: $app.continueLast) {
