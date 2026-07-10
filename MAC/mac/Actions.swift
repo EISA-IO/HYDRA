@@ -152,7 +152,7 @@ extension AppState {
 
         let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased())
         let selectedModel = (modelOverride ?? model).trimmingCharacters(in: .whitespaces)
-        let m = selectedAgent == "Codex" ? cliModelName(selectedModel) : selectedModel
+        let m = cliModelName(selectedModel)
         let extra = extraArgs.trimmingCharacters(in: .whitespaces)
         var cli: String
         if selectedAgent == "Codex" {

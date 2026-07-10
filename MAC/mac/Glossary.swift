@@ -36,7 +36,7 @@ enum Glossary {
         add(F, "-p, --print \"...\"", "Run once, print the result, and exit (great for scripting).")
         add(F, "-c, --continue", "Continue the most recent conversation.")
         add(F, "--resume", "Pick a past session to resume.")
-        add(F, "--model <alias|id>", "Choose the model: opus / sonnet / haiku, or a full id.")
+        add(F, "--model <alias|id>", "Choose a current Claude model, e.g. claude-fable-5, claude-opus-4-8, claude-sonnet-5, or claude-haiku-4-5.")
         add(F, "--dangerously-skip-permissions", "Bypass ALL permission prompts. Fast, but runs anything without asking.")
         add(F, "--permission-mode <mode>", "default | plan | acceptEdits | bypassPermissions.")
         add(F, "--effort <level>", "Set reasoning effort for the session.")

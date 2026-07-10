@@ -1,6 +1,6 @@
 #requires -version 5.1
 # Hydra - pick any folder + model, launch a Claude CLI terminal there.
-#   Model:         --model <alias|full-id>   (opus / sonnet / haiku / custom)
+#   Model:         --model <id>              (current Claude model id or custom)
 #   Defaults:      RTK (input) + Caveman (output) compression are global, so they apply
 #                  to every session automatically. Headroom is OPTIONAL and off by default
 #                  (it overlaps RTK on shell output); tick the box only if you want it.
@@ -58,6 +58,25 @@ function Ensure-HeadroomProxy {
 }
 
 # ---- launch a Claude terminal ----
+function Resolve-ClaudeModel([string]$model) {
+    $m = ''
+    if ($null -ne $model) { $m = $model.Trim() }
+    $key = $m.ToLowerInvariant().Replace(' ', '').Replace('-', '')
+    switch ($key) {
+        'fable' { return 'claude-fable-5' }
+        'claudefable5' { return 'claude-fable-5' }
+        'opus' { return 'claude-opus-4-8' }
+        'claudeopus48' { return 'claude-opus-4-8' }
+        'sonnet' { return 'claude-sonnet-5' }
+        'claudesonnet5' { return 'claude-sonnet-5' }
+        'claudesonnet46' { return 'claude-sonnet-5' }
+        'haiku' { return 'claude-haiku-4-5' }
+        'claudehaiku45' { return 'claude-haiku-4-5' }
+        'claudehaiku4520251001' { return 'claude-haiku-4-5' }
+        default { return $m }
+    }
+}
+
 function Start-Claude([string]$folder, [string]$model, [bool]$useHeadroom) {
     if (-not (Test-Path $folder)) {
         [System.Windows.Forms.MessageBox]::Show("Folder not found:`n$folder",'Hydra','OK','Warning') | Out-Null
@@ -69,7 +88,7 @@ function Start-Claude([string]$folder, [string]$model, [bool]$useHeadroom) {
         $envset = "set `"ANTHROPIC_BASE_URL=http://127.0.0.1:$ProxyPort`" && "
     }
     $cmd = 'claude'
-    $model = ($model).Trim()
+    $model = Resolve-ClaudeModel $model
     if ($model -and $model -ne 'Default') { $cmd += " --model $model" }
     $cmd += ' --dangerously-skip-permissions'
 
@@ -142,12 +161,12 @@ $modelCombo.Anchor     = 'Top,Left,Right'
 $modelCombo.DropDownStyle = 'DropDown'   # editable: type a custom model id too
 $modelCombo.BackColor  = [System.Drawing.Color]::FromArgb(39,39,42)
 $modelCombo.ForeColor  = [System.Drawing.Color]::White
-[void]$modelCombo.Items.AddRange(@('Default','opus','sonnet','haiku','claude-opus-4-8','claude-sonnet-4-6','claude-haiku-4-5'))
+[void]$modelCombo.Items.AddRange(@('Default','claude-fable-5','claude-opus-4-8','claude-sonnet-5','claude-haiku-4-5'))
 $modelCombo.Text = 'Default'
 $form.Controls.Add($modelCombo)
 
 $modelHint          = New-Object System.Windows.Forms.Label
-$modelHint.Text     = 'Alias (opus/sonnet/haiku), a full model id, or Default. Editable.'
+$modelHint.Text     = 'Current Claude model id, or Default. Editable.'
 $modelHint.AutoSize = $true
 $modelHint.ForeColor= [System.Drawing.Color]::FromArgb(140,140,150)
 $modelHint.Location = New-Object System.Drawing.Point(78, 144)

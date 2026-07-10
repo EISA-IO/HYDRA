@@ -45,10 +45,16 @@ launch_one() {
       return ""
     end try' 2>/dev/null)
   [ -z "$folder" ] && return 1
-  model=$(osascript -e 'set m to choose from list {"Default","opus","sonnet","haiku","claude-opus-4-8","claude-sonnet-4-6","claude-haiku-4-5","claude-fable-5"} with prompt "Select the model" default items {"Default"}
+  model=$(osascript -e 'set m to choose from list {"Default","claude-fable-5","claude-opus-4-8","claude-sonnet-5","claude-haiku-4-5"} with prompt "Select the model" default items {"Default"}
     if m is false then return "Default"
     return item 1 of m' 2>/dev/null)
   [ -z "$model" ] && model="Default"
+  case "$model" in
+    fable) model="claude-fable-5" ;;
+    opus) model="claude-opus-4-8" ;;
+    sonnet|claude-sonnet-4-6) model="claude-sonnet-5" ;;
+    haiku|claude-haiku-4-5-20251001) model="claude-haiku-4-5" ;;
+  esac
   modelarg=""
   [ "$model" != "Default" ] && modelarg="--model $model "
   mode=$(osascript -e 'button returned of (display dialog "RTK + Caveman compression are on by default. Also route this session through Headroom?" buttons {"No (default)", "Yes, add Headroom"} default button "No (default)")' 2>/dev/null)

@@ -30,7 +30,7 @@ class Hydra : Form
     static readonly string CodexRtk    = Path.Combine(CodexDir, "RTK.md");
     static readonly string EventsDir   = Path.Combine(StateDir, "events");
     static readonly string SessDir     = Path.Combine(StateDir, "sessions");
-    static readonly object[] ClaudeModelChoices = { "Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5" };
+    static readonly object[] ClaudeModelChoices = { "Default", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5" };
     static readonly object[] ChatGptModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark" };
 
     // palette — dark liquid-glass
@@ -718,6 +718,10 @@ class Hydra : Form
     {
         string m = (selection ?? "").Trim();
         string key = m.ToLowerInvariant().Replace(" ", "").Replace("-", "");
+        if (key == "fable" || key == "claudefable5") return "claude-fable-5";
+        if (key == "opus" || key == "claudeopus48") return "claude-opus-4-8";
+        if (key == "sonnet" || key == "claudesonnet5" || key == "claudesonnet46") return "claude-sonnet-5";
+        if (key == "haiku" || key == "claudehaiku45" || key == "claudehaiku4520251001") return "claude-haiku-4-5";
         if (key == "chatgpt5.6" || key == "gpt5.6") return "gpt-5.6-sol";
         if (key == "chatgpt5.5") return "gpt-5.5";
         return m;
@@ -734,7 +738,7 @@ class Hydra : Form
         string agent = (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
         object[] choices = agent == "Codex" ? ChatGptModelChoices : ClaudeModelChoices;
         string current = (modelCombo.Text ?? "").Trim();
-        if (agent == "Codex") current = CliModelName(current);
+        current = CliModelName(current);
         modelCombo.BeginUpdate();
         modelCombo.Items.Clear();
         modelCombo.Items.AddRange(choices);
@@ -752,7 +756,7 @@ class Hydra : Form
         string agent = (saasBuildAgent != null && saasBuildAgent.SelectedItem != null) ? saasBuildAgent.SelectedItem.ToString() : "Claude";
         object[] choices = agent == "ChatGPT" ? ChatGptModelChoices : ClaudeModelChoices;
         string current = (saasBuildModel.Text ?? "").Trim();
-        if (agent == "ChatGPT") current = CliModelName(current);
+        current = CliModelName(current);
         saasBuildModel.BeginUpdate();
         saasBuildModel.Items.Clear();
         saasBuildModel.Items.AddRange(choices);
@@ -967,7 +971,7 @@ class Hydra : Form
         g.Add(new GEntry(F, "-p, --print \"...\"", "Run once, print the result, and exit (great for scripting)."));
         g.Add(new GEntry(F, "-c, --continue", "Continue the most recent conversation."));
         g.Add(new GEntry(F, "--resume", "Pick a past session to resume."));
-        g.Add(new GEntry(F, "--model <alias|id>", "Choose the model: opus / sonnet / haiku, or a full id."));
+        g.Add(new GEntry(F, "--model <alias|id>", "Choose a current Claude model, e.g. claude-fable-5, claude-opus-4-8, claude-sonnet-5, or claude-haiku-4-5."));
         g.Add(new GEntry(F, "--dangerously-skip-permissions", "Bypass ALL permission prompts. Fast, but runs anything without asking."));
         g.Add(new GEntry(F, "--permission-mode <mode>", "default | plan | acceptEdits | bypassPermissions."));
         g.Add(new GEntry(F, "--effort <level>", "Set reasoning effort for the session."));
@@ -2417,7 +2421,7 @@ try {
         bool useCaveman = cvCheck != null && cvCheck.Checked;
 
         string selectedModel = (modelCombo.Text ?? "").Trim();
-        string model = agent == "Codex" ? CliModelName(selectedModel) : selectedModel;
+        string model = CliModelName(selectedModel);
         string extra = (extraBox.Text ?? "").Trim();
         string cmd;
         if (agent == "Codex")
@@ -2933,9 +2937,9 @@ try {
 
         saasAuth = mkCombo(new object[] { "Email + password", "Google", "GitHub", "Email + Google + GitHub",
             "Firebase Auth (email + Google + Apple)", "Supabase Auth (email + social)", "Clerk (drop-in auth UI)" }, 3);
-        saasPay = mkCombo(new object[] { "Tap Payments (KSA)", "Moyasar (KSA)", "Stripe", "Lemon Squeezy", "Polar.sh", "None (add later)" }, 0);
+        saasPay = mkCombo(new object[] { "Lemon Squeezy", "Stripe", "Moyasar (KSA)", "Tap Payments (KSA)", "Polar.sh", "None (add later)" }, 0);
         var payGuide = GhostBtn("Payments guide"); payGuide.Margin = new Padding(0, 2, 0, 2); payGuide.Click += (s, e) => ShowPaymentGuide();
-        row(cells(new Control[] { cell("Auth", saasAuth), cell("Payments (KSA-first)", saasPay), cell(" ", payGuide) }), 52);
+        row(cells(new Control[] { cell("Auth", saasAuth), cell("Payments", saasPay), cell(" ", payGuide) }), 52);
 
         saasAI = mkCombo(new object[] { "Smart fallback (OpenRouter + Groq + free)", "OpenRouter only (best models)",
             "Groq only (fastest free)", "BYOK (customer brings key)", "None (no AI features)" }, 0);
@@ -2992,9 +2996,9 @@ try {
         // ================= STAGE 3 — SUBSCRIPTIONS =================
         row(stage(3, "Subscriptions", "Charge users and email your subscribers"), 46);
 
-        saasSubProvider = mkCombo(new object[] { "Tap Payments (KSA)", "Moyasar (KSA)", "Stripe" }, 0);
+        saasSubProvider = mkCombo(new object[] { "Lemon Squeezy", "Stripe", "Moyasar (KSA)", "Tap Payments (KSA)" }, 0);
         saasTrial = SaasBox("14");
-        row(cells(new Control[] { cell("Billing provider (KSA-first)", saasSubProvider), cell("Free trial (days)", saasTrial) }), 52);
+        row(cells(new Control[] { cell("Billing provider", saasSubProvider), cell("Free trial (days)", saasTrial) }), 52);
 
         row(RowCap("Plans / tiers (one per line)"), 20);
         saasTiers = SaasBox("Free — 0 SAR\r\nPro — 69 SAR/mo\r\nTeam — 199 SAR/mo");
@@ -3027,7 +3031,7 @@ try {
         tip.SetToolTip(saasPitch, "Your one-line elevator pitch. Claude uses it to understand the product's purpose and target user — it shapes every screen and feature. Be specific about WHO it's for.");
         tip.SetToolTip(saasFeatures, "The main pages/capabilities, one per line (e.g. Dashboard, Invoice editor, Client list). Claude turns each into real routes, UI, and database models.");
         tip.SetToolTip(saasAuth, "How users sign in. Email + password is simplest; adding Google/GitHub gives one-click login (built into Open SaaS). Integrated platforms go further: Firebase Auth = Google's hosted sign-in (email + Google + Apple, free tier); Supabase Auth = same idea on Postgres; Clerk = drop-in sign-in components with almost no code. Claude wires your pick, including syncing users into your database.");
-        tip.SetToolTip(saasPay, "Which processor charges your customers. KSA-first: Tap & Moyasar support mada, Apple Pay and STC Pay. Stripe/Lemon Squeezy/Polar are global. Claude gets a verified integration spec for your choice.");
+        tip.SetToolTip(saasPay, "Which processor charges your customers. Lemon Squeezy is the default global merchant-of-record path. Tap & Moyasar support mada, Apple Pay and STC Pay for Saudi customers. Claude gets a verified integration spec for your choice.");
         tip.SetToolTip(saasTarget, "Where your site goes live. Vercel = fastest for React/Next.js. Firebase = Hosting + Firestore + Auth together. Cloud Run = a container for any language / long-running backend.");
         tip.SetToolTip(saasBackend, "What powers your server logic. None = static site. Firebase Functions + Firestore = serverless API + DB. Cloud Run API = your container. Vercel Serverless = functions in /api.");
         tip.SetToolTip(saasRegion, "The datacenter that runs your Cloud Run service. Pick one near your users (e.g. me-central2 for the Middle East).");
@@ -3035,7 +3039,7 @@ try {
         tip.SetToolTip(saasGcpProject, "Your Google Cloud / Firebase project id (from the console). Deploys and CI/CD target this project.");
         tip.SetToolTip(saasPublicDir, "The folder your build produces and Firebase serves. Vite -> dist, Create React App -> build.");
         tip.SetToolTip(saasRepoVis, "Your code lives in a GitHub repo — the single source of truth. Private keeps it hidden. Every push can then auto-deploy via GitHub Actions.");
-        tip.SetToolTip(saasSubProvider, "Who charges subscribers on a recurring basis. Tap & Moyasar handle Saudi recurring payments; Stripe has built-in subscription billing + a customer portal.");
+        tip.SetToolTip(saasSubProvider, "Who charges subscribers on a recurring basis. Lemon Squeezy and Stripe include hosted subscription billing and customer management. Tap & Moyasar handle Saudi recurring payments with your own scheduled charging flow.");
         tip.SetToolTip(saasTrial, "How many days new users get free before the first charge. 0 = no trial.");
         tip.SetToolTip(saasTiers, "Your pricing tiers, one per line as Name — price. Your builder creates the plan picker, checkout, and feature-gating from these.");
         tip.SetToolTip(saasEmailProvider, "Who sends your emails. Resend = modern & easy. Postmark = best deliverability for receipts. SendGrid = mature with campaigns. Used for receipts, dunning, and newsletters.");
@@ -3373,6 +3377,7 @@ try {
     string SaasSubKey()
     {
         string s = (saasSubProvider.SelectedItem ?? "").ToString();
+        if (s.StartsWith("Lemon")) return "lemonsqueezy";
         if (s.StartsWith("Tap")) return "tap";
         if (s.StartsWith("Moyasar")) return "moyasar";
         return "stripe";
@@ -3404,7 +3409,7 @@ try {
     void SaasOpenBillingDocs()
     {
         string url;
-        switch (SaasSubKey()) { case "tap": url = "https://developers.tap.company/"; break; case "moyasar": url = "https://docs.moyasar.com/"; break; default: url = "https://docs.stripe.com/billing/subscriptions/overview"; break; }
+        switch (SaasSubKey()) { case "tap": url = "https://developers.tap.company/"; break; case "moyasar": url = "https://docs.moyasar.com/"; break; case "lemonsqueezy": url = "https://docs.lemonsqueezy.com/"; break; default: url = "https://docs.stripe.com/billing/subscriptions/overview"; break; }
         try { Process.Start(url); } catch { }
     }
     string SaasSubscriptionSpec()
@@ -3427,12 +3432,14 @@ try {
         sb.AppendLine();
         if (key == "stripe")
             sb.AppendLine("## Stripe\n- Create products + prices; store `price_...` ids in env by plan.\n- Checkout: `stripe.checkout.sessions.create({ mode: \"subscription\", customer, line_items:[{price,quantity:1}], subscription_data:{ trial_period_days: " + trial + " }, success_url, cancel_url, client_reference_id: userId })`.\n- Webhook `/api/webhooks/stripe`: verify with the RAW body + `STRIPE_WEBHOOK_SECRET`; handle `checkout.session.completed`, `customer.subscription.updated/deleted`, `invoice.payment_failed`. Idempotent on `event.id`.\n- Portal: `stripe.billingPortal.sessions.create({ customer, return_url })`.\n- Entitlement: `[\"active\",\"trialing\"].includes(status) && currentPeriodEnd > now`.\n- Test locally: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`.");
+        else if (key == "lemonsqueezy")
+            sb.AppendLine("## Lemon Squeezy\n- Create subscription products and variants in the Lemon Squeezy dashboard; store variant IDs in env by plan.\n- Checkout: create a checkout for the selected variant and pass the app user ID as custom data.\n- Webhook `/api/webhooks/lemonsqueezy`: verify `X-Signature` with `LEMONSQUEEZY_WEBHOOK_SECRET`; handle subscription created, updated, cancelled, expired, payment success, and payment failed events. Idempotent on the event ID.\n- Portal: send users to the Lemon Squeezy customer portal / subscription management URL.\n- Entitlement: active/trialing/past_due states plus currentPeriodEnd > now; use the database as the source of truth.");
         else if (key == "tap")
             sb.AppendLine("## Tap Payments (KSA) — recurring\n- Amount in MAJOR units (10.00 SAR = 10.00). Auth: Authorization: Bearer sk_ (server only).\n- Save a card token via the Card SDK, then charge the saved token on your own schedule (a cron each period). Your DB holds subscription state.\n- Webhook: verify the hashstring HMAC before trusting status == CAPTURED. Methods: mada, Apple Pay, STC Pay, cards.");
         else
             sb.AppendLine("## Moyasar (KSA) — recurring\n- Amount in HALALAS (10.00 SAR = 1000, x100). Auth: HTTP Basic, secret key as username, empty password.\n- Save a token source, then POST /payments with source.type = token on your billing cadence (cron). Your DB holds subscription state.\n- Webhook: verify secret_token before marking a payment paid. Methods: creditcard (Visa/Mastercard/mada), Apple Pay, STC Pay.");
         sb.AppendLine();
-        sb.AppendLine("Data model: User { stripeCustomerId, plan, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, emailOptIn }, WebhookEvent { id, processedAt }.");
+        sb.AppendLine("Data model: User { billingCustomerId, plan, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, emailOptIn }, WebhookEvent { id, processedAt }.");
         sb.AppendLine("See the bundled `subscription-billing` skill for full code. Keep secrets server-side.");
         return sb.ToString();
     }
@@ -3468,6 +3475,7 @@ try {
         {
             case "tap": lines.Add("TAP_SECRET_KEY=sk_test_xxx"); lines.Add("TAP_PUBLISHABLE_KEY=pk_test_xxx"); break;
             case "moyasar": lines.Add("MOYASAR_SECRET_KEY=sk_test_xxx"); lines.Add("MOYASAR_PUBLISHABLE_KEY=pk_test_xxx"); break;
+            case "lemonsqueezy": lines.Add("LEMONSQUEEZY_API_KEY=xxx"); lines.Add("LEMONSQUEEZY_WEBHOOK_SECRET=xxx"); lines.Add("LEMONSQUEEZY_STORE_ID=xxx"); lines.Add("LEMONSQUEEZY_VARIANT_PRO_MONTHLY=xxx"); lines.Add("LEMONSQUEEZY_VARIANT_PRO_YEARLY=xxx"); break;
             default: lines.Add("STRIPE_SECRET_KEY=sk_test_xxx"); lines.Add("STRIPE_WEBHOOK_SECRET=whsec_xxx"); lines.Add("STRIPE_PRICE_PRO_MONTHLY=price_xxx"); lines.Add("STRIPE_PRICE_PRO_YEARLY=price_xxx"); lines.Add("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_xxx"); break;
         }
         string prov = (saasEmailProvider.SelectedItem ?? "Resend").ToString();

@@ -59,8 +59,7 @@ final class AppState: ObservableObject {
     // Glossary
     let glossary: [GlossaryEntry] = Glossary.all
 
-    let claudeModelOptions = ["Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5",
-                              "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"]
+    let claudeModelOptions = ["Default", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"]
     let chatGPTModelOptions = ["Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
                                "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"]
     var modelOptions: [String] { claudeModelOptions }
@@ -78,6 +77,10 @@ final class AppState: ObservableObject {
             .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: "-", with: "")
         switch key {
+        case "fable", "claudefable5": return "claude-fable-5"
+        case "opus", "claudeopus48": return "claude-opus-4-8"
+        case "sonnet", "claudesonnet5", "claudesonnet46": return "claude-sonnet-5"
+        case "haiku", "claudehaiku45", "claudehaiku4520251001": return "claude-haiku-4-5"
         case "chatgpt5.6", "gpt5.6": return "gpt-5.6-sol"
         case "chatgpt5.5": return "gpt-5.5"
         default: return selection
@@ -125,10 +128,8 @@ final class AppState: ObservableObject {
     }
 
     func sanitizeLaunchModel() {
-        if agent == "Codex" || agent == "ChatGPT" {
-            let normalized = cliModelName(model)
-            if launchModelOptions(for: agent).contains(normalized) { model = normalized }
-        }
+        let normalized = cliModelName(model)
+        if launchModelOptions(for: agent).contains(normalized) { model = normalized }
         if !launchModelOptions(for: agent).contains(model) { model = "Default" }
     }
 

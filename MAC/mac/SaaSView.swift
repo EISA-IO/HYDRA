@@ -164,10 +164,8 @@ struct SaaSView: View {
     }
 
     private func sanitizeBuildModel() {
-        if m.buildAgent == "ChatGPT" {
-            let normalized = app.cliModelName(m.buildModel)
-            if app.launchModelOptions(for: m.buildAgent).contains(normalized) { m.buildModel = normalized }
-        }
+        let normalized = app.cliModelName(m.buildModel)
+        if app.launchModelOptions(for: m.buildAgent).contains(normalized) { m.buildModel = normalized }
         if !app.launchModelOptions(for: m.buildAgent).contains(m.buildModel) { m.buildModel = "Default" }
     }
 
@@ -254,7 +252,7 @@ struct SaaSView: View {
                             DarkPicker(options: m.authOptions, selection: $m.auth)
                         }
                         VStack(alignment: .leading, spacing: 6) {
-                            HelpLabel(text: "Payments (KSA-first)", help: "Which processor charges your customers. KSA-first: Tap & Moyasar support mada, Apple Pay and STC Pay for Saudi customers. Stripe / Lemon Squeezy / Polar are global. Claude gets a verified integration spec (incl. the tricky amount-unit rules) for whichever you choose.")
+                            HelpLabel(text: "Payments", help: "Which processor charges your customers. Lemon Squeezy is the default global merchant-of-record path. Tap & Moyasar support mada, Apple Pay and STC Pay for Saudi customers. Claude gets a verified integration spec for whichever you choose.")
                             DarkPicker(options: m.payOptions, selection: $m.pay)
                         }
                         VStack(alignment: .leading, spacing: 6) {
@@ -406,7 +404,7 @@ struct SaaSView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 6) {
-                            HelpLabel(text: "Billing provider (KSA-first)", help: "Who charges subscribers on a recurring basis. Tap & Moyasar handle Saudi recurring payments (you charge a saved card each period via a scheduled job). Stripe has built-in subscription billing + a hosted customer portal for upgrades/cancels.")
+                            HelpLabel(text: "Billing provider", help: "Who charges subscribers on a recurring basis. Lemon Squeezy and Stripe include hosted subscription billing and customer management. Tap & Moyasar handle Saudi recurring payments with your own scheduled charging flow.")
                             DarkPicker(options: m.subProviderOptions, selection: $m.subProvider)
                         }
                         VStack(alignment: .leading, spacing: 6) {

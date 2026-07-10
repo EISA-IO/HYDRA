@@ -36,10 +36,10 @@ final class SaaSModel: ObservableObject {
     @Published var pitch = ""
     @Published var features = ""
     @Published var auth = "Email + Google + GitHub"
-    @Published var pay = "Tap Payments (KSA)"   // KSA-first: default to a local processor
+    @Published var pay = "Lemon Squeezy"
     let authOptions = ["Email + password", "Google", "GitHub", "Email + Google + GitHub",
                        "Firebase Auth (email + Google + Apple)", "Supabase Auth (email + social)", "Clerk (drop-in auth UI)"]
-    let payOptions = ["Tap Payments (KSA)", "Moyasar (KSA)", "Stripe", "Lemon Squeezy", "Polar.sh", "None (add later)"]
+    let payOptions = ["Lemon Squeezy", "Stripe", "Moyasar (KSA)", "Tap Payments (KSA)", "Polar.sh", "None (add later)"]
 
     // ---- AI layer: our own integrated, legitimate multi-provider router shipped with every
     // AI SaaS. Priority ladder (best model → cheapest fallback), all commercial-use-OK. ----
@@ -64,12 +64,12 @@ final class SaaSModel: ObservableObject {
     let regionOptions = ["us-central1", "us-east1", "europe-west1", "me-central2", "asia-south1"]
 
     // ---- subscriptions ----
-    @Published var subProvider = "Tap Payments (KSA)"   // KSA-first default for SaaS recurring
+    @Published var subProvider = "Lemon Squeezy"
     @Published var tiers = "Free — 0 SAR\nPro — 69 SAR/mo\nTeam — 199 SAR/mo"
     @Published var trialDays = "14"
     @Published var emailProvider = "Resend"
     @Published var fromEmail = "billing@yourdomain.com"
-    let subProviderOptions = ["Tap Payments (KSA)", "Moyasar (KSA)", "Stripe"]
+    let subProviderOptions = ["Lemon Squeezy", "Stripe", "Moyasar (KSA)", "Tap Payments (KSA)"]
     let emailProviderOptions = ["Resend", "Postmark", "SendGrid"]
 
     // ---- presets: common SaaS types that pre-fill the vision so beginners start fast.
@@ -745,6 +745,7 @@ final class SaaSModel: ObservableObject {
 
     // ============================================================ SUBSCRIPTIONS
     func subKey() -> String {
+        if subProvider.hasPrefix("Lemon") { return "lemonsqueezy" }
         if subProvider.hasPrefix("Tap") { return "tap" }
         if subProvider.hasPrefix("Moyasar") { return "moyasar" }
         return "stripe"
@@ -775,6 +776,7 @@ final class SaaSModel: ObservableObject {
         switch subKey() {
         case "tap": url = "https://developers.tap.company/"
         case "moyasar": url = "https://docs.moyasar.com/"
+        case "lemonsqueezy": url = "https://docs.lemonsqueezy.com/"
         default: url = "https://docs.stripe.com/billing/subscriptions/overview"
         }
         NSWorkspace.shared.open(URL(string: url)!)
@@ -1339,6 +1341,15 @@ final class SaaSModel: ObservableObject {
             - Entitlement: `["active","trialing"].includes(status) && currentPeriodEnd > now`.
             - Test locally: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`.
             """
+        } else if key == "lemonsqueezy" {
+            s += """
+            ## Lemon Squeezy
+            - Create subscription products and variants in the Lemon Squeezy dashboard; store variant IDs in env by plan.
+            - Checkout: create a checkout for the selected variant and pass the app user ID as custom data.
+            - Webhook `/api/webhooks/lemonsqueezy`: verify `X-Signature` with `LEMONSQUEEZY_WEBHOOK_SECRET`; handle subscription created, updated, cancelled, expired, payment success, and payment failed events. Idempotent on the event ID.
+            - Portal: send users to the Lemon Squeezy customer portal / subscription management URL.
+            - Entitlement: active/trialing/past_due states plus `currentPeriodEnd > now`; use the database as the source of truth.
+            """
         } else if key == "tap" {
             s += """
             ## Tap Payments (KSA) — recurring
@@ -1354,7 +1365,7 @@ final class SaaSModel: ObservableObject {
             - Webhook: verify `secret_token` before marking a payment paid. Methods: creditcard (Visa/Mastercard/mada), Apple Pay, STC Pay.
             """
         }
-        s += "\n\nData model: `User { stripeCustomerId, plan, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, emailOptIn }`, `WebhookEvent { id, processedAt }`.\nSee the bundled `subscription-billing` skill for full code. Keep secrets server-side."
+        s += "\n\nData model: `User { billingCustomerId, plan, subscriptionStatus, currentPeriodEnd, cancelAtPeriodEnd, emailOptIn }`, `WebhookEvent { id, processedAt }`.\nSee the bundled `subscription-billing` skill for full code. Keep secrets server-side."
         return s
     }
 
@@ -1383,6 +1394,9 @@ final class SaaSModel: ObservableObject {
         switch subKey() {
         case "tap": lines += ["TAP_SECRET_KEY=sk_test_xxx", "TAP_PUBLISHABLE_KEY=pk_test_xxx"]
         case "moyasar": lines += ["MOYASAR_SECRET_KEY=sk_test_xxx", "MOYASAR_PUBLISHABLE_KEY=pk_test_xxx"]
+        case "lemonsqueezy": lines += ["LEMONSQUEEZY_API_KEY=xxx", "LEMONSQUEEZY_WEBHOOK_SECRET=xxx",
+                                       "LEMONSQUEEZY_STORE_ID=xxx", "LEMONSQUEEZY_VARIANT_PRO_MONTHLY=xxx",
+                                       "LEMONSQUEEZY_VARIANT_PRO_YEARLY=xxx"]
         default: lines += ["STRIPE_SECRET_KEY=sk_test_xxx", "STRIPE_WEBHOOK_SECRET=whsec_xxx",
                            "STRIPE_PRICE_PRO_MONTHLY=price_xxx", "STRIPE_PRICE_PRO_YEARLY=price_xxx",
                            "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_xxx"]
