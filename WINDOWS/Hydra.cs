@@ -39,6 +39,7 @@ class Hydra : Form
     static readonly string SessDir     = Path.Combine(StateDir, "sessions");
     static readonly object[] ClaudeModelChoices = { "Default", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5" };
     static readonly object[] ChatGptModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark" };
+    static bool screenshotMode;
 
     // palette — dark liquid-glass
     static readonly Color Bg        = Color.FromArgb(22, 22, 25);
@@ -133,11 +134,12 @@ class Hydra : Form
         Application.SetCompatibleTextRenderingDefault(false);
         try
         {
+            int screenshot = Array.IndexOf(args, "--screenshot");
+            screenshotMode = screenshot >= 0 && screenshot + 1 < args.Length;
             var mgr = new Hydra();
             if (Array.IndexOf(args, "--demo") >= 0) mgr.EnableDemo();
             if (Array.IndexOf(args, "--demolaunch") >= 0) mgr.EnableDemoLaunch();
-            int screenshot = Array.IndexOf(args, "--screenshot");
-            if (screenshot >= 0 && screenshot + 1 < args.Length) mgr.EnableScreenshot(args[screenshot + 1]);
+            if (screenshotMode) mgr.EnableScreenshot(args[screenshot + 1]);
             Application.Run(mgr);
         }
         catch (Exception ex)
@@ -291,8 +293,11 @@ class Hydra : Form
         RenderGlossary("");
         InitAlerts();
         InitOllama();
-        EnsureDefaultCompression(firstRun);
-        ProvisionNativeToolchain();   // make claude/rtk/caveman native — no manual download
+        if (!screenshotMode)
+        {
+            EnsureDefaultCompression(firstRun);
+            ProvisionNativeToolchain();   // make claude/rtk/caveman native — no manual download
+        }
         FormClosing += (s, e) => Shutdown();
     }
 
