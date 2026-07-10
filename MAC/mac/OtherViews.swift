@@ -161,7 +161,7 @@ struct SettingsView: View {
                                 DarkPicker(options: app.modelOptions, selection: $app.model)
                             }
                             VStack(alignment: .leading, spacing: 8) {
-                                FieldLabel(text: "Permissions")
+                                FieldLabel(text: app.agent == "Codex" ? "Permissions (Codex: YOLO)" : "Permissions")
                                 DarkPicker(options: app.permissionOptions, selection: $app.permission)
                             }
                         }

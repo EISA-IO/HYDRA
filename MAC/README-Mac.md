@@ -12,10 +12,11 @@ Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossar
   **inside the app as a tab** (a real embedded terminal via a PTY, powered by SwiftTerm).
   Open as many as you like and switch between them. Each tab shows live status
   (working / needs-you / idle) driven by per-session Claude hooks where available.
-- **Settings** — launch defaults (model, permissions, `--continue`, extra flags), the
+- **Settings** — launch defaults (model, Claude permissions, `--continue`, extra flags), the
   token-compression toggles (RTK / Caveman / Headroom) with live status + a "don't overlap"
   advisory, and a one-click **Install & setup** section (Node, Claude CLI, Codex CLI, RTK, Caveman,
   Headroom, skills, "Install everything", "Update core") that streams to a log.
+  Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
 - **SaaS** — capture a product vision, scaffold Open SaaS (Wasp), then hand it to Claude to
   build. Generates `VISION.md` and a verified `PAYMENTS.md` (incl. the Tap vs Moyasar
   amount-unit gotcha for KSA).

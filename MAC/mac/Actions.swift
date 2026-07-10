@@ -15,10 +15,7 @@ extension AppState {
     }
 
     func codexPermissionFlags() -> String {
-        if permission.hasPrefix("Bypass") { return " --dangerously-bypass-approvals-and-sandbox" }
-        if permission.hasPrefix("Plan") { return " --sandbox read-only --ask-for-approval on-request" }
-        if permission.hasPrefix("Accept") { return " --ask-for-approval never" }
-        return " --ask-for-approval on-request"
+        " --dangerously-bypass-approvals-and-sandbox"
     }
 
     var launchButtonLabel: String {

@@ -707,11 +707,7 @@ class ClaudeManager : Form
     }
     string CodexPermFlag()
     {
-        string p = (permCombo.SelectedItem as string) ?? "";
-        if (p.StartsWith("Bypass")) return " --dangerously-bypass-approvals-and-sandbox";
-        if (p.StartsWith("Plan")) return " --sandbox read-only --ask-for-approval on-request";
-        if (p.StartsWith("Accept")) return " --ask-for-approval never";
-        return " --ask-for-approval on-request";
+        return " --dangerously-bypass-approvals-and-sandbox";
     }
     static string CmdQ(string s) { return "\"" + s.Replace("\"", "\\\"") + "\""; }
     int RunCodexCmd(string args)
@@ -1332,7 +1328,7 @@ class ClaudeManager : Form
         mp.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
         var acap = RowCap("Agent"); acap.Margin = new Padding(0, 0, 6, 0);
         var mcap = RowCap("Model"); mcap.Margin = new Padding(0, 0, 6, 0);
-        var pcap = RowCap("Permissions"); pcap.Margin = new Padding(6, 0, 0, 0);
+        var pcap = RowCap("Permissions (Codex: YOLO)"); pcap.Margin = new Padding(6, 0, 0, 0);
         agentCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
         agentCombo.Items.AddRange(new object[] { "Claude", "Codex" });
         agentCombo.SelectedIndex = 0;

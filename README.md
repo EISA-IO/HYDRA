@@ -52,6 +52,7 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
   RTK + Caveman when enabled.
 - **Settings** — choose the default agent, launch defaults, token-compression toggles, one-click
   "Install everything" / "Update core packages".
+  Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
 - **SaaS** — the guided *Build a SaaS* lifecycle: describe your idea, scaffold Open SaaS, deploy
   (Firebase / Vercel / Cloud Run via a private GitHub repo + GitHub Actions CI/CD), and add
   subscription billing + subscriber email. KSA-first payments (Tap / Moyasar) by default.
