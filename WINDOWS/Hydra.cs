@@ -187,6 +187,7 @@ class Hydra : Form
                 }
                 Close();
                 Application.ExitThread();
+                Environment.Exit(Environment.ExitCode);
             };
             timer.Start();
         };
