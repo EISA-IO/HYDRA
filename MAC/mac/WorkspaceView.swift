@@ -123,12 +123,8 @@ struct TermTabChip: View {
                 .help("Close this terminal")
             }
             HStack(spacing: 5) {
-                Text(tab.task)
-                    .font(.system(size: 11, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? .white : Theme.textDim)
-                    .lineLimit(1)
-                Text(statusLabel)
-                    .font(.system(size: 9, weight: .bold))
+                Text(tab.status.label)
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
             }
@@ -141,30 +137,20 @@ struct TermTabChip: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture { terminals.select(tab.id) }
-        .help("\(agentLabel)\nModel: \(tab.model)\nTask: \(tab.task)\nFolder: \(tab.folder)\nStatus: \(statusLabel)")
+        .accessibilityLabel("\(agentLabel), \(tab.model), \(tab.status.label)")
+        .help("\(agentLabel)\nModel: \(tab.model)\nTask: \(tab.task)\nFolder: \(tab.folder)\nStatus: \(tab.status.label)")
     }
 
     var agentLabel: String {
         tab.agent == "Codex" ? "ChatGPT/Codex" : tab.agent
     }
 
-    var statusLabel: String {
-        switch tab.status {
-        case "working": return "working"
-        case "waiting": return "waiting"
-        case "idle": return "idle"
-        case "exited": return "exited"
-        default: return tab.status
-        }
-    }
-
     var statusColor: Color {
         switch tab.status {
-        case "working": return Theme.accent
-        case "waiting": return Theme.yellow
-        case "idle": return Theme.green
-        case "exited": return Theme.textFaint
-        default: return Theme.green
+        case .ready: return Theme.green
+        case .working: return Theme.accent
+        case .waitingForUser: return Theme.yellow
+        case .stoppedOrTokenLimit: return Theme.textFaint
         }
     }
 }

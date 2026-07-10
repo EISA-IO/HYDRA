@@ -30,20 +30,7 @@ extension AppState {
     /// Write a per-session settings.json whose hooks touch event files so the app
     /// can reflect working/idle/waiting status for this Terminal tab.
     private func writeSessionSettings(id: String, rtk: Bool, caveman: Bool) -> String {
-        let ev = Paths.eventsDir
-        func hook(_ name: String) -> String {
-            // touch a uniquely-named event file the app watches. BSD date has no %N, so add
-            // $RANDOM to avoid same-second filename collisions swallowing rapid events.
-            "touch \"\(ev)/\(id)__\(name)__$(date +%s)_$RANDOM.evt\""
-        }
-        func entry(_ cmd: String) -> [[String: Any]] {
-            [["hooks": [["type": "command", "command": cmd]]]]
-        }
-        var hooks: [String: Any] = [
-            "UserPromptSubmit": entry(hook("work")),
-            "Notification":     entry(hook("notify")),
-            "Stop":             entry(hook("stop"))
-        ]
+        var hooks = SessionHookConfig.claudeHooks(id: id, eventsDirectory: Paths.eventsDir)
         // RTK (input compression) is a global PreToolUse hook. Claude MERGES hooks across
         // settings sources and DEDUPES identical command strings, so re-declaring it in this
         // per-session file guarantees it runs in this embedded terminal — even if the user's
@@ -79,6 +66,13 @@ extension AppState {
             try? data.write(to: URL(fileURLWithPath: path))
         }
         return path
+    }
+
+    private func writeCodexSessionProfile(id: String) -> (name: String, path: String) {
+        let name = "hydra-" + id
+        let path = Paths.codexDir + "/" + name + ".config.toml"
+        FS.write(path, SessionHookConfig.codexProfile(id: id, eventsDirectory: Paths.eventsDir) + "\n")
+        return (name, path)
     }
 
     private var codexCavemanBlock: String {
@@ -163,12 +157,14 @@ extension AppState {
         let m = cliModelName(selectedModel)
         let extra = extraArgs.trimmingCharacters(in: .whitespaces)
         var cli: String
+        var cleanupPaths: [String] = []
         if selectedAgent == "Codex" {
             ensureCodexCompressionForLaunch(useRtk: rtk, useCaveman: caveman)
-            cli = "codex -C \(TerminalLauncher.shellQuote(f))"
+            let profile = writeCodexSessionProfile(id: id)
+            cleanupPaths.append(profile.path)
+            cli = "codex --profile \(TerminalLauncher.shellQuote(profile.name)) --enable hooks --dangerously-bypass-hook-trust -C \(TerminalLauncher.shellQuote(f))"
             if !m.isEmpty && m != "Default" { cli += " --model \(TerminalLauncher.shellQuote(m))" }
             cli += codexPermissionFlags()
-            if caveman { cli += " --enable hooks --dangerously-bypass-hook-trust" }
             if !extra.isEmpty { cli += " " + extra }
             if continueLast {
                 cli += " resume --last"
@@ -178,6 +174,7 @@ extension AppState {
         } else {
             trustFolder(f)
             let settings = writeSessionSettings(id: id, rtk: rtk, caveman: caveman)
+            cleanupPaths.append(settings)
             cli = "claude --settings \(TerminalLauncher.shellQuote(settings))"
             if !m.isEmpty && m != "Default" { cli += " --model \(m)" }
             cli += permissionFlag()
@@ -201,7 +198,8 @@ extension AppState {
 
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
                         agent: selectedAgent, model: sessionModelLabel(m), task: taskLabel(startupPrompt: startupPrompt, agent: selectedAgent),
-                        headroom: selectedAgent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman)
+                        headroom: selectedAgent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman,
+                        cleanupPaths: cleanupPaths)
         saveRecent(f)
         saveSettings()
         refreshRecents()

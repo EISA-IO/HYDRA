@@ -10,8 +10,9 @@ Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossar
 
 - **Workspace** — the home tab. Pick **Claude** or **Codex**, then click **New** to launch a session that runs
   **inside the app as a tab** (a real embedded terminal via a PTY, powered by SwiftTerm).
-  Open as many as you like and switch between them. Each tab shows live status
-  (working / needs-you / idle) driven by per-session Claude hooks where available.
+  Open as many as you like and switch between them. Each tab shows **Ready**, **Working**,
+  **Waiting for User**, or **Stopped / Token Limit** as its primary second line. Per-session
+  Claude and Codex lifecycle hooks update turn state; PTY termination supplies the stopped fallback.
 - **Ollama sidebar controls** — local inference is off by default. **Start Ollama** launches the
   installed official CLI as `ollama serve` bound to `127.0.0.1:11434`; **Stop Ollama** appears only
   for a server Hydra started. A server launched from another terminal is detected and left under

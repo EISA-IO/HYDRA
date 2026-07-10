@@ -50,8 +50,10 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
 ## Tabs
 
 - **Workspace** — create multiple embedded Claude and Codex terminals in tabs; each terminal gets
-  RTK + Caveman when enabled. Terminal tabs show the agent, exact model, current task, live status,
-  and folder so parallel sessions are easy to tell apart. Claude and Codex keep separate default
+  RTK + Caveman when enabled. Terminal tabs make live state primary: **Ready**, **Working**,
+  **Waiting for User**, or **Stopped / Token Limit**. Per-session Claude and Codex hooks drive
+  turn state; process exit supplies the stopped fallback. Agent, exact model, task, and folder remain
+  available as context. Claude and Codex keep separate default
   model choices, so a Codex default like **gpt-5.6-sol** is not overwritten when you switch back
   to Claude.
 - **Ollama (macOS sidebar)** — Ollama stays off by default. **Start Ollama** runs the installed

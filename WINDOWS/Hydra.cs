@@ -14,6 +14,10 @@ using System.Windows.Forms;
 class Hydra : Form
 {
     const int ProxyPort = 8787;
+    const string TermReady = "Ready";
+    const string TermWorking = "Working";
+    const string TermWaiting = "Waiting for User";
+    const string TermStopped = "Stopped / Token Limit";
     static readonly string HomeDir     = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     static readonly string StateDir    = Path.Combine(HomeDir, ".claude-manager");
     static readonly string ManagedBin  = Path.Combine(StateDir, "bin");   // native toolchain the app provisions (on PATH)
@@ -170,7 +174,7 @@ class Hydra : Form
             sess.Proc = Process.Start(psi);
         }
         catch { return; }
-        sess.Status = "working"; sess.Color = Accent;
+        sess.Status = TermWorking; sess.Color = Accent;
         sessions.Add(sess);
         selectedTerm = sess;
         RefreshTermList();
@@ -273,7 +277,7 @@ class Hydra : Form
         {
             bool anyLive = false;
             foreach (var t in sessions)
-                if (t.Status == "working" || t.Status == "starting") { anyLive = true; break; }
+            if (t.Status == TermWorking) { anyLive = true; break; }
             if (anyLive)
                 foreach (Control c in termTabs.Controls) c.Invalidate();
         }
@@ -2378,7 +2382,8 @@ try {
 
     class TermSession
     {
-        public string Id, Name, Folder, Agent = "Claude", Model = "Default", Task = "Interactive session", Status = "starting";
+        public string Id, Name, Folder, Agent = "Claude", Model = "Default", Task = "Interactive session", Status = TermReady;
+        public string CodexProfilePath;
         public Color Color = Color.Gray;
         public Process Proc;
         public IntPtr Hwnd = IntPtr.Zero;
@@ -2510,8 +2515,9 @@ try {
         var sb = new StringBuilder();
         sb.Append("{\n  \"hooks\": {\n");
         sb.Append("    \"UserPromptSubmit\": [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("work") + "\"}]}],\n");
-        sb.Append("    \"Notification\":     [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("notify") + "\"}]}],\n");
-        sb.Append("    \"Stop\":             [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("stop") + "\"}]}]");
+        sb.Append("    \"Notification\":     [{\"matcher\":\"permission_prompt|idle_prompt|elicitation_dialog\",\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("notify") + "\"}]}],\n");
+        sb.Append("    \"Stop\":             [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("stop") + "\"}]}],\n");
+        sb.Append("    \"StopFailure\":      [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("failure") + "\"}]}]");
         // RTK (input compression) is a global PreToolUse hook. Claude MERGES hooks across
         // settings sources and DEDUPES identical commands, so re-declaring it here guarantees it
         // runs in this embedded session and makes the per-terminal RTK toggle meaningful — never
@@ -2556,6 +2562,38 @@ try {
         string path = Path.Combine(SessDir, id + ".settings.json");
         File.WriteAllText(path, sb.ToString());
         return path;
+    }
+
+    static string TomlEsc(string s)
+    {
+        return (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n");
+    }
+
+    string WriteCodexSessionProfile(string id, out string path)
+    {
+        string name = "hydra-" + id;
+        path = Path.Combine(CodexDir, name + ".config.toml");
+        string exe = (Application.ExecutablePath ?? "").Replace("'", "''");
+        Func<string, bool, string> command = (ev, json) => {
+            string script = "& '" + exe + "' --hook " + ev + " --session " + id;
+            if (json) script += "; Write-Output '{}'";
+            return "powershell.exe -NoProfile -Command \"" + script.Replace("\"", "\\\"") + "\"";
+        };
+        var sb = new StringBuilder();
+        Action<string, string, bool> add = (hook, ev, json) => {
+            sb.Append("[[hooks." + hook + "]]\n");
+            sb.Append("[[hooks." + hook + ".hooks]]\n");
+            sb.Append("type = \"command\"\n");
+            sb.Append("command = \"" + TomlEsc(command(ev, json)) + "\"\n");
+            sb.Append("command_windows = \"" + TomlEsc(command(ev, json)) + "\"\n");
+            sb.Append("timeout = 5\n\n");
+        };
+        add("UserPromptSubmit", "work", false);
+        add("PermissionRequest", "notify", false);
+        add("Stop", "stop", true);
+        Directory.CreateDirectory(CodexDir);
+        File.WriteAllText(path, sb.ToString());
+        return name;
     }
 
     // Auto-trust: mark a folder as trusted in ~/.claude.json so the CLI never shows the
@@ -2638,13 +2676,14 @@ try {
         string model = CliModelName(selectedModel);
         string extra = (extraBox.Text ?? "").Trim();
         string cmd;
+        string codexProfilePath = null;
         if (agent == "Codex")
         {
             EnsureCodexCompressionForLaunch(useRtk, useCaveman);
-            cmd = "codex -C " + CmdQ(folder);
+            string profile = WriteCodexSessionProfile(id, out codexProfilePath);
+            cmd = "codex --profile " + CmdQ(profile) + " --enable hooks --dangerously-bypass-hook-trust -C " + CmdQ(folder);
             if (model.Length > 0 && model != "Default") cmd += " --model " + CmdQ(model);
             cmd += CodexPermFlag();
-            if (useCaveman) cmd += " --enable hooks --dangerously-bypass-hook-trust";
             if (extra.Length > 0) cmd += " " + extra;
             if (continueChk.Checked) cmd += " resume --last";
         }
@@ -2665,12 +2704,14 @@ try {
             Name = (agent == "Codex" ? "Cx" : "Cl") + (sessions.Count + 1) + "  " + new DirectoryInfo(folder).Name,
             CHeadroom = agent == "Codex" ? false : useHeadroom,
             CRtk = useRtk,
-            CCaveman = useCaveman };
+            CCaveman = useCaveman,
+            CodexProfilePath = codexProfilePath };
         try
         {
             // Force a CLASSIC conhost window (bypass Windows Terminal, which cannot be reparented).
             // conhost.exe launches the command in a legacy console we own and can embed.
-            var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title " + agent + " " + id + " & " + cmd)
+            string exitHook = "\"" + Application.ExecutablePath + "\" --hook exited --session " + id;
+            var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title " + agent + " " + id + " & " + cmd + " & " + exitHook)
             { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = folder };
             psi.EnvironmentVariables["CODEX_HOME"] = CodexDir;
             if (agent != "Codex" && useHeadroom) psi.EnvironmentVariables["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:" + ProxyPort;
@@ -2683,7 +2724,7 @@ try {
         }
         // Start idle: Claude boots to a prompt and waits for you. The tab only spins once
         // the UserPromptSubmit hook fires ("work"); the Stop hook returns it to idle.
-        sess.Status = "ready"; sess.Color = Green;
+        sess.Status = TermReady; sess.Color = Green;
         sessions.Add(sess);
         SaveRecent(folder);
         selectedTerm = sess;          // focus the freshly opened tab
@@ -2800,7 +2841,7 @@ try {
     void CloseSelectedTerminal()
     {
         var s = SelectedSession(); if (s == null) return;
-        if (s.Status == "working" &&
+        if (s.Status == TermWorking &&
             MessageBox.Show("Session '" + s.Name.Trim() + "' is still WORKING.\nClose it anyway?", "Hydra",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         KillSession(s); RefreshTermList(); ShowSelectedTerminal();
@@ -2811,6 +2852,7 @@ try {
         try { if (s.Proc != null && !s.Proc.HasExited) { var p = new ProcessStartInfo("taskkill", "/PID " + s.Proc.Id + " /T /F") { UseShellExecute = false, CreateNoWindow = true }; Process.Start(p); } }
         catch { }
         try { File.Delete(Path.Combine(SessDir, s.Id + ".settings.json")); } catch { }
+        try { if (!string.IsNullOrEmpty(s.CodexProfilePath)) File.Delete(s.CodexProfilePath); } catch { }
         sessions.Remove(s);
     }
 
@@ -2849,7 +2891,7 @@ try {
         Color bg = on ? Color.FromArgb(52, 52, 62) : Panel2;
         using (var b = new SolidBrush(bg)) g.FillRectangle(b, rect);
 
-        bool live = s.Status == "working" || s.Status == "starting";
+        bool live = s.Status == TermWorking;
         int cx = 16, cy = rect.Height / 2;
 
         // status glyph: rotating arc while live, solid dot otherwise
@@ -2891,17 +2933,12 @@ try {
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
             g.DrawString(s.Model ?? "Default", f, b, new RectangleF(tx + 86, 7, bStart - tx - 92, 18), sf);
 
-        // Task label plus live state, clipped so it never overlaps the state text.
-        string task = string.IsNullOrWhiteSpace(s.Task) ? "Interactive session" : s.Task.Trim();
-        string status = string.IsNullOrWhiteSpace(s.Status) ? "ready" : s.Status.Trim();
-        SizeF statusSize;
-        using (var sfnt = new Font("Segoe UI", 8f, FontStyle.Bold))
-            statusSize = g.MeasureString(status, sfnt);
-        float statusW = Math.Min(92f, statusSize.Width + 4f);
-        using (var f = new Font("Segoe UI", 8.3f, FontStyle.Bold))
-        using (var b = new SolidBrush(on ? Color.White : TextDim))
+        // Live state is primary. Task metadata remains in the tooltip.
+        string status = string.IsNullOrWhiteSpace(s.Status) ? TermReady : s.Status.Trim();
+        using (var f = new Font("Segoe UI", 9f, FontStyle.Bold))
+        using (var b = new SolidBrush(s.Color))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(task, f, b, new RectangleF(tx, 28, rect.Width - tx - statusW - 16, 18), sf);
+            g.DrawString(status, f, b, new RectangleF(tx, 27, rect.Width - tx - 12, 18), sf);
 
         // Folder basename, kept faint as secondary context.
         string folder = "";
@@ -2911,14 +2948,6 @@ try {
         using (var b = new SolidBrush(TextFaint))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
             g.DrawString(folder, f, b, new RectangleF(tx, 42, rect.Width - tx - 12, 16), sf);
-
-        // status text, right-aligned (bottom line)
-        using (var f = new Font("Segoe UI", 8f, FontStyle.Bold))
-        using (var b = new SolidBrush(s.Color))
-        {
-            var sz = g.MeasureString(status, f);
-            g.DrawString(status, f, b, rect.Width - sz.Width - 10, 28);
-        }
 
         // selected accent bar + border
         if (on)
@@ -2977,8 +3006,8 @@ try {
         foreach (var s in sessions)
         {
             if (!s.Embedded) EmbedIfReady(s);
-            if (s.Proc != null && s.Proc.HasExited && s.Status != "exited")
-            { s.Status = "exited"; s.Color = TextFaint; s.Embedded = false; s.Hwnd = IntPtr.Zero; changed = true; }
+            if (s.Proc != null && s.Proc.HasExited && s.Status != TermStopped)
+            { s.Status = TermStopped; s.Color = TextFaint; s.Embedded = false; s.Hwnd = IntPtr.Zero; changed = true; }
         }
         if (changed) RefreshTermList();
         ResizeEmbedded();
@@ -3000,19 +3029,26 @@ try {
         foreach (var t in sessions) if (t.Id == id) { s = t; break; }
         if (s == null) return;
 
+        if (s.Status == TermStopped) return;
+
         if (ev == "notify")
         {
-            s.Status = "AWAITING YOU"; s.Color = Yellow;
+            s.Status = TermWaiting; s.Color = Yellow;
             Alert(s.Name, s.Agent + " is waiting for your answer.");
         }
         else if (ev == "stop")
         {
-            s.Status = "done / idle"; s.Color = Green;
-            Alert(s.Name, "Task finished — " + s.Agent + " is idle.");
+            s.Status = TermWaiting; s.Color = Yellow;
+            Alert(s.Name, s.Agent + " finished its turn and is waiting for you.");
         }
         else if (ev == "work")
         {
-            s.Status = "working"; s.Color = Accent;
+            s.Status = TermWorking; s.Color = Accent;
+        }
+        else if (ev == "failure" || ev == "exited")
+        {
+            s.Status = TermStopped; s.Color = TextFaint;
+            Alert(s.Name, s.Agent + " stopped or reached a token/usage limit.");
         }
         RefreshTermList();
     }

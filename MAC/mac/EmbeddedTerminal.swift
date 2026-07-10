@@ -13,14 +13,15 @@ final class TermTab: ObservableObject, Identifiable {
     let rtk: Bool
     let caveman: Bool
     @Published var title: String
-    @Published var status: String = "ready"   // ready | working | waiting | idle | exited
+    @Published var status: TerminalStatus = .ready
+    let cleanupPaths: [String]
     let view: LocalProcessTerminalView
     let startedAt = Date()
     // Strong owner for the process delegate (SwiftTerm holds it weakly, so the tab must retain it).
     var coordinator: AnyObject?
 
     init(id: String, folder: String, agent: String, model: String, task: String,
-         headroom: Bool, rtk: Bool, caveman: Bool) {
+         headroom: Bool, rtk: Bool, caveman: Bool, cleanupPaths: [String]) {
         self.id = id
         self.folder = folder
         self.agent = agent
@@ -29,6 +30,7 @@ final class TermTab: ObservableObject, Identifiable {
         self.headroom = headroom
         self.rtk = rtk
         self.caveman = caveman
+        self.cleanupPaths = cleanupPaths
         self.title = (agent == "Codex" ? "Cx · " : "Cl · ") + FS.base(folder)
         self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         view.nativeBackgroundColor = NSColor(srgbRed: 16/255, green: 16/255, blue: 18/255, alpha: 1)
@@ -57,9 +59,9 @@ final class TerminalManager: ObservableObject {
     /// Spawn a Claude session in a new embedded tab.
     func spawn(id: String, folder: String, shellCommand: String, env: [String],
                agent: String = "Claude", model: String = "Default", task: String = "Interactive session",
-               headroom: Bool, rtk: Bool, caveman: Bool) {
+               headroom: Bool, rtk: Bool, caveman: Bool, cleanupPaths: [String] = []) {
         let t = TermTab(id: id, folder: folder, agent: agent, model: model, task: task,
-                        headroom: headroom, rtk: rtk, caveman: caveman)
+                        headroom: headroom, rtk: rtk, caveman: caveman, cleanupPaths: cleanupPaths)
         let coord = Coordinator(manager: self, tabId: id)
         t.coordinator = coord                 // retain it — processDelegate below is weak
         t.view.processDelegate = coord
@@ -77,17 +79,19 @@ final class TerminalManager: ObservableObject {
         guard let t = tab(id) else { return }
         t.view.terminate()
         t.view.removeFromSuperview()
+        cleanup(t)
         tabs.removeAll { $0.id == id }
         if selectedId == id { selectedId = tabs.last?.id }
     }
 
     func setStatus(_ id: String, _ ev: String) {
         guard let t = tab(id) else { return }
-        switch ev {
-        case "work": t.status = "working"
-        case "stop": t.status = "idle"
-        case "notify": t.status = "waiting"
-        default: break
+        t.status = t.status.applying(event: ev)
+    }
+
+    private func cleanup(_ tab: TermTab) {
+        for path in tab.cleanupPaths {
+            try? FileManager.default.removeItem(atPath: path)
         }
     }
 
@@ -98,7 +102,11 @@ final class TerminalManager: ObservableObject {
         init(manager: TerminalManager, tabId: String) { self.manager = manager; self.tabId = tabId }
 
         func processTerminated(source: TerminalView, exitCode: Int32?) {
-            DispatchQueue.main.async { self.manager?.tab(self.tabId)?.status = "exited" }
+            DispatchQueue.main.async {
+                guard let tab = self.manager?.tab(self.tabId) else { return }
+                tab.status = tab.status.applying(event: "exited")
+                self.manager?.cleanup(tab)
+            }
         }
         func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
         func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
