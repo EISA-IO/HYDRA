@@ -1524,22 +1524,22 @@ class Hydra : Form
 
     void BuildSidebar(Panel host)
     {
-        botLogo = new PictureBox { Location = new Point(14, 22), Size = new Size(30, 30),
+        botLogo = new PictureBox { Location = new Point(14, 18), Size = new Size(30, 30),
             SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent, Image = AppImage() };
         RoundRegion(botLogo, 7);
         host.Controls.Add(botLogo);
-        headerDot = new Panel { Location = new Point(38, 45), Size = new Size(7, 7), BackColor = Accent };
+        headerDot = new Panel { Location = new Point(38, 41), Size = new Size(7, 7), BackColor = Accent };
         RoundRegion(headerDot, 4);
         host.Controls.Add(headerDot);
         headerDot.BringToFront();
 
-        var hTitle = new Label { Text = "Hydra", AutoSize = true, Location = new Point(54, 21),
+        var hTitle = new Label { Text = "Hydra", AutoSize = true, Location = new Point(54, 17),
             Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold), ForeColor = Color.White };
         host.Controls.Add(hTitle);
         var hVer = new Label { Text = "v1", AutoSize = true, UseMnemonic = false,
-            Location = new Point(103, 24), Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold), ForeColor = Accent };
+            Location = new Point(103, 20), Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold), ForeColor = Accent };
         host.Controls.Add(hVer);
-        host.Controls.Add(new Label { Text = "By Ahmed Al-Eissa", AutoSize = true, Location = new Point(55, 40),
+        host.Controls.Add(new Label { Text = "By Ahmed Al-Eissa", AutoSize = true, Location = new Point(55, 36),
             ForeColor = TextFaint, Font = new Font("Segoe UI", 7.5f, FontStyle.Italic) });
 
         string[] titles = { "Workspace", "Settings", "SaaS", "Skills", "Glossary" };
@@ -1603,15 +1603,13 @@ class Hydra : Form
         BuildTitleBar(TOP);
 
         // Persistent Mac-style sidebar: brand, vertical navigation, Ollama, and status footer.
-        sidebar = new Panel { Location = new Point(0, 0), Size = new Size(SIDEBAR, ClientSize.Height),
+        sidebar = new Panel { Location = new Point(0, TOP), Size = new Size(SIDEBAR, ClientSize.Height - TOP),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left, BackColor = TitleBg };
         BuildSidebar(sidebar);
         Controls.Add(sidebar);
-        sidebar.BringToFront();
-        var sideDivider = new Panel { Location = new Point(SIDEBAR - 1, 0), Size = new Size(1, ClientSize.Height),
+        var sideDivider = new Panel { Location = new Point(SIDEBAR - 1, TOP), Size = new Size(1, ClientSize.Height - TOP),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left, BackColor = Color.FromArgb(35, 35, 39) };
         Controls.Add(sideDivider);
-        sideDivider.BringToFront();
 
         // Main content uses the same flat charcoal canvas as the Mac app.
         var content = new Panel { Location = new Point(SIDEBAR, TOP),
@@ -1634,10 +1632,6 @@ class Hydra : Form
 
         Modernize(content);
         SelectNav(0);
-        // The sidebar owns the entire left edge, including the hidden-title-bar area.
-        // Bring it forward last so Windows caption chrome cannot duplicate the brand.
-        sidebar.BringToFront();
-        sideDivider.BringToFront();
     }
 
     Panel NewContentPanel(Control host)
@@ -1726,18 +1720,6 @@ class Hydra : Form
         Controls.Add(titleBar);
         titleBar.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) DragTitleBar(); };
         titleBar.MouseDoubleClick += (s, e) => { if (e.Button == MouseButtons.Left) ToggleMaxRestore(); };
-
-        var ico = new PictureBox { Location = new Point(9, (h - 20) / 2), Size = new Size(20, 20),
-            SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent, Image = AppImage() };
-        ico.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) DragTitleBar(); };
-        ico.MouseDoubleClick += (s, e) => ToggleMaxRestore();
-        titleBar.Controls.Add(ico);
-
-        var cap = new Label { Text = "Hydra", AutoSize = true, ForeColor = TextDim,
-            Location = new Point(37, (h - 15) / 2), Font = new Font("Segoe UI", 9f) };
-        cap.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) DragTitleBar(); };
-        cap.MouseDoubleClick += (s, e) => ToggleMaxRestore();
-        titleBar.Controls.Add(cap);
 
         btnMin   = CaptionButton("–", h, false);   // en dash
         btnMax   = CaptionButton("□", h, false);   // square
