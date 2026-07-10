@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 @main
 struct HydraApp: App {
@@ -69,6 +70,9 @@ struct ContentView: View {
         .ignoresSafeArea(.container, edges: .top)
         .onChange(of: app.pendingTab) {
             if let t = app.pendingTab { tab = t; app.pendingTab = nil }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+            app.ollama.shutdown()
         }
         .onAppear {
             // QA hook: `--demoterm` auto-opens one embedded terminal so the Workspace can be
@@ -148,6 +152,13 @@ struct ContentView: View {
                 .padding(.horizontal, 8)
             }
 
+            Divider()
+                .overlay(Color.white.opacity(0.06))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+            OllamaSidebarControl(ollama: app.ollama)
+
             Spacer()
 
             VStack(alignment: .leading, spacing: 6) {
@@ -183,5 +194,84 @@ struct ContentView: View {
         // Bundled resource ONLY — probing ~/Desktop at startup fires a macOS privacy prompt.
         if let p = Bundle.main.path(forResource: "bot", ofType: "png"), let img = NSImage(contentsOfFile: p) { return img }
         return nil
+    }
+}
+
+struct OllamaSidebarControl: View {
+    @EnvironmentObject var app: AppState
+    @ObservedObject var ollama: OllamaService
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Button {
+                if ollama.state == .runningOwned {
+                    ollama.stop()
+                } else {
+                    ollama.start()
+                    if let message = ollama.errorMessage {
+                        app.alert("Ollama", message)
+                    }
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: ollama.state == .runningOwned ? "stop.fill" : "play.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .frame(width: 18)
+                    Text(ollama.buttonTitle)
+                        .font(.system(size: 12.5, weight: .semibold))
+                    Spacer()
+                }
+                .foregroundStyle(ollama.isRunning ? Theme.green : Theme.textDim)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .background(ollama.isRunning ? Theme.green.opacity(0.10) : Color.white.opacity(0.035))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(ollama.buttonDisabled)
+            .accessibilityLabel(ollama.buttonTitle)
+            .help(ollamaHelp)
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 6, height: 6)
+                Text(ollama.statusText)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Theme.textFaint)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+
+            Button {
+                app.launchOllamaTerminal()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "terminal")
+                    Text("Open Ollama Terminal")
+                }
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(Theme.textFaint)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .help("Open an embedded Ollama terminal; starts a local server when none is running")
+        }
+        .padding(.horizontal, 8)
+    }
+
+    private var statusColor: Color {
+        if ollama.isRunning { return Theme.green }
+        if ollama.state == .starting { return Theme.yellow }
+        return Theme.textFaint
+    }
+
+    private var ollamaHelp: String {
+        switch ollama.state {
+        case .runningOwned: return "Stop the local Ollama server started by Hydra"
+        case .runningExternal: return "Ollama is already running from another terminal or app"
+        default: return "Run ollama serve locally on 127.0.0.1:\(OllamaPort); off until you click"
+        }
     }
 }

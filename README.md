@@ -1,6 +1,6 @@
 # Hydra  ·  by Ahmed Al-Eissa
 
-A launcher + toolchain manager for Claude Code and Codex CLI, with an embedded multi-terminal
+A launcher + toolchain manager for Claude Code, Codex CLI, and optional local Ollama, with an embedded multi-terminal
 Workspace, a token-compression toolchain (RTK + Caveman + Headroom), Claude Video `/watch`,
 Addy Osmani's Agent Skills, and a bundled skills library,
 and a guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).
@@ -54,6 +54,12 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
   and folder so parallel sessions are easy to tell apart. Claude and Codex keep separate default
   model choices, so a Codex default like **gpt-5.6-sol** is not overwritten when you switch back
   to Claude.
+- **Ollama (macOS sidebar)** — Ollama stays off by default. **Start Ollama** runs the installed
+  official CLI as a localhost-only `ollama serve` process; **Stop Ollama** stops only the process
+  Hydra owns. Hydra also detects a server started from another terminal without taking ownership.
+  **Open Ollama Terminal** starts the server in an embedded PTY, or opens a management shell when
+  one already runs. Install Ollama separately from [ollama.com](https://ollama.com); Hydra recognizes
+  both PATH installs and the CLI inside `Ollama.app`.
 - **Settings** — choose the default agent, launch defaults, token-compression toggles, one-click
   "Install everything" / "Update core packages".
   Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,

@@ -2,7 +2,7 @@
 
 A native SwiftUI app (v1, by Ahmed Al-Eissa) that mirrors the Windows Hydra:
 launch and manage multiple Claude CLI or Codex CLI sessions, toggle the token-compression toolchain,
-manage skills, scaffold a SaaS, and browse a CLI reference — all in one dark, native window.
+manage an optional local Ollama server, manage skills, scaffold a SaaS, and browse a CLI reference — all in one dark, native window.
 
 ## What's in it
 
@@ -12,6 +12,12 @@ Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossar
   **inside the app as a tab** (a real embedded terminal via a PTY, powered by SwiftTerm).
   Open as many as you like and switch between them. Each tab shows live status
   (working / needs-you / idle) driven by per-session Claude hooks where available.
+- **Ollama sidebar controls** — local inference is off by default. **Start Ollama** launches the
+  installed official CLI as `ollama serve` bound to `127.0.0.1:11434`; **Stop Ollama** appears only
+  for a server Hydra started. A server launched from another terminal is detected and left under
+  that terminal's control. **Open Ollama Terminal** creates an embedded PTY for server logs and
+  commands. Hydra finds `ollama` on PATH or inside the standard macOS `Ollama.app`; install Ollama
+  separately from [ollama.com](https://ollama.com).
 - **Settings** — launch defaults (model, Claude permissions, `--continue`, extra flags), the
   token-compression toggles (RTK / Caveman / Headroom) with live status + a "don't overlap"
   advisory, and a one-click **Install & setup** section (Node, Claude CLI, Codex CLI, RTK, Caveman,

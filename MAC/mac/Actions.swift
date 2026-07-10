@@ -211,7 +211,9 @@ extension AppState {
     /// Run a plain shell command inside a new embedded Workspace terminal tab (NOT Claude),
     /// then drop into an interactive login shell so output stays visible and any prompts work.
     /// Used by the SaaS lifecycle (installs, logins, deploys) so everything stays in-app.
-    func runInWorkspace(_ command: String, cwd: String, note: String? = nil) {
+    func runInWorkspace(_ command: String, cwd: String, note: String? = nil,
+                        agentLabel: String = "Shell", modelLabel: String = "Local shell",
+                        taskLabel: String? = nil) {
         let f = cwd.trimmingCharacters(in: .whitespaces)
         guard FS.isDir(f) else { alert("Folder not found", f); return }
         let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased())
@@ -224,10 +226,27 @@ extension AppState {
         applyCreds(to: &env)   // shared tokens/keys (Settings → Access & API keys)
         let envArr = env.map { "\($0.key)=\($0.value)" }
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
-                        agent: "Shell", model: "Local shell", task: shellTaskLabel(note: note, command: command),
+                        agent: agentLabel, model: modelLabel,
+                        task: taskLabel ?? shellTaskLabel(note: note, command: command),
                         headroom: false, rtk: false, caveman: false)
         saveRecent(f)
         pendingTab = 0
+    }
+
+    func launchOllamaTerminal() {
+        guard let executable = OllamaService.installedExecutable() else {
+            alert("Ollama", "Install Ollama from ollama.com, then try again. Hydra never installs or starts it without your action.")
+            return
+        }
+        let running = Self.portOpen(OllamaPort)
+        let command = OllamaService.terminalCommand(executable: executable, serverRunning: running)
+        let cwd = FS.isDir(folder) ? folder : Paths.home
+        let note = running
+            ? "Ollama is already running. Showing loaded models; shell stays open for Ollama commands."
+            : "Starting Ollama locally on 127.0.0.1:\(OllamaPort). Keep this terminal open to keep the server running."
+        runInWorkspace(command, cwd: cwd, note: note,
+                       agentLabel: "Ollama", modelLabel: "Local server",
+                       taskLabel: running ? "Manage local models" : "Serve local models")
     }
 
     private func sessionModelLabel(_ cliModel: String) -> String {

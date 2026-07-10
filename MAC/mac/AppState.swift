@@ -43,6 +43,9 @@ final class AppState: ObservableObject {
     // Embedded in-app terminals (the Workspace tab).
     let terminals = TerminalManager()
 
+    // Optional local Ollama server. Constructing this never starts a process.
+    let ollama = OllamaService()
+
     // When set, ContentView switches to this tab (0 = Workspace) so spawned sessions are visible.
     @Published var pendingTab: Int? = nil
 
@@ -248,6 +251,7 @@ final class AppState: ObservableObject {
         videoInstalled = Self.isVideoInstalled()
         agentSkillsInstalled = Self.isAgentSkillsInstalled()
         proxyRunning = Self.portOpen(ProxyPort)
+        ollama.refresh()
         rtk = rtkInstalled
         caveman = cavemanInstalled
         updateStatusLine()
@@ -371,6 +375,7 @@ final class AppState: ObservableObject {
         eventTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in self?.drainEvents() }
         statusTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             self?.proxyRunning = Self.portOpen(ProxyPort)
+            self?.ollama.refresh()
         }
     }
 
