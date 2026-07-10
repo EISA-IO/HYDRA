@@ -107,6 +107,12 @@ enum Glossary {
         add(C, "/caveman-compress <file>", "Rewrite a memory file (e.g. CLAUDE.md) into caveman-speak to save input tokens every session.")
         add(C, "Install / Remove", "Toggle it in Settings, or run: npx -y github:JuliusBrussee/caveman --only claude --only codex")
 
+        let V = "Claude Video (/watch)"
+        add(V, "/watch <url-or-path> [question]", "Analyze a video URL or local video using captions, selected frames, and optional Whisper transcription.")
+        add(V, "tools/claude-video", "Bundled Hydra copy of bradautomates/claude-video. Hydra installs its watch skill for Claude and Codex.")
+        add(V, "~/.claude/skills/watch", "Claude skill install path for /watch.")
+        add(V, "~/.agents/skills/watch", "Codex/ChatGPT skill install path for /watch.")
+
         return g
     }()
 }

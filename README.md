@@ -1,7 +1,8 @@
 # Hydra  ·  by Ahmed Al-Eissa
 
 A launcher + toolchain manager for Claude Code and Codex CLI, with an embedded multi-terminal
-Workspace, a token-compression toolchain (RTK + Caveman + Headroom), a bundled skills library,
+Workspace, a token-compression toolchain (RTK + Caveman + Headroom), Claude Video `/watch`,
+a bundled skills library,
 and a guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).
 
 ## Repository layout
@@ -49,11 +50,14 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
 ## Tabs
 
 - **Workspace** — create multiple embedded Claude and Codex terminals in tabs; each terminal gets
-  RTK + Caveman when enabled.
+  RTK + Caveman when enabled. Claude and Codex keep separate default model choices, so a Codex
+  default like **gpt-5.6-sol** is not overwritten when you switch back to Claude.
 - **Settings** — choose the default agent, launch defaults, token-compression toggles, one-click
   "Install everything" / "Update core packages".
   Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,
   and Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
+  Hydra also installs Claude Video `/watch` from the bundled `tools/claude-video` payload into
+  both Claude and Codex skill folders.
 - **SaaS** — the guided *Build a SaaS* lifecycle: describe your idea, scaffold Open SaaS, deploy
   (Firebase / Vercel / Cloud Run via a private GitHub repo + GitHub Actions CI/CD), and add
   subscription billing + subscriber email. Choose Claude or ChatGPT as the builder.

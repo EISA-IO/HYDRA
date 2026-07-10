@@ -151,6 +151,15 @@ extension AppState {
         }
     }
 
+    func installClaudeVideo() {
+        runSteps("Installing Claude Video /watch", [("Claude Video", "echo Installing bundled /watch skill for Claude and Codex")]) {
+            self.installClaudeVideoIfPossible()
+            self.videoInstalled = Self.isVideoInstalled()
+            self.loadSkills()
+            self.updateStatusLine()
+        }
+    }
+
     // ---- Headroom (optional) ----
     func installHeadroom() {
         if Shell.shared.onPath("headroom") { log("Headroom already installed (optional)."); return }
@@ -239,7 +248,7 @@ extension AppState {
             ("RTK", rtkFullScript()),
             ("Caveman", cavemanCmd() + " || echo '(Caveman needs Node.js — install Node then retry)'")
         ]
-        runSteps("Installing everything (Node · Claude CLI · RTK · Caveman · skills)", steps) {
+        runSteps("Installing everything (Node · Claude CLI · RTK · Caveman · Claude Video · skills)", steps) {
             // bundled skills, quietly (no folder prompt inside the batch flow)
             if let src = self.findSkillsSource() {
                 DispatchQueue.global(qos: .userInitiated).async { self.doInstallSkills(from: src) }
@@ -249,6 +258,8 @@ extension AppState {
             self.rtkInstalled = Self.isRtkInstalled(); self.rtk = self.rtkInstalled
             if Shell.shared.onPath("rtk") { _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30) }
             self.installBundledCavemanForCodexIfPossible()
+            self.installClaudeVideoIfPossible()
+            self.videoInstalled = Self.isVideoInstalled()
             self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
         }
     }
@@ -266,6 +277,8 @@ extension AppState {
             self.rtkInstalled = Self.isRtkInstalled(); self.rtk = self.rtkInstalled
             if Shell.shared.onPath("rtk") { _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30) }
             self.installBundledCavemanForCodexIfPossible()
+            self.installClaudeVideoIfPossible()
+            self.videoInstalled = Self.isVideoInstalled()
             self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
         }
     }

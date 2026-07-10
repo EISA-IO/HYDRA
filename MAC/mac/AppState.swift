@@ -23,6 +23,8 @@ final class AppState: ObservableObject {
     @Published var agent: String = "Claude"
     @Published var folder: String = Paths.home
     @Published var model: String = "Default"
+    private var claudeLaunchModel = "Default"
+    private var codexLaunchModel = "Default"
     @Published var permission: String = "Bypass – skip all prompts"
     @Published var headroom = false
     @Published var rtk = false
@@ -34,6 +36,7 @@ final class AppState: ObservableObject {
     @Published var proxyRunning = false
     @Published var rtkInstalled = false
     @Published var cavemanInstalled = false
+    @Published var videoInstalled = false
     @Published var recents: [String] = []
 
     // Embedded in-app terminals (the Workspace tab).
@@ -71,6 +74,21 @@ final class AppState: ObservableObject {
         (agent == "Codex" || agent == "ChatGPT") ? chatGPTModelOptions : claudeModelOptions
     }
 
+    func setAgent(_ next: String) {
+        guard agentOptions.contains(next) else { return }
+        rememberVisibleModel()
+        agent = next
+        model = storedModel(for: next)
+        sanitizeLaunchModel()
+        saveSettings()
+    }
+
+    func setLaunchModel(_ next: String) {
+        model = next
+        rememberVisibleModel()
+        saveSettings()
+    }
+
     func cliModelName(_ selection: String) -> String {
         let key = selection.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -85,6 +103,26 @@ final class AppState: ObservableObject {
         case "chatgpt5.5": return "gpt-5.5"
         default: return selection
         }
+    }
+
+    private func normalizedModel(_ selection: String, for agent: String) -> String {
+        let trimmed = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed.caseInsensitiveCompare("Default") == .orderedSame { return "Default" }
+        let normalized = cliModelName(trimmed)
+        return launchModelOptions(for: agent).contains(normalized) ? normalized : "Default"
+    }
+
+    private func rememberVisibleModel() {
+        let normalized = normalizedModel(model, for: agent)
+        if agent == "Codex" || agent == "ChatGPT" {
+            codexLaunchModel = normalized
+        } else {
+            claudeLaunchModel = normalized
+        }
+    }
+
+    private func storedModel(for agent: String) -> String {
+        normalizedModel((agent == "Codex" || agent == "ChatGPT") ? codexLaunchModel : claudeLaunchModel, for: agent)
     }
 
     private var eventTimer: Timer?
@@ -109,13 +147,27 @@ final class AppState: ObservableObject {
     // ---- persistence (same key=value format as the Windows settings.txt) ----
     func loadSettings() {
         guard let text = FS.read(Paths.settingsFile) else { return }
+        var legacyModel: String?
+        var foundClaudeModel = false
+        var foundCodexModel = false
         for line in text.split(separator: "\n") {
             let l = String(line)
             if l.hasPrefix("agent=") {
                 let v = String(l.dropFirst(6))
                 if agentOptions.contains(v) { agent = v }
             }
-            else if l.hasPrefix("model=") { let v = String(l.dropFirst(6)); if !v.isEmpty { model = v } }
+            else if l.hasPrefix("model=") {
+                let v = String(l.dropFirst(6))
+                if !v.isEmpty { legacyModel = v; model = v }
+            }
+            else if l.hasPrefix("claudeModel=") {
+                let v = String(l.dropFirst(12))
+                if !v.isEmpty { claudeLaunchModel = v; foundClaudeModel = true }
+            }
+            else if l.hasPrefix("codexModel=") {
+                let v = String(l.dropFirst(11))
+                if !v.isEmpty { codexLaunchModel = v; foundCodexModel = true }
+            }
             else if l.hasPrefix("headroom=") { headroom = l.dropFirst(9).trimmingCharacters(in: .whitespaces) == "1" }
             else if l.hasPrefix("cont=") { continueLast = l.dropFirst(5).trimmingCharacters(in: .whitespaces) == "1" }
             else if l.hasPrefix("extra=") { extraArgs = String(l.dropFirst(6)) }
@@ -124,19 +176,29 @@ final class AppState: ObservableObject {
                 if permissionOptions.contains(v) { permission = v }
             }
         }
+        if let legacyModel {
+            if (agent == "Codex" || agent == "ChatGPT"), !foundCodexModel {
+                codexLaunchModel = legacyModel
+            } else if !foundClaudeModel {
+                claudeLaunchModel = legacyModel
+            }
+        }
+        model = storedModel(for: agent)
         sanitizeLaunchModel()
     }
 
     func sanitizeLaunchModel() {
-        let normalized = cliModelName(model)
-        if launchModelOptions(for: agent).contains(normalized) { model = normalized }
-        if !launchModelOptions(for: agent).contains(model) { model = "Default" }
+        model = normalizedModel(model, for: agent)
+        rememberVisibleModel()
     }
 
     func saveSettings() {
+        rememberVisibleModel()
         let lines = [
             "agent=" + agent,
             "model=" + model.trimmingCharacters(in: .whitespaces),
+            "claudeModel=" + claudeLaunchModel,
+            "codexModel=" + codexLaunchModel,
             "headroom=" + (headroom ? "1" : "0"),
             "perm=" + permission,
             "cont=" + (continueLast ? "1" : "0"),
@@ -182,6 +244,7 @@ final class AppState: ObservableObject {
     func refreshAll() {
         rtkInstalled = Self.isRtkInstalled()
         cavemanInstalled = Self.isCavemanInstalled()
+        videoInstalled = Self.isVideoInstalled()
         proxyRunning = Self.portOpen(ProxyPort)
         rtk = rtkInstalled
         caveman = cavemanInstalled
@@ -204,6 +267,13 @@ final class AppState: ObservableObject {
         if let s = FS.read(Paths.codexAgents), s.range(of: "claude-manager-caveman-codex", options: .caseInsensitive) != nil { return true }
         return false
     }
+    static func isVideoInstalled() -> Bool {
+        if FS.exists(Paths.skillsDir + "/watch/SKILL.md") { return true }
+        if FS.exists(Paths.codexSkillsDir + "/watch/SKILL.md") { return true }
+        if let s = FS.read(Paths.pluginsFile), s.range(of: "watch@claude-video", options: .caseInsensitive) != nil { return true }
+        if FS.exists(Paths.home + "/.claude/plugins/marketplaces/claude-video/.claude-plugin/plugin.json") { return true }
+        return false
+    }
     static func portOpen(_ port: Int) -> Bool {
         let sock = socket(AF_INET, SOCK_STREAM, 0)
         if sock < 0 { return false }
@@ -224,14 +294,14 @@ final class AppState: ObservableObject {
     /// and let the Setup tab focus on keeping things up to date. Headroom is optional.
     var allCoreInstalled: Bool {
         let sh = Shell.shared
-        return sh.onPath("claude") && sh.onPath("codex") && sh.onPath("node") && rtkInstalled && cavemanInstalled
+        return sh.onPath("claude") && sh.onPath("codex") && sh.onPath("node") && rtkInstalled && cavemanInstalled && videoInstalled
     }
 
     func updateStatusLine() {
         let sh = Shell.shared
         func mark(_ ok: Bool) -> String { ok ? "OK" : "—" }
         let node = sh.onPath("node")
-        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
+        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Video \(mark(videoInstalled))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
     }
 
     func countSkills() -> Int {
@@ -249,7 +319,7 @@ final class AppState: ObservableObject {
                 sh.run("rtk", ["init", "-g", "--auto-patch"], timeout: 30)
             }
             if !Self.isCavemanInstalled(), sh.onPath("npx") {
-                sh.bash("npx -y github:JuliusBrussee/caveman --only claude", timeout: 120)
+                sh.bash("npx -y github:JuliusBrussee/caveman --only claude --only codex", timeout: 120)
             }
             DispatchQueue.main.async { self.refreshAll() }
         }

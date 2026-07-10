@@ -80,13 +80,14 @@ struct ContentView: View {
                     app.launch(folder: dir)
                 }
             }
-            // QA: `--qa <caveman|update|everything>` runs an installer method so the log
+            // QA: `--qa <caveman|video|update|everything>` runs an installer method so the log
             // pipeline can be observed deterministically.
             if let i = CommandLine.arguments.firstIndex(of: "--qa"), i + 1 < CommandLine.arguments.count {
                 let what = CommandLine.arguments[i + 1]
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                     switch what {
                     case "caveman": app.installCaveman()
+                    case "video": app.installClaudeVideo()
                     case "update": app.updateCore()
                     case "everything": app.installEverything()
                     default: break

@@ -55,7 +55,8 @@ class Hydra : Form
     ComboBox agentCombo, modelCombo, permCombo;
     CheckBox hrCheck, rtCheck, cvCheck, continueChk;
     Label hrStatus, rtStatus, cvStatus, skillsCount, compAdvisory;
-    bool suppressCaveman, suppressRtk;
+    bool suppressCaveman, suppressRtk, loadingSettings, refreshingModelChoices;
+    string claudeLaunchModel = "Default", codexLaunchModel = "Default", activeModelAgent = "Claude";
     Button launchBtn;   // the "+ New" terminal button; shows the active model + compression mix
     ToolTip tabTip;
     ComboBox recentCombo, termAgentCombo;
@@ -437,6 +438,9 @@ class Hydra : Form
         try
         {
             if (!File.Exists(SettingsFile)) return;
+            loadingSettings = true;
+            string legacyModel = null;
+            bool foundClaudeModel = false, foundCodexModel = false;
             foreach (var line in File.ReadAllLines(SettingsFile))
             {
                 if (line.StartsWith("agent="))
@@ -448,7 +452,9 @@ class Hydra : Form
                         if (termAgentCombo != null) termAgentCombo.SelectedItem = v;
                     }
                 }
-                else if (line.StartsWith("model=")) { var v = line.Substring(6); if (v.Length > 0) modelCombo.Text = v; }
+                else if (line.StartsWith("model=")) { var v = line.Substring(6); if (v.Length > 0) { legacyModel = v; modelCombo.Text = v; } }
+                else if (line.StartsWith("claudeModel=")) { var v = line.Substring(12); if (v.Length > 0) { claudeLaunchModel = v; foundClaudeModel = true; } }
+                else if (line.StartsWith("codexModel=")) { var v = line.Substring(11); if (v.Length > 0) { codexLaunchModel = v; foundCodexModel = true; } }
                 else if (line.StartsWith("headroom=")) hrCheck.Checked = line.Substring(9).Trim() == "1";
                 else if (line.StartsWith("cont=")) continueChk.Checked = line.Substring(5).Trim() == "1";
                 else if (line.StartsWith("extra=")) { if (extraBox != null) extraBox.Text = line.Substring(6); }
@@ -459,21 +465,36 @@ class Hydra : Form
                         if ((string)permCombo.Items[i] == v) { permCombo.SelectedIndex = i; break; }
                 }
             }
+            string agent = ActiveLaunchAgent();
+            if (legacyModel != null)
+            {
+                if (agent == "Codex" && !foundCodexModel) codexLaunchModel = legacyModel;
+                else if (!foundClaudeModel) claudeLaunchModel = legacyModel;
+            }
+            activeModelAgent = agent;
+            loadingSettings = false;
             RefreshModelChoicesForAgent();
         }
-        catch { }
+        catch { loadingSettings = false; }
     }
     void SaveSettings()
     {
         try
         {
+            string currentAgent = ActiveLaunchAgent();
+            RememberVisibleModelForAgent(currentAgent);
+            string currentModel = modelCombo != null ? modelCombo.Text.Trim() : StoredModelForAgent(currentAgent);
+            string perm = (permCombo != null && permCombo.SelectedItem != null) ? permCombo.SelectedItem.ToString() : "";
+            string extra = extraBox != null ? extraBox.Text.Trim() : "";
             File.WriteAllLines(SettingsFile, new[] {
-                "agent=" + ((agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude"),
-                "model=" + modelCombo.Text.Trim(),
-                "headroom=" + (hrCheck.Checked ? "1" : "0"),
-                "perm=" + (permCombo.SelectedItem ?? ""),
-                "cont=" + (continueChk.Checked ? "1" : "0"),
-                "extra=" + (extraBox != null ? extraBox.Text.Trim() : "")
+                "agent=" + currentAgent,
+                "model=" + currentModel,
+                "claudeModel=" + claudeLaunchModel,
+                "codexModel=" + codexLaunchModel,
+                "headroom=" + ((hrCheck != null && hrCheck.Checked) ? "1" : "0"),
+                "perm=" + perm,
+                "cont=" + ((continueChk != null && continueChk.Checked) ? "1" : "0"),
+                "extra=" + extra
             });
         }
         catch { }
@@ -732,13 +753,38 @@ class Hydra : Form
             if (string.Equals(c.ToString(), value, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
     }
+    string ActiveLaunchAgent()
+    {
+        return (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
+    }
+    static object[] ChoicesForAgent(string agent)
+    {
+        return agent == "Codex" ? ChatGptModelChoices : ClaudeModelChoices;
+    }
+    static string NormalizeModelForAgent(string selection, string agent)
+    {
+        string m = CliModelName(selection);
+        if (m.Length == 0 || string.Equals(m, "Default", StringComparison.OrdinalIgnoreCase)) return "Default";
+        return ChoiceContains(ChoicesForAgent(agent), m) ? m : "Default";
+    }
+    void RememberVisibleModelForAgent(string agent)
+    {
+        if (modelCombo == null || refreshingModelChoices) return;
+        string normalized = NormalizeModelForAgent(modelCombo.Text ?? "", agent);
+        if (agent == "Codex") codexLaunchModel = normalized;
+        else claudeLaunchModel = normalized;
+    }
+    string StoredModelForAgent(string agent)
+    {
+        return NormalizeModelForAgent(agent == "Codex" ? codexLaunchModel : claudeLaunchModel, agent);
+    }
     void RefreshModelChoicesForAgent()
     {
         if (modelCombo == null) return;
-        string agent = (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
-        object[] choices = agent == "Codex" ? ChatGptModelChoices : ClaudeModelChoices;
-        string current = (modelCombo.Text ?? "").Trim();
-        current = CliModelName(current);
+        string agent = ActiveLaunchAgent();
+        object[] choices = ChoicesForAgent(agent);
+        string current = StoredModelForAgent(agent);
+        refreshingModelChoices = true;
         modelCombo.BeginUpdate();
         modelCombo.Items.Clear();
         modelCombo.Items.AddRange(choices);
@@ -749,6 +795,8 @@ class Hydra : Form
             modelCombo.Text = current;
         else
             modelCombo.Text = "Default";
+        activeModelAgent = agent;
+        refreshingModelChoices = false;
     }
     void RefreshSaasBuildModelChoices()
     {
@@ -772,6 +820,18 @@ class Hydra : Form
     int RunCodexCmd(string args)
     {
         return RunLoggedCmd("set \"CODEX_HOME=" + CodexDir + "\" && codex " + args);
+    }
+    static bool CodexMarketplaceConfigured(string name, string root)
+    {
+        try
+        {
+            string cfg = Path.Combine(CodexDir, "config.toml");
+            if (!File.Exists(cfg)) return false;
+            string text = File.ReadAllText(cfg);
+            return text.IndexOf("[marketplaces." + name + "]", StringComparison.OrdinalIgnoreCase) >= 0
+                && text.IndexOf("source = \"" + root + "\"", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+        catch { return false; }
     }
     static string CodexCavemanBlock()
     {
@@ -812,12 +872,13 @@ class Hydra : Form
             if (src == null) return;
             string root = Path.Combine(src, "caveman");
             if (!File.Exists(Path.Combine(root, ".agents", "plugins", "marketplace.json"))) return;
-            if (!File.Exists(marker))
+            if (!CodexMarketplaceConfigured("caveman", root))
             {
-                int marketplace = RunCodexCmd("plugin marketplace add " + CmdQ(root));
-                int plugin = RunCodexCmd("plugin add caveman@caveman");
-                if (marketplace == 0 && plugin == 0) File.WriteAllText(marker, "");
+                RunCodexCmd("plugin marketplace remove caveman");
+                RunCodexCmd("plugin marketplace add " + CmdQ(root));
             }
+            int plugin = RunCodexCmd("plugin add caveman@caveman");
+            if (plugin == 0) File.WriteAllText(marker, "");
         }
         catch { }
     }
@@ -1041,6 +1102,11 @@ class Hydra : Form
         g.Add(new GEntry(C, "/caveman-stats", "Show real token savings this session + lifetime + USD."));
         g.Add(new GEntry(C, "/caveman-compress <file>", "Rewrite a memory file (e.g. CLAUDE.md) into caveman-speak to save input tokens every session."));
         g.Add(new GEntry(C, "Install / Remove", "Toggle it in Settings, or run: npx -y github:JuliusBrussee/caveman --only claude --only codex"));
+        string V = "Claude Video (/watch)";
+        g.Add(new GEntry(V, "/watch <url-or-path> [question]", "Analyze a video URL or local video using captions, selected frames, and optional Whisper transcription."));
+        g.Add(new GEntry(V, "tools/claude-video", "Bundled Hydra copy of bradautomates/claude-video. Hydra installs its watch skill for Claude and Codex."));
+        g.Add(new GEntry(V, "%USERPROFILE%\\.claude\\skills\\watch", "Claude skill install path for /watch."));
+        g.Add(new GEntry(V, "%USERPROFILE%\\.agents\\skills\\watch", "Codex/ChatGPT skill install path for /watch."));
         return g;
     }
     void RenderGlossary(string filter)
@@ -1423,14 +1489,19 @@ class Hydra : Form
         agentCombo.Items.AddRange(new object[] { "Claude", "Codex" });
         agentCombo.SelectedIndex = 0;
         agentCombo.SelectedIndexChanged += (s, e) => {
+            if (!loadingSettings) RememberVisibleModelForAgent(activeModelAgent);
             RefreshModelChoicesForAgent();
             if (termAgentCombo != null && termAgentCombo.SelectedItem != agentCombo.SelectedItem) termAgentCombo.SelectedItem = agentCombo.SelectedItem;
-            UpdateLaunchText(); SaveSettings();
+            UpdateLaunchText(); if (!loadingSettings) SaveSettings();
         };
         modelCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
         modelCombo.Items.AddRange(ClaudeModelChoices);
         modelCombo.Text = "Default";
-        modelCombo.TextChanged += (s, e) => UpdateLaunchText();
+        modelCombo.TextChanged += (s, e) => {
+            if (!refreshingModelChoices) RememberVisibleModelForAgent(ActiveLaunchAgent());
+            UpdateLaunchText();
+            if (!loadingSettings && !refreshingModelChoices) SaveSettings();
+        };
         permCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(6, 1, 0, 1) };
         permCombo.Items.AddRange(new object[] { "Bypass – skip all prompts", "Plan mode (read-only)", "Accept edits automatically", "Ask for each action" });
         permCombo.SelectedIndex = 0;
@@ -1485,7 +1556,7 @@ class Hydra : Form
         setupStatus = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Consolas", 9f) };
         row(setupStatus, 20);
 
-        var allBtn = new Button { Text = "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + skills)", Dock = DockStyle.Fill,
+        var allBtn = new Button { Text = "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + Video + skills)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.Black, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
         Hoverize(allBtn, Accent, AccentHi);
         allBtn.Click += (s, e) => SetupRun(InstallEverything);
@@ -1495,7 +1566,7 @@ class Hydra : Form
         setupAllCap = RowCap("Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest Claude/Codex CLI + tools.");
         row(setupAllCap, 18);
 
-        var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman)", Dock = DockStyle.Fill,
+        var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Font = new Font("Segoe UI", 10f, FontStyle.Bold) };
         Hoverize(updBtn, Color.FromArgb(70, 110, 150), Color.FromArgb(86, 130, 172));
         updBtn.Click += (s, e) => SetupRun(UpdateCore);
@@ -1516,6 +1587,7 @@ class Hydra : Form
         mk("Node.js", Panel2, FieldHi, (s, e) => SetupRun(() => { EnsureNode(); }));
         mk("RTK", Panel2, FieldHi, (s, e) => SetupRun(InstallRtk));
         mk("Caveman", Panel2, FieldHi, (s, e) => SetupRun(InstallCaveman));
+        mk("Claude Video", Panel2, FieldHi, (s, e) => SetupRun(InstallClaudeVideoIfPossible));
         mk("Headroom", Panel2, FieldHi, (s, e) => SetupRun(InstallHeadroom));
         mk("Skills", Panel2, FieldHi, (s, e) => InstallSkillsClicked());
         mk("Open .claude", Panel2, FieldHi, (s, e) => { try { string d = Path.Combine(HomeDir, ".claude"); Directory.CreateDirectory(d); Process.Start(d); } catch { } });
@@ -1661,13 +1733,26 @@ try {
         return n;
     }
 
+    static bool VideoInstalled()
+    {
+        try
+        {
+            if (File.Exists(Path.Combine(SkillsDir, "watch", "SKILL.md"))) return true;
+            if (File.Exists(Path.Combine(CodexSkillsDir, "watch", "SKILL.md"))) return true;
+            if (File.Exists(PluginsFile) && File.ReadAllText(PluginsFile).IndexOf("watch@claude-video", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (File.Exists(Path.Combine(HomeDir, ".claude", "plugins", "marketplaces", "claude-video", ".claude-plugin", "plugin.json"))) return true;
+        }
+        catch { }
+        return false;
+    }
+
     static string Mark(bool ok) { return ok ? "OK" : "--"; }
 
     // Core toolchain fully present? (Headroom is optional.) When true, "Install everything"
     // is pointless, so we hide it and let the Setup tab focus on the Update button.
     bool AllCoreInstalled()
     {
-        return HasClaude() && HasCodex() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled();
+        return HasClaude() && HasCodex() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled() && VideoInstalled();
     }
 
     void DetectStatus()
@@ -1675,7 +1760,7 @@ try {
         if (setupStatus == null) return;
         bool node = OnPath("node.exe") || OnPath("node");
         setupStatus.Text = "Claude " + Mark(HasClaude()) + "   Codex " + Mark(HasCodex()) + "   Node " + Mark(node) + "   RTK " + Mark(HasRtk() && RtkInstalled())
-            + "   Caveman " + Mark(CavemanInstalled()) + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom"))
+            + "   Caveman " + Mark(CavemanInstalled()) + "   Video " + Mark(VideoInstalled()) + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom"))
             + "   Skills " + CountSkills();
 
         // Focus the tab: once everything's installed, drop "Install everything" and promote Update.
@@ -1687,8 +1772,8 @@ try {
                 : "Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest Claude/Codex CLI + tools.";
         if (setupUpdBtn != null)
         {
-            setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman)   ✓ everything installed"
-                                   : "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman)";
+            setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video)   ✓ everything installed"
+                                   : "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video)";
             // promote Update to the primary (accent) style when it's the main action
             Hoverize(setupUpdBtn, all ? Accent : Color.FromArgb(70, 110, 150),
                                   all ? AccentHi : Color.FromArgb(86, 130, 172));
@@ -1763,6 +1848,7 @@ try {
         if (HasRtk()) RunLoggedCmd("rtk init -g --codex");
         EnsureCodexCavemanInstructions();
         InstallBundledCavemanForCodexIfPossible();
+        InstallClaudeVideoIfPossible();
     }
 
 
@@ -1810,6 +1896,7 @@ try {
         int rc = RunLoggedCmd("npx -y github:JuliusBrussee/caveman --only claude --only codex");
         EnsureCodexCavemanInstructions();
         InstallBundledCavemanForCodexIfPossible();
+        InstallClaudeVideoIfPossible();
         SetupLog(rc == 0 ? "OK  Caveman installed (default output compression)." : "Caveman install returned exit " + rc + ".");
         try { BeginInvoke((Action)(() => { UpdateCavemanStatus(); UpdateLaunchText(); })); } catch { }
     }
@@ -1921,6 +2008,7 @@ try {
                     SetupLog("Codex CLI not found — installing it once…");
                     try { RunLoggedCmd(CodexInstallCmd()); } catch { }
                 }
+                InstallClaudeVideoIfPossible();
             }
             catch { }
             try { BeginInvoke((Action)DetectStatus); } catch { }
@@ -1989,10 +2077,48 @@ try {
         try { BeginInvoke((Action)LoadSkills); } catch { }
     }
 
+    void InstallClaudeVideoIfPossible()
+    {
+        string src = FindToolsSource();
+        if (src == null) { SetupLog("Claude Video skipped: bundled tools folder not found."); return; }
+        string root = Path.Combine(src, "claude-video");
+        string skill = Path.Combine(root, "skills", "watch");
+        if (!File.Exists(Path.Combine(skill, "SKILL.md")))
+        {
+            SetupLog("Claude Video skipped: tools\\claude-video\\skills\\watch not found.");
+            return;
+        }
+
+        Directory.CreateDirectory(SkillsDir);
+        Directory.CreateDirectory(CodexSkillsDir);
+        try { CopyDir(skill, Path.Combine(SkillsDir, "watch")); SetupLog("  + Claude /watch skill"); }
+        catch (Exception ex) { SetupLog("  x Claude /watch: " + ex.Message); }
+        try { CopyDir(skill, Path.Combine(CodexSkillsDir, "watch")); SetupLog("  + Codex /watch skill"); }
+        catch (Exception ex) { SetupLog("  x Codex /watch: " + ex.Message); }
+
+        string claudeMarketplace = Path.Combine(HomeDir, ".claude", "plugins", "marketplaces", "claude-video");
+        if (File.Exists(Path.Combine(root, ".claude-plugin", "plugin.json")) && !Directory.Exists(claudeMarketplace))
+        {
+            try { CopyDir(root, claudeMarketplace); SetupLog("  + Claude Video marketplace seeded"); } catch { }
+        }
+
+        if (HasCodex() && File.Exists(Path.Combine(root, ".agents", "plugins", "marketplace.json")))
+        {
+            if (!CodexMarketplaceConfigured("claude-video", root))
+            {
+                RunCodexCmd("plugin marketplace remove claude-video");
+                RunCodexCmd("plugin marketplace add " + CmdQ(root));
+            }
+            RunCodexCmd("plugin add watch@claude-video");
+        }
+        SetupLog("OK  Claude Video /watch installed for Claude and Codex.");
+        try { BeginInvoke((Action)LoadSkills); } catch { }
+    }
+
     void InstallEverything()
     {
         SetupLog("");
-        SetupLog("===== Installing everything (Node + Claude CLI + Codex CLI + RTK + Caveman + skills) =====");
+        SetupLog("===== Installing everything (Node + Claude CLI + Codex CLI + RTK + Caveman + Claude Video + skills) =====");
         if (!EnsureNode())
         {
             SetupLog("Node.js is required and could not be installed automatically. Fix that, then click Install everything again.");
@@ -2002,6 +2128,7 @@ try {
         InstallCodexCli();
         InstallRtk();
         InstallCaveman();
+        InstallClaudeVideoIfPossible();
         string src = FindSkillsSource();
         if (src != null) DoInstallSkills(src);
         else SetupLog("No bundled skills found next to the app — use the Skills button to pick a folder.");
@@ -2036,6 +2163,7 @@ try {
         RunLoggedCmd("npx -y github:JuliusBrussee/caveman --only claude --only codex");
         EnsureCodexCavemanInstructions();
         InstallBundledCavemanForCodexIfPossible();
+        InstallClaudeVideoIfPossible();
         try { BeginInvoke((Action)(() => { UpdateCavemanStatus(); UpdateLaunchText(); })); } catch { }
         // Headroom is optional: only bump it if it's already present
         if (OnPath("headroom.exe") || OnPath("headroom"))

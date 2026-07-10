@@ -149,7 +149,10 @@ struct SettingsView: View {
                         SectionCap(text: "Launch defaults")
                         VStack(alignment: .leading, spacing: 8) {
                             FieldLabel(text: "Agent")
-                            Picker("", selection: $app.agent) {
+                            Picker("", selection: Binding(
+                                get: { app.agent },
+                                set: { app.setAgent($0) }
+                            )) {
                                 ForEach(app.agentOptions, id: \.self) { Text($0).tag($0) }
                             }
                             .pickerStyle(.segmented)
@@ -158,18 +161,16 @@ struct SettingsView: View {
                         HStack(alignment: .top, spacing: 16) {
                             VStack(alignment: .leading, spacing: 8) {
                                 FieldLabel(text: app.agent == "Codex" ? "ChatGPT model" : "Claude model")
-                                DarkPicker(options: app.launchModelOptions(for: app.agent), selection: $app.model)
+                                DarkPicker(options: app.launchModelOptions(for: app.agent), selection: Binding(
+                                    get: { app.model },
+                                    set: { app.setLaunchModel($0) }
+                                ))
                             }
                             VStack(alignment: .leading, spacing: 8) {
                                 FieldLabel(text: app.agent == "Codex" ? "Permissions (Codex: YOLO)" : "Permissions")
                                 DarkPicker(options: app.permissionOptions, selection: $app.permission)
                             }
                         }
-                        .onChange(of: app.agent) {
-                            app.sanitizeLaunchModel()
-                            app.saveSettings()
-                        }
-                        .onChange(of: app.model) { app.saveSettings() }
                         .onChange(of: app.permission) { app.saveSettings() }
                         Toggle(isOn: $app.continueLast) {
                             Text(app.agent == "Codex" ? "Resume last Codex conversation" : "Continue last conversation (--continue)")
@@ -237,19 +238,19 @@ struct SettingsView: View {
                                 Button("Update core packages") { app.updateCore() }
                                     .accentButton()
                                     .disabled(app.setupBusy)
-                                    .help("Update npm · Claude CLI · RTK · Caveman to the latest versions")
+                                    .help("Update npm · Claude CLI · RTK · Caveman · Claude Video to the latest versions")
                                 Text("Everything's installed ✓")
                                     .font(.system(size: 11)).foregroundStyle(Theme.green)
                             } else {
                                 Button {
                                     app.installEverything()
-                                } label: { Text("Install everything  (Node · CLI · RTK · Caveman · skills)") }
+                                } label: { Text("Install everything  (Node · CLI · RTK · Caveman · Video · skills)") }
                                 .accentButton()
                                 .disabled(app.setupBusy)
                                 Button("Update core packages") { app.updateCore() }
                                     .blueButton()
                                     .disabled(app.setupBusy)
-                                    .help("Update npm · Claude CLI · RTK · Caveman to the latest versions")
+                                    .help("Update npm · Claude CLI · RTK · Caveman · Claude Video to the latest versions")
                             }
                             if app.setupBusy {
                                 ProgressView().controlSize(.small)
@@ -257,7 +258,7 @@ struct SettingsView: View {
                             }
                         }
                         Text(app.allCoreInstalled
-                             ? "Your toolchain is complete. “Update core packages” bumps npm · Claude CLI · RTK · Caveman to the latest versions. Individual buttons below are there if you ever need them."
+                             ? "Your toolchain is complete. “Update core packages” bumps npm · Claude CLI · RTK · Caveman · Claude Video to the latest versions. Individual buttons below are there if you ever need them."
                              : "Fresh machine? “Install everything” installs Node.js first (via Homebrew, or the official pkg with an admin prompt), then the latest CLI + tools. “Update core packages” bumps everything already installed.")
                             .font(.system(size: 10.5)).foregroundStyle(Theme.textFaint)
                             .fixedSize(horizontal: false, vertical: true)
@@ -268,6 +269,7 @@ struct SettingsView: View {
                                 AnyView(Button("Codex CLI") { app.installCodex() }.ghostButton()),
                                 AnyView(Button("RTK") { app.installRtk() }.ghostButton()),
                                 AnyView(Button("Caveman") { app.installCaveman() }.ghostButton()),
+                                AnyView(Button("Claude Video") { app.installClaudeVideo() }.ghostButton()),
                                 AnyView(Button("Headroom") { app.installHeadroom() }.ghostButton()),
                                 AnyView(Button("Skills") { app.installBundledSkills() }.ghostButton()),
                                 AnyView(Button("Open .claude") {

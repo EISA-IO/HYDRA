@@ -78,7 +78,7 @@ extension AppState {
                 if !Self.isCavemanInstalled(), sh.onPath("node") {
                     let installer = (FS.exists(mkDst + "/bin/install.js") ? mkDst : bundledCaveman) + "/bin/install.js"
                     if FS.exists(installer) {
-                        _ = sh.run(sh.which("node") ?? "node", [installer, "--only", "claude"], timeout: 120)
+                        _ = sh.run(sh.which("node") ?? "node", [installer, "--only", "claude", "--only", "codex"], timeout: 120)
                     }
                 }
             }
@@ -102,6 +102,10 @@ extension AppState {
                 self.installBundledCavemanForCodexIfPossible()
             }
 
+            // 5) Claude Video — ship /watch as a local skill for both Claude and Codex, and
+            //    register the vendored plugin where each CLI supports plugin marketplaces.
+            self.installClaudeVideoIfPossible()
+
             DispatchQueue.main.async { self.refreshAll() }
         }
     }
@@ -112,10 +116,10 @@ extension AppState {
 
     func installBundledCavemanForCodexIfPossible() {
         guard let src = toolsSource(), Shell.shared.onPath("codex") else { return }
-        let marker = Paths.stateDir + "/.codex-caveman-installed"
         let marketplaceRoot = src + "/caveman"
         guard FS.exists(marketplaceRoot + "/.agents/plugins/marketplace.json") else { return }
-        if !FS.exists(marker) {
+        if !codexMarketplaceConfigured(name: "caveman", root: marketplaceRoot) {
+            _ = Shell.shared.run("codex", ["plugin", "marketplace", "remove", "caveman"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
             _ = Shell.shared.run("codex", ["plugin", "marketplace", "add", marketplaceRoot], env: ["CODEX_HOME": Paths.codexDir], timeout: 60)
         }
         let listed = Shell.shared.run("codex", ["plugin", "list"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
@@ -125,11 +129,46 @@ extension AppState {
         if !cavemanInstalled {
             _ = Shell.shared.run("codex", ["plugin", "add", "caveman@caveman"], env: ["CODEX_HOME": Paths.codexDir], timeout: 120)
         }
-        let updated = Shell.shared.run("codex", ["plugin", "list"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
-        let installed = (updated.out + updated.err).split(separator: "\n").contains { line in
-            line.contains("caveman@caveman") && line.contains("installed") && !line.contains("not installed")
+    }
+
+    private func codexMarketplaceConfigured(name: String, root: String) -> Bool {
+        guard let cfg = FS.read(Paths.codexDir + "/config.toml") else { return false }
+        return cfg.contains("[marketplaces.\(name)]") && cfg.contains("source = \"\(root)\"")
+    }
+
+    func installClaudeVideoIfPossible() {
+        guard let src = toolsSource() else { return }
+        let root = src + "/claude-video"
+        let skill = root + "/skills/watch"
+        guard FS.exists(skill + "/SKILL.md") else { return }
+
+        do {
+            try FileManager.default.createDirectory(atPath: Paths.skillsDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(atPath: Paths.codexSkillsDir, withIntermediateDirectories: true)
+            try FS.copyDir(skill, Paths.skillsDir + "/watch")
+            try FS.copyDir(skill, Paths.codexSkillsDir + "/watch")
+            DispatchQueue.main.async { self.setupLog += "Claude Video /watch skill installed for Claude and Codex.\n" }
+        } catch {
+            DispatchQueue.main.async { self.setupLog += "Claude Video skill install warning: \(error.localizedDescription)\n" }
         }
-        if installed { FS.write(marker, "") }
+
+        let claudeMarketplace = Paths.home + "/.claude/plugins/marketplaces/claude-video"
+        if FS.exists(root + "/.claude-plugin/plugin.json") && !FS.isDir(claudeMarketplace) {
+            do {
+                try FileManager.default.createDirectory(
+                    atPath: (claudeMarketplace as NSString).deletingLastPathComponent,
+                    withIntermediateDirectories: true)
+                try FS.copyDir(root, claudeMarketplace)
+            } catch { }
+        }
+
+        if Shell.shared.onPath("codex"), FS.exists(root + "/.agents/plugins/marketplace.json") {
+            if !codexMarketplaceConfigured(name: "claude-video", root: root) {
+                _ = Shell.shared.run("codex", ["plugin", "marketplace", "remove", "claude-video"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
+                _ = Shell.shared.run("codex", ["plugin", "marketplace", "add", root], env: ["CODEX_HOME": Paths.codexDir], timeout: 60)
+            }
+            _ = Shell.shared.run("codex", ["plugin", "add", "watch@claude-video"], env: ["CODEX_HOME": Paths.codexDir], timeout: 120)
+        }
     }
 
     private func ensureCodexCavemanInstructionsForProvisioning() {

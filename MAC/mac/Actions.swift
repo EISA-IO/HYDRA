@@ -266,8 +266,12 @@ extension AppState {
         }
         setupLog += (install ? "Installing" : "Removing") + " Caveman…\n"
         DispatchQueue.global(qos: .userInitiated).async {
-            let cmd = "npx -y github:JuliusBrussee/caveman --only claude" + (install ? "" : " --uninstall")
+            let cmd = "npx -y github:JuliusBrussee/caveman --only claude --only codex" + (install ? "" : " --uninstall")
             _ = Shell.shared.bash(cmd, timeout: 180)
+            if install {
+                self.ensureCodexCavemanInstructions()
+                self.installBundledCavemanForCodexIfPossible()
+            }
             DispatchQueue.main.async {
                 self.cavemanInstalled = Self.isCavemanInstalled()
                 self.caveman = self.cavemanInstalled

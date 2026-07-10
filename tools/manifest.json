@@ -10,8 +10,15 @@
     "caveman": {
       "role": "output compression (Claude Code plugin)",
       "bundledMarketplace": "caveman",
-      "localInstall": "node caveman/bin/install.js --only claude",
-      "fallbackInstall": "npx -y github:JuliusBrussee/caveman --only claude"
+      "localInstall": "node caveman/bin/install.js --only claude --only codex",
+      "fallbackInstall": "npx -y github:JuliusBrussee/caveman --only claude --only codex"
+    },
+    "claude-video": {
+      "role": "video understanding skill (/watch)",
+      "bundledMarketplace": "claude-video",
+      "bundledSkill": "claude-video/skills/watch",
+      "localInstall": "copy claude-video/skills/watch to ~/.claude/skills/watch and ~/.agents/skills/watch",
+      "fallbackInstall": "npx skills add bradautomates/claude-video -g"
     },
     "claude": {
       "role": "Claude Code CLI (Anthropic — not redistributable, auto-installed once if missing)",
