@@ -200,7 +200,8 @@ extension AppState {
         let envArr = env.map { "\($0.key)=\($0.value)" }
 
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
-                        agent: selectedAgent, headroom: selectedAgent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman)
+                        agent: selectedAgent, model: sessionModelLabel(m), task: taskLabel(startupPrompt: startupPrompt, agent: selectedAgent),
+                        headroom: selectedAgent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman)
         saveRecent(f)
         saveSettings()
         refreshRecents()
@@ -223,9 +224,37 @@ extension AppState {
         applyCreds(to: &env)   // shared tokens/keys (Settings → Access & API keys)
         let envArr = env.map { "\($0.key)=\($0.value)" }
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
+                        agent: "Shell", model: "Local shell", task: shellTaskLabel(note: note, command: command),
                         headroom: false, rtk: false, caveman: false)
         saveRecent(f)
         pendingTab = 0
+    }
+
+    private func sessionModelLabel(_ cliModel: String) -> String {
+        let trimmed = cliModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed == "Default" ? "Default" : trimmed
+    }
+
+    private func taskLabel(startupPrompt: String?, agent: String) -> String {
+        guard let prompt = startupPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty else {
+            return continueLast ? "Resume last session" : "Interactive session"
+        }
+        let p = prompt.lowercased()
+        if p.contains("complete saas") || p.contains("vision.md") { return "Build SaaS" }
+        if p.contains("deploy.md") || p.contains("deployed to") { return "Deploy project" }
+        if p.contains("subscriptions.md") || p.contains("subscription infrastructure") { return "Implement billing" }
+        if p.contains("playbook.md") { return "Run project mission" }
+        return agent == "Codex" ? "ChatGPT task" : "Claude task"
+    }
+
+    private func shellTaskLabel(note: String?, command: String) -> String {
+        let raw = (note?.isEmpty == false ? note! : command)
+            .replacingOccurrences(of: "…", with: "")
+            .replacingOccurrences(of: "—", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.count <= 42 { return raw.isEmpty ? "Shell command" : raw }
+        let cut = raw.index(raw.startIndex, offsetBy: 41)
+        return String(raw[..<cut]) + "..."
     }
 
     @discardableResult

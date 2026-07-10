@@ -51,7 +51,7 @@ struct WorkspaceView: View {
                     }
                     .padding(.horizontal, 2)
                 }
-                .frame(height: 34)
+                .frame(height: 58)
             }
 
             // ---- terminal host ----
@@ -100,27 +100,62 @@ struct TermTabChip: View {
 
     var body: some View {
         let selected = terminals.selectedId == tab.id
-        HStack(spacing: 6) {
-            Circle().fill(statusColor).frame(width: 7, height: 7)
-            Text(tab.title).font(.system(size: 12, weight: selected ? .semibold : .regular))
-                .foregroundStyle(selected ? .white : Theme.textDim)
-                .lineLimit(1)
-            Button {
-                terminals.close(tab.id)
-            } label: {
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 7) {
+                Circle().fill(statusColor).frame(width: 7, height: 7)
+                Text(agentLabel)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(selected ? .white : Theme.textDim)
+                    .lineLimit(1)
+                Text(tab.model)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(selected ? Theme.accent : Theme.textFaint)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 4)
+                Button {
+                    terminals.close(tab.id)
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.textFaint)
+                .help("Close this terminal")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Theme.textFaint)
-            .help("Close this terminal")
+            HStack(spacing: 5) {
+                Text(tab.task)
+                    .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? .white : Theme.textDim)
+                    .lineLimit(1)
+                Text(statusLabel)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+            }
         }
-        .padding(.horizontal, 10).padding(.vertical, 6)
+        .frame(width: 230, alignment: .leading)
+        .padding(.horizontal, 10).padding(.vertical, 7)
         .background(selected ? Theme.accent.opacity(0.20) : Theme.field)
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .stroke(selected ? Theme.accent.opacity(0.5) : Color.white.opacity(0.05), lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture { terminals.select(tab.id) }
+        .help("\(agentLabel)\nModel: \(tab.model)\nTask: \(tab.task)\nFolder: \(tab.folder)\nStatus: \(statusLabel)")
+    }
+
+    var agentLabel: String {
+        tab.agent == "Codex" ? "ChatGPT/Codex" : tab.agent
+    }
+
+    var statusLabel: String {
+        switch tab.status {
+        case "working": return "working"
+        case "waiting": return "waiting"
+        case "idle": return "idle"
+        case "exited": return "exited"
+        default: return tab.status
+        }
     }
 
     var statusColor: Color {

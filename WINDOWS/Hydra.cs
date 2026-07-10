@@ -38,7 +38,6 @@ class Hydra : Form
     static readonly Color CardFill  = Color.FromArgb(31, 31, 37);
     static readonly Color Field     = Color.FromArgb(43, 43, 51);
     static readonly Color FieldHi   = Color.FromArgb(58, 58, 68);
-    static readonly Color Panel     = Color.FromArgb(32, 32, 36);
     static readonly Color Panel2    = Color.FromArgb(40, 40, 45);
     static readonly Color Accent    = Color.FromArgb(217, 119, 87);
     static readonly Color AccentHi  = Color.FromArgb(232, 140, 110);
@@ -158,7 +157,8 @@ class Hydra : Form
     {
         string folder = HomeDir;
         string id = Guid.NewGuid().ToString("N").Substring(0, 12);
-        var sess = new TermSession { Id = id, Folder = folder, Name = "T" + (sessions.Count + 1) + "  " + label, CHeadroom = hr, CRtk = rt, CCaveman = cv };
+        var sess = new TermSession { Id = id, Folder = folder, Agent = "Claude", Model = "demo", Task = label,
+            Name = "T" + (sessions.Count + 1) + "  " + label, CHeadroom = hr, CRtk = rt, CCaveman = cv };
         string inner = "title Claude " + id + " & cls & echo ================================================"
             + " & echo   EMBEDDED CLAUDE SESSION: " + label
             + " & echo   This console is running INSIDE Hydra (not external)."
@@ -2378,7 +2378,7 @@ try {
 
     class TermSession
     {
-        public string Id, Name, Folder, Agent = "Claude", Status = "starting";
+        public string Id, Name, Folder, Agent = "Claude", Model = "Default", Task = "Interactive session", Status = "starting";
         public Color Color = Color.Gray;
         public Process Proc;
         public IntPtr Hwnd = IntPtr.Zero;
@@ -2414,7 +2414,7 @@ try {
             BackColor = Color.Transparent, Padding = new Padding(16, 12, 16, 12) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));   // toolbar
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));   // tab strip (fits the 48px card + margins/padding)
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 80f));   // tab strip (fits the 58px card + margins/padding)
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));   // terminal host
         tab.Controls.Add(root);
 
@@ -2660,6 +2660,8 @@ try {
 
         var sess = new TermSession { Id = id, Folder = folder,
             Agent = agent,
+            Model = SessionModelLabel(model),
+            Task = TaskLabelForLaunch(extra, continueChk.Checked, agent),
             Name = (agent == "Codex" ? "Cx" : "Cl") + (sessions.Count + 1) + "  " + new DirectoryInfo(folder).Name,
             CHeadroom = agent == "Codex" ? false : useHeadroom,
             CRtk = useRtk,
@@ -2687,6 +2689,24 @@ try {
         selectedTerm = sess;          // focus the freshly opened tab
         RefreshTermList();
         ShowSelectedTerminal();
+    }
+
+    string SessionModelLabel(string model)
+    {
+        string m = (model ?? "").Trim();
+        return m.Length == 0 || string.Equals(m, "Default", StringComparison.OrdinalIgnoreCase) ? "Default" : m;
+    }
+
+    string TaskLabelForLaunch(string extra, bool resume, string agent)
+    {
+        string p = (extra ?? "").Trim().Trim('"');
+        if (p.Length == 0) return resume ? "Resume last session" : "Interactive session";
+        string l = p.ToLowerInvariant();
+        if (l.Contains("complete saas") || l.Contains("vision.md")) return "Build SaaS";
+        if (l.Contains("deploy.md") || l.Contains("deployed to")) return "Deploy project";
+        if (l.Contains("subscriptions.md") || l.Contains("subscription infrastructure")) return "Implement billing";
+        if (l.Contains("playbook.md")) return "Run project mission";
+        return agent == "Codex" ? "ChatGPT task" : "Claude task";
     }
 
     TermSession SelectedSession()
@@ -2805,10 +2825,9 @@ try {
         termTabs.Controls.Clear();
         foreach (var s in sessions)
         {
-            bool on = s == selectedTerm;
             var cur = s;
             var tabBtn = new DrawButton {
-                Tag = s, AutoSize = false, Size = new Size(214, 48),
+                Tag = s, AutoSize = false, Size = new Size(264, 58),
                 Margin = new Padding(4, 3, 0, 3), Cursor = Cursors.Hand, TabStop = false };
             RoundRegion(tabBtn, 11);
             tabBtn.Painter = (g, rect) => PaintTermTab(g, rect, cur, cur == selectedTerm);
@@ -2820,7 +2839,7 @@ try {
         termTabs.ResumeLayout();
     }
 
-    // Rich, informative terminal-tab card: status dot / live spinner, session name,
+    // Rich terminal-tab card: status dot / live spinner, agent, model, task,
     // folder, and colored status text. Selected tab gets an accent bar + border.
     void PaintTermTab(Graphics g, Rectangle rect, TermSession s, bool on)
     {
@@ -2855,31 +2874,50 @@ try {
         // ---- per-session compression badges (top-right): H=Headroom, R=RTK, C=Caveman ----
         int bw = 17, bh = 15, bgap = 3, bcount = 3;
         int bStart = rect.Width - (bw * bcount + bgap * (bcount - 1)) - 8;
-        int by = 6;
+        int by = 7;
         DrawCompBadge(g, bStart, by, bw, bh, "H", s.CHeadroom, Color.FromArgb(92, 162, 232));
         DrawCompBadge(g, bStart + (bw + bgap), by, bw, bh, "R", s.CRtk, Green);
         DrawCompBadge(g, bStart + (bw + bgap) * 2, by, bw, bh, "C", s.CCaveman, Color.FromArgb(196, 140, 224));
 
-        // session name (clipped so it never runs under the badges)
+        // Agent and model are distinct so multiple Claude/Codex tabs are easy to tell apart.
+        string agent = AgentLabel(s.Agent);
         using (var f = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold))
         using (var b = new SolidBrush(on ? Color.White : Color.FromArgb(222, 222, 228)))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(s.Name.Trim(), f, b, new RectangleF(tx, 5, bStart - tx - 4, 18), sf);
+            g.DrawString(agent, f, b, new RectangleF(tx, 6, 82, 18), sf);
 
-        // folder basename
+        using (var f = new Font("Segoe UI", 8.2f, FontStyle.Bold))
+        using (var b = new SolidBrush(on ? Accent : TextFaint))
+        using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+            g.DrawString(s.Model ?? "Default", f, b, new RectangleF(tx + 86, 7, bStart - tx - 92, 18), sf);
+
+        // Task label plus live state, clipped so it never overlaps the state text.
+        string task = string.IsNullOrWhiteSpace(s.Task) ? "Interactive session" : s.Task.Trim();
+        string status = string.IsNullOrWhiteSpace(s.Status) ? "ready" : s.Status.Trim();
+        SizeF statusSize;
+        using (var sfnt = new Font("Segoe UI", 8f, FontStyle.Bold))
+            statusSize = g.MeasureString(status, sfnt);
+        float statusW = Math.Min(92f, statusSize.Width + 4f);
+        using (var f = new Font("Segoe UI", 8.3f, FontStyle.Bold))
+        using (var b = new SolidBrush(on ? Color.White : TextDim))
+        using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+            g.DrawString(task, f, b, new RectangleF(tx, 28, rect.Width - tx - statusW - 16, 18), sf);
+
+        // Folder basename, kept faint as secondary context.
         string folder = "";
         try { folder = new DirectoryInfo(s.Folder).Name; } catch { }
-        if (folder.Length > 16) folder = folder.Substring(0, 15) + "…";
+        if (folder.Length > 22) folder = folder.Substring(0, 21) + "...";
         using (var f = new Font("Segoe UI", 8f))
         using (var b = new SolidBrush(TextFaint))
-            g.DrawString(folder, f, b, tx, 27);
+        using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+            g.DrawString(folder, f, b, new RectangleF(tx, 42, rect.Width - tx - 12, 16), sf);
 
         // status text, right-aligned (bottom line)
         using (var f = new Font("Segoe UI", 8f, FontStyle.Bold))
         using (var b = new SolidBrush(s.Color))
         {
-            var sz = g.MeasureString(s.Status, f);
-            g.DrawString(s.Status, f, b, rect.Width - sz.Width - 10, 27);
+            var sz = g.MeasureString(status, f);
+            g.DrawString(status, f, b, rect.Width - sz.Width - 10, 28);
         }
 
         // selected accent bar + border
@@ -2899,9 +2937,14 @@ try {
         if (s.CHeadroom) on.Add("Headroom (proxy compresses tool output & context)");
         if (s.CRtk) on.Add("RTK (filters shell/test/build output)");
         if (s.CCaveman) on.Add("Caveman (compresses " + s.Agent + "'s replies)");
-        string head = s.Name.Trim() + "  •  " + s.Folder;
+        string head = AgentLabel(s.Agent) + "\nModel: " + SessionModelLabel(s.Model) + "\nTask: " + (string.IsNullOrWhiteSpace(s.Task) ? "Interactive session" : s.Task.Trim()) + "\nFolder: " + s.Folder + "\nStatus: " + s.Status;
         if (on.Count == 0) return head + "\n\nToken compression: none enabled for this session";
         return head + "\n\nToken compression enabled:\n • " + string.Join("\n • ", on.ToArray());
+    }
+
+    string AgentLabel(string agent)
+    {
+        return agent == "Codex" ? "ChatGPT/Codex" : (string.IsNullOrWhiteSpace(agent) ? "Claude" : agent);
     }
 
     // One compression badge. Lit (filled + white letter) when the tool was enabled for

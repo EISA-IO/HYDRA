@@ -50,8 +50,10 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
 ## Tabs
 
 - **Workspace** — create multiple embedded Claude and Codex terminals in tabs; each terminal gets
-  RTK + Caveman when enabled. Claude and Codex keep separate default model choices, so a Codex
-  default like **gpt-5.6-sol** is not overwritten when you switch back to Claude.
+  RTK + Caveman when enabled. Terminal tabs show the agent, exact model, current task, live status,
+  and folder so parallel sessions are easy to tell apart. Claude and Codex keep separate default
+  model choices, so a Codex default like **gpt-5.6-sol** is not overwritten when you switch back
+  to Claude.
 - **Settings** — choose the default agent, launch defaults, token-compression toggles, one-click
   "Install everything" / "Update core packages".
   Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,

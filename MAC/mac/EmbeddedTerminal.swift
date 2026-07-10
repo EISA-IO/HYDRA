@@ -7,6 +7,8 @@ final class TermTab: ObservableObject, Identifiable {
     let id: String
     let folder: String
     let agent: String
+    let model: String
+    @Published var task: String
     let headroom: Bool
     let rtk: Bool
     let caveman: Bool
@@ -17,10 +19,13 @@ final class TermTab: ObservableObject, Identifiable {
     // Strong owner for the process delegate (SwiftTerm holds it weakly, so the tab must retain it).
     var coordinator: AnyObject?
 
-    init(id: String, folder: String, agent: String, headroom: Bool, rtk: Bool, caveman: Bool) {
+    init(id: String, folder: String, agent: String, model: String, task: String,
+         headroom: Bool, rtk: Bool, caveman: Bool) {
         self.id = id
         self.folder = folder
         self.agent = agent
+        self.model = model.isEmpty ? "Default" : model
+        self.task = task.isEmpty ? "Interactive session" : task
         self.headroom = headroom
         self.rtk = rtk
         self.caveman = caveman
@@ -51,8 +56,10 @@ final class TerminalManager: ObservableObject {
 
     /// Spawn a Claude session in a new embedded tab.
     func spawn(id: String, folder: String, shellCommand: String, env: [String],
-               agent: String = "Claude", headroom: Bool, rtk: Bool, caveman: Bool) {
-        let t = TermTab(id: id, folder: folder, agent: agent, headroom: headroom, rtk: rtk, caveman: caveman)
+               agent: String = "Claude", model: String = "Default", task: String = "Interactive session",
+               headroom: Bool, rtk: Bool, caveman: Bool) {
+        let t = TermTab(id: id, folder: folder, agent: agent, model: model, task: task,
+                        headroom: headroom, rtk: rtk, caveman: caveman)
         let coord = Coordinator(manager: self, tabId: id)
         t.coordinator = coord                 // retain it — processDelegate below is weak
         t.view.processDelegate = coord
