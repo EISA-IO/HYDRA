@@ -49,6 +49,10 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
 
 ## Tabs
 
+The macOS and Windows apps share the same dark shell: a persistent 190px sidebar for navigation,
+Ollama controls and live tool counts; a flat content canvas; matching page headers; and the same
+compact workspace toolbar, task/model terminal chips, status colors and composed empty state.
+
 - **Workspace** — create multiple embedded Claude and Codex terminals in tabs; each terminal gets
   RTK + Caveman when enabled. Terminal tabs make live state primary: **Ready**, **Working**,
   **Waiting for User**, or **Stopped / Token Limit**. Per-session Claude and Codex hooks drive

@@ -41,7 +41,6 @@ class Hydra : Form
 
     // palette — dark liquid-glass
     static readonly Color Bg        = Color.FromArgb(22, 22, 25);
-    static readonly Color CardFill  = Color.FromArgb(31, 31, 37);
     static readonly Color Field     = Color.FromArgb(43, 43, 51);
     static readonly Color FieldHi   = Color.FromArgb(58, 58, 68);
     static readonly Color Panel2    = Color.FromArgb(40, 40, 45);
@@ -78,11 +77,14 @@ class Hydra : Form
     Button btnMin, btnMax, btnClose;
     PictureBox botLogo;
     static readonly Color TitleBg = Color.FromArgb(16, 16, 18);
+    Panel sidebar, sidebarOllamaDot;
+    Label sidebarProxyStatus, sidebarCounts;
 
     // terminals + alerts
     FlowLayoutPanel termTabs;
+    TableLayoutPanel terminalRoot;
     Panel termHost;
-    Label termHint;
+    Panel termEmptyState;
     TextBox termPathBox;
     TermSession selectedTerm;
     NotifyIcon tray;
@@ -310,26 +312,29 @@ class Hydra : Form
 
         if (owned)
         {
-            ollamaButton.Text = "Stop Ollama";
+            ollamaButton.Text = "■   Stop Ollama";
             ollamaButton.Enabled = true;
             ollamaStatus.Text = reachable ? "Ollama · local server running" : "Ollama · starting on 127.0.0.1:" + OllamaPort;
             ollamaStatus.ForeColor = reachable ? Green : Yellow;
+            if (sidebarOllamaDot != null) sidebarOllamaDot.BackColor = reachable ? Green : Yellow;
         }
         else if (reachable)
         {
             ollamaProcess = null;
-            ollamaButton.Text = "Ollama Running";
+            ollamaButton.Text = "●   Ollama Running";
             ollamaButton.Enabled = false;
             ollamaStatus.Text = "Ollama · managed outside Hydra";
             ollamaStatus.ForeColor = Green;
+            if (sidebarOllamaDot != null) sidebarOllamaDot.BackColor = Green;
         }
         else
         {
             ollamaProcess = null;
-            ollamaButton.Text = "Start Ollama";
+            ollamaButton.Text = "▶   Start Ollama";
             ollamaButton.Enabled = true;
             ollamaStatus.Text = installed ? "Ollama · off" : "Ollama · not installed";
             ollamaStatus.ForeColor = installed ? TextFaint : Yellow;
+            if (sidebarOllamaDot != null) sidebarOllamaDot.BackColor = installed ? TextFaint : Yellow;
         }
     }
 
@@ -341,7 +346,7 @@ class Hydra : Form
         if (ollamaStartPending) return;
         ollamaStartPending = true;
         ollamaButton.Enabled = false;
-        ollamaButton.Text = "Checking…";
+        ollamaButton.Text = "…   Checking Ollama";
         ThreadPool.QueueUserWorkItem(_ => {
             bool reachable = TestPort(OllamaPort);
             string executable = FindOllamaExecutable();
@@ -1141,6 +1146,7 @@ class Hydra : Form
         AddSkillDir(DisabledDir, "Disabled", ref dis);
         skillsList.EndUpdate();
         skillsCount.Text = en + " enabled" + (dis > 0 ? "  •  " + dis + " disabled" : "");
+        UpdateSidebarCounts();
     }
     void AddSkillDir(string root, string status, ref int count)
     {
@@ -1446,32 +1452,98 @@ class Hydra : Form
         return null;
     }
 
-    void BuildOllamaControls(Panel header)
+    void BuildOllamaControls(Panel host, int top)
     {
-        ollamaStatus = new Label {
-            Text = "Ollama · off", AutoEllipsis = true,
-            Location = new Point(header.Width - 356, 4), Size = new Size(338, 19),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            TextAlign = ContentAlignment.MiddleRight, ForeColor = TextFaint,
-            Font = new Font("Segoe UI", 8.2f, FontStyle.Bold)
+        ollamaButton = new Button {
+            Text = "▶   Start Ollama", Location = new Point(8, top), Size = new Size(174, 36),
+            FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(25, 25, 29), ForeColor = TextDim,
+            TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0),
+            Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold), Cursor = Cursors.Hand, TabStop = true
         };
-        header.Controls.Add(ollamaStatus);
-
-        ollamaButton = GhostBtn("Start Ollama");
-        ollamaButton.Location = new Point(header.Width - 238, 27);
-        ollamaButton.Size = new Size(106, 24);
-        ollamaButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        ollamaButton.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        ollamaButton.FlatAppearance.BorderSize = 0;
+        ollamaButton.FlatAppearance.MouseOverBackColor = Field;
+        ollamaButton.FlatAppearance.MouseDownBackColor = FieldHi;
+        RoundRegion(ollamaButton, 8);
         ollamaButton.Click += (s, e) => ToggleOllama();
-        header.Controls.Add(ollamaButton);
+        host.Controls.Add(ollamaButton);
 
-        ollamaTerminalButton = GhostBtn("Ollama Terminal");
-        ollamaTerminalButton.Location = new Point(header.Width - 124, 27);
-        ollamaTerminalButton.Size = new Size(106, 24);
-        ollamaTerminalButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        ollamaTerminalButton.Font = new Font("Segoe UI", 8.2f, FontStyle.Bold);
+        sidebarOllamaDot = new Panel { Location = new Point(20, top + 44), Size = new Size(6, 6), BackColor = TextFaint };
+        RoundRegion(sidebarOllamaDot, 3);
+        host.Controls.Add(sidebarOllamaDot);
+        ollamaStatus = new Label {
+            Text = "Ollama · off", AutoEllipsis = true, Location = new Point(32, top + 39), Size = new Size(146, 17),
+            ForeColor = TextFaint, Font = new Font("Segoe UI", 8f), TextAlign = ContentAlignment.MiddleLeft
+        };
+        host.Controls.Add(ollamaStatus);
+
+        ollamaTerminalButton = new Button {
+            Text = ">_  Open Ollama Terminal", Location = new Point(14, top + 60), Size = new Size(164, 25),
+            FlatStyle = FlatStyle.Flat, BackColor = TitleBg, ForeColor = TextFaint,
+            TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 8f), Cursor = Cursors.Hand, TabStop = true
+        };
+        ollamaTerminalButton.FlatAppearance.BorderSize = 0;
+        ollamaTerminalButton.FlatAppearance.MouseOverBackColor = Field;
+        ollamaTerminalButton.FlatAppearance.MouseDownBackColor = FieldHi;
         ollamaTerminalButton.Click += (s, e) => OpenOllamaTerminal();
-        header.Controls.Add(ollamaTerminalButton);
+        host.Controls.Add(ollamaTerminalButton);
+    }
+
+    void BuildSidebar(Panel host)
+    {
+        botLogo = new PictureBox { Location = new Point(14, 22), Size = new Size(30, 30),
+            SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent, Image = AppImage() };
+        RoundRegion(botLogo, 7);
+        host.Controls.Add(botLogo);
+        headerDot = new Panel { Location = new Point(38, 45), Size = new Size(7, 7), BackColor = Accent };
+        RoundRegion(headerDot, 4);
+        host.Controls.Add(headerDot);
+        headerDot.BringToFront();
+
+        var hTitle = new Label { Text = "Hydra", AutoSize = true, Location = new Point(54, 21),
+            Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold), ForeColor = Color.White };
+        host.Controls.Add(hTitle);
+        var hVer = new Label { Text = "v1", AutoSize = true, UseMnemonic = false,
+            Location = new Point(103, 24), Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold), ForeColor = Accent };
+        host.Controls.Add(hVer);
+        host.Controls.Add(new Label { Text = "By Ahmed Al-Eissa", AutoSize = true, Location = new Point(55, 40),
+            ForeColor = TextFaint, Font = new Font("Segoe UI", 7.5f, FontStyle.Italic) });
+
+        string[] titles = { "Workspace", "Settings", "SaaS", "Skills", "Glossary" };
+        string[] icons = { ">_", "≡", "◇", "✦", "▤" };
+        int navTop = 88;
+        for (int i = 0; i < titles.Length; i++)
+        {
+            int idx = i;
+            var nav = new Button {
+                Text = icons[i] + "   " + titles[i], Location = new Point(8, navTop + i * 40), Size = new Size(174, 34),
+                FlatStyle = FlatStyle.Flat, BackColor = TitleBg, ForeColor = TextDim,
+                TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0),
+                Font = new Font("Segoe UI", 9.5f), Cursor = Cursors.Hand, TabStop = true, Tag = false
+            };
+            nav.FlatAppearance.BorderSize = 0;
+            nav.FlatAppearance.MouseOverBackColor = Field;
+            nav.FlatAppearance.MouseDownBackColor = FieldHi;
+            RoundRegion(nav, 8);
+            nav.Paint += (s, e) => {
+                if (nav.Tag is bool && (bool)nav.Tag)
+                    using (var brush = new SolidBrush(Accent)) e.Graphics.FillRectangle(brush, 0, 7, 3, 20);
+            };
+            nav.Click += (s, e) => SelectNav(idx);
+            host.Controls.Add(nav);
+            navButtons.Add(nav);
+        }
+
+        var divider = new Panel { Location = new Point(12, navTop + titles.Length * 40 + 4), Size = new Size(166, 1),
+            BackColor = Color.FromArgb(31, 31, 35) };
+        host.Controls.Add(divider);
+        BuildOllamaControls(host, navTop + titles.Length * 40 + 18);
+
+        sidebarProxyStatus = new Label { Text = "○ Proxy idle", Location = new Point(16, host.Height - 58), Size = new Size(158, 17),
+            Anchor = AnchorStyles.Left | AnchorStyles.Bottom, ForeColor = TextFaint, Font = new Font("Segoe UI", 8f) };
+        sidebarCounts = new Label { Text = "0 skills · 0 terminals", Location = new Point(16, host.Height - 38), Size = new Size(158, 17),
+            Anchor = AnchorStyles.Left | AnchorStyles.Bottom, ForeColor = TextFaint, Font = new Font("Segoe UI", 8f) };
+        host.Controls.Add(sidebarProxyStatus);
+        host.Controls.Add(sidebarCounts);
     }
 
     void BuildUi()
@@ -1479,11 +1551,11 @@ class Hydra : Form
         Text = "Hydra";
         FormBorderStyle = FormBorderStyle.None;   // custom chrome (title bar drawn below)
         Icon = AppIcon();
-        // Clamp initial size to the screen so we never open larger than a small display.
+        // Match the Mac shell's roomy 940×640 baseline while still clamping to small displays.
         var wa = Screen.PrimaryScreen.WorkingArea;
-        int startW = Math.Min(768, wa.Width - 40);
-        int startH = Math.Min(834, wa.Height - 40);
-        MinimumSize = new Size(Math.Min(740, startW), Math.Min(600, startH));
+        int startW = Math.Min(1040, wa.Width - 40);
+        int startH = Math.Min(720, wa.Height - 40);
+        MinimumSize = new Size(Math.Min(940, startW), Math.Min(640, startH));
         ClientSize = new Size(startW, startH);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Bg;
@@ -1492,64 +1564,24 @@ class Hydra : Form
         DoubleBuffered = true;
 
         const int TOP = 34;         // custom title-bar height
-        int M = 20;                 // outer margin
-        int cardW = ClientSize.Width - M * 2;   // 728
+        const int SIDEBAR = 190;
 
         BuildTitleBar(TOP);
 
-        // ---- header card ----
-        var header = new Panel { Location = new Point(M, TOP + 12), Size = new Size(cardW, 56),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = CardFill };
-        RoundRegion(header, 16);
-        botLogo = new PictureBox { Location = new Point(14, 8), Size = new Size(40, 40),
-            SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent, Image = AppImage() };
-        header.Controls.Add(botLogo);
-        headerDot = new Panel { Location = new Point(46, 38), Size = new Size(11, 11), BackColor = Accent };
-        RoundRegion(headerDot, 6);
-        header.Controls.Add(headerDot);
-        headerDot.BringToFront();
-        var hTitle = new Label { Text = "Hydra", AutoSize = true, Location = new Point(64, 8),
-            Font = new Font("Segoe UI Semibold", 15f, FontStyle.Bold), ForeColor = Color.White };
-        header.Controls.Add(hTitle);
-        var hVer = new Label { Text = "v1", AutoSize = true, UseMnemonic = false,
-            Location = new Point(hTitle.Location.X + hTitle.PreferredWidth + 6, 16),
-            Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold), ForeColor = Accent };
-        header.Controls.Add(hVer);
-        var hSub = new Label { Text = "By Ahmed Al-EIssa",
-            AutoSize = true, Location = new Point(66, 35), ForeColor = TextFaint,
-            Font = new Font("Segoe UI", 8.5f, FontStyle.Italic) };
-        header.Controls.Add(hSub);
-        BuildOllamaControls(header);
-        Controls.Add(header);
+        // Persistent Mac-style sidebar: brand, vertical navigation, Ollama, and status footer.
+        sidebar = new Panel { Location = new Point(0, 0), Size = new Size(SIDEBAR, ClientSize.Height),
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left, BackColor = TitleBg };
+        BuildSidebar(sidebar);
+        Controls.Add(sidebar);
+        sidebar.BringToFront();
+        var sideDivider = new Panel { Location = new Point(SIDEBAR - 1, 0), Size = new Size(1, ClientSize.Height),
+            Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left, BackColor = Color.FromArgb(35, 35, 39) };
+        Controls.Add(sideDivider);
+        sideDivider.BringToFront();
 
-        // ---- nav pill row ----
-        var nav = new Panel { Location = new Point(M, TOP + 78), Size = new Size(cardW, 48),
-            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = CardFill };
-        RoundRegion(nav, 16);
-        Controls.Add(nav);
-
-        string[] tabsNames = { "Workspace", "Settings", "SaaS", "Skills", "Glossary" };
-        for (int i = 0; i < tabsNames.Length; i++)
-        {
-            int idx = i;
-            var pill = new Button { Text = tabsNames[i], Size = new Size(80, 32),
-                FlatStyle = FlatStyle.Flat, TabStop = false };
-            pill.FlatAppearance.BorderSize = 0;
-            pill.Cursor = Cursors.Hand;
-            RoundRegion(pill, 10);
-            pill.MouseEnter += (s, e) => { if (!(bool)pill.Tag) pill.BackColor = FieldHi; };
-            pill.MouseLeave += (s, e) => { if (!(bool)pill.Tag) pill.BackColor = Field; };
-            pill.Click += (s, e) => SelectNav(idx);
-            nav.Controls.Add(pill);
-            navButtons.Add(pill);
-        }
-        nav.Resize += (s, e) => LayoutNavPills(nav);
-        LayoutNavPills(nav);
-
-        // ---- content host (floating cards swap inside) ----
-        int contentY = TOP + 136;
-        var content = new Panel { Location = new Point(M, contentY),
-            Size = new Size(cardW, ClientSize.Height - contentY - 16),
+        // Main content uses the same flat charcoal canvas as the Mac app.
+        var content = new Panel { Location = new Point(SIDEBAR, TOP),
+            Size = new Size(ClientSize.Width - SIDEBAR, ClientSize.Height - TOP),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
             BackColor = Bg };
         Controls.Add(content);
@@ -1572,8 +1604,7 @@ class Hydra : Form
 
     Panel NewContentPanel(Control host)
     {
-        var p = new Panel { Dock = DockStyle.Fill, BackColor = CardFill, Visible = false, Padding = new Padding(8) };
-        RoundRegion(p, 16);
+        var p = new Panel { Dock = DockStyle.Fill, BackColor = Bg, Visible = false, Padding = new Padding(0) };
         host.Controls.Add(p);
         contentPanels.Add(p);
         return p;
@@ -1586,29 +1617,13 @@ class Hydra : Form
             var b = navButtons[i];
             bool on = i == sel;
             b.Tag = on;
-            b.BackColor = on ? Accent : Field;
-            b.ForeColor = on ? Color.Black : TextDim;
+            b.BackColor = on ? Lerp(TitleBg, Accent, 0.16f) : TitleBg;
+            b.ForeColor = on ? Color.White : TextDim;
             b.Font = new Font("Segoe UI", 9.5f, on ? FontStyle.Bold : FontStyle.Regular);
+            b.Invalidate();
         }
         for (int i = 0; i < contentPanels.Count; i++)
             contentPanels[i].Visible = i == sel;
-    }
-
-    // reflow the nav pills to evenly fill the current nav width (keeps the row responsive)
-    void LayoutNavPills(Panel nav)
-    {
-        if (navButtons.Count == 0) return;
-        int gap = 6, py = 8, navPad = 8;
-        int avail = nav.ClientSize.Width - navPad * 2 - gap * (navButtons.Count - 1);
-        int pillW = Math.Max(40, avail / navButtons.Count); // clamp instead of bailing so tiny widths still lay out
-        int px = navPad;
-        for (int i = 0; i < navButtons.Count; i++)
-        {
-            var pill = navButtons[i];
-            pill.Location = new Point(px, py);
-            pill.Size = new Size(pillW, 32);   // Resize handler re-applies the rounded Region
-            px += pillW + gap;
-        }
     }
 
     // walk the content tree and modernize input controls to the flat field look
@@ -1716,6 +1731,18 @@ class Hydra : Form
             Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold), Margin = new Padding(0, 6, 0, 0) };
     }
 
+    Control PageHeader(string title, string subtitle)
+    {
+        var panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        panel.Controls.Add(new Label { Text = title, Location = new Point(0, 1), Size = new Size(700, 25),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            ForeColor = Color.White, Font = new Font("Segoe UI Semibold", 14f, FontStyle.Bold) });
+        panel.Controls.Add(new Label { Text = subtitle, Location = new Point(0, 28), Size = new Size(700, 20),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            ForeColor = TextDim, Font = new Font("Segoe UI", 8.5f) });
+        return panel;
+    }
+
     // Dedicated Settings tab: everything that used to crowd the launch column now lives
     // here — launch defaults, the three token-compression toggles, extra flags, and a few
     // maintenance actions — leaving the Workspace tab minimal and clean.
@@ -1723,7 +1750,7 @@ class Hydra : Form
     {
         var root = new TableLayoutPanel {
             Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 1,
-            AutoScroll = true, Padding = new Padding(18, 12, 18, 12) };
+            AutoScroll = true, Padding = new Padding(22, 16, 22, 18) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         tab.Controls.Add(root);
 
@@ -1732,6 +1759,8 @@ class Hydra : Form
             if (h > 0) { c.Dock = DockStyle.Fill; root.RowStyles.Add(new RowStyle(SizeType.Absolute, h)); }
             root.Controls.Add(c);
         };
+
+        row(PageHeader("Settings", "Defaults for every new terminal, the token-compression toolchain, and one-click install."), 52);
 
         // ---- launch defaults ----
         row(SectionCap("Launch defaults"), 26);
@@ -1865,12 +1894,15 @@ class Hydra : Form
 
     void BuildSkillsTab(Control tab)
     {
-        int W = 668;
-        tab.Controls.Add(Caption("Installed skills (double-click to enable/disable)", 20, 16));
-        skillsCount = new Label { AutoSize = true, Location = new Point(20, 40), ForeColor = TextDim };
+        int W = 760;
+        var header = PageHeader("Skills", "Manage skills for Claude and ChatGPT/Codex.");
+        header.Location = new Point(22, 16); header.Size = new Size(W, 52);
+        header.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        tab.Controls.Add(header);
+        skillsCount = new Label { AutoSize = true, Location = new Point(22, 70), ForeColor = TextDim };
         tab.Controls.Add(skillsCount);
 
-        skillsList = new ListView { Location = new Point(20, 66), Size = new Size(W, 502),
+        skillsList = new ListView { Location = new Point(22, 94), Size = new Size(W, 474),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
             View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false,
             BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle };
@@ -1881,26 +1913,29 @@ class Hydra : Form
         tab.Controls.Add(skillsList);
 
         int y = 576;
-        var add = OkBtn("Add Skill...");       add.Location = new Point(20, y);  add.Size = new Size(112, 32); add.Click += (s, e) => AddSkill();       tab.Controls.Add(add);
-        var tog = GhostBtn("Enable / Disable"); tog.Location = new Point(140, y); tog.Size = new Size(130, 32); tog.Click += (s, e) => ToggleSkill();    tab.Controls.Add(tog);
-        var rem = DangerBtn("Remove");          rem.Location = new Point(278, y); rem.Size = new Size(96, 32);  rem.Click += (s, e) => RemoveSkill();    tab.Controls.Add(rem);
-        var refr = GhostBtn("Refresh");         refr.Location = new Point(382, y); refr.Size = new Size(90, 32); refr.Click += (s, e) => LoadSkills();   tab.Controls.Add(refr);
-        var open = GhostBtn("Open Folder");     open.Location = new Point(480, y); open.Size = new Size(110, 32); open.Click += (s, e) => OpenSkillsFolder(); tab.Controls.Add(open);
+        var add = OkBtn("Import…");             add.Location = new Point(22, y);  add.Size = new Size(104, 32); add.Click += (s, e) => AddSkill();       tab.Controls.Add(add);
+        var tog = GhostBtn("Enable / Disable"); tog.Location = new Point(134, y); tog.Size = new Size(130, 32); tog.Click += (s, e) => ToggleSkill();    tab.Controls.Add(tog);
+        var rem = DangerBtn("Remove");          rem.Location = new Point(272, y); rem.Size = new Size(96, 32);  rem.Click += (s, e) => RemoveSkill();    tab.Controls.Add(rem);
+        var refr = GhostBtn("Refresh");         refr.Location = new Point(376, y); refr.Size = new Size(90, 32); refr.Click += (s, e) => LoadSkills();   tab.Controls.Add(refr);
+        var open = GhostBtn("Open folder");     open.Location = new Point(474, y); open.Size = new Size(110, 32); open.Click += (s, e) => OpenSkillsFolder(); tab.Controls.Add(open);
 
         foreach (Control c in tab.Controls) if (c is Button) c.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
     }
 
     void BuildGlossaryTab(Control tab)
     {
-        int W = 668;
-        tab.Controls.Add(Caption("Search commands, flags, shortcuts", 20, 16));
-        glossarySearch = new TextBox { Location = new Point(20, 40), Size = new Size(W, 28),
+        int W = 760;
+        var header = PageHeader("Glossary & reference", "Slash commands, CLI flags, keyboard tips, and the compression toolchain.");
+        header.Location = new Point(22, 16); header.Size = new Size(W, 52);
+        header.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        tab.Controls.Add(header);
+        glossarySearch = new TextBox { Location = new Point(22, 78), Size = new Size(W, 28),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right, BackColor = Panel2, ForeColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 11f) };
         glossarySearch.TextChanged += (s, e) => RenderGlossary(glossarySearch.Text);
         tab.Controls.Add(glossarySearch);
 
-        glossaryList = new ListView { Location = new Point(20, 78), Size = new Size(W, 556),
+        glossaryList = new ListView { Location = new Point(22, 118), Size = new Size(W, 516),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
             View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false, ShowGroups = true,
             BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle };
@@ -2501,8 +2536,20 @@ try {
     }
     void UpdateProxyStatus()
     {
-        if (TestPort(ProxyPort)) { hrStatus.Text = "● Headroom proxy: RUNNING on 127.0.0.1:" + ProxyPort; hrStatus.ForeColor = Green; }
+        bool running = TestPort(ProxyPort);
+        if (running) { hrStatus.Text = "● Headroom proxy: RUNNING on 127.0.0.1:" + ProxyPort; hrStatus.ForeColor = Green; }
         else { hrStatus.Text = "○ Headroom proxy: not running (auto-starts on launch)"; hrStatus.ForeColor = Yellow; }
+        if (sidebarProxyStatus != null)
+        {
+            sidebarProxyStatus.Text = running ? "● Headroom proxy up" : "○ Proxy idle";
+            sidebarProxyStatus.ForeColor = running ? Green : TextFaint;
+        }
+    }
+
+    void UpdateSidebarCounts()
+    {
+        if (sidebarCounts != null)
+            sidebarCounts.Text = CountSkills() + " skills · " + sessions.Count + " terminals";
     }
     void UpdateLaunchText()
     {
@@ -2514,7 +2561,11 @@ try {
         if (cvCheck != null && cvCheck.Checked) tail += " +Caveman";
         if (launchBtn != null)
         {
-            launchBtn.Text = "+ New " + (agent == "Codex" ? "Codex" : "Claude");
+            string badges = "";
+            if (agent != "Codex" && hrCheck != null && hrCheck.Checked) badges += "H";
+            if (rtCheck != null && rtCheck.Checked) badges += (badges.Length > 0 ? "·" : "") + "R";
+            if (cvCheck != null && cvCheck.Checked) badges += (badges.Length > 0 ? "·" : "") + "C";
+            launchBtn.Text = "+ New" + (badges.Length > 0 ? "  (" + badges + ")" : "");
             if (tabTip == null) tabTip = new ToolTip { ShowAlways = true, InitialDelay = 250 };
             tabTip.SetToolTip(launchBtn, "Start an embedded " + agent + " session in the chosen folder.\nModel: " + m + (tail.Length > 0 ? "\nCompression:" + tail : "\nCompression: none"));
         }
@@ -2656,6 +2707,7 @@ try {
         protected override void OnPaint(PaintEventArgs e)
         {
             if (Painter != null) Painter(e.Graphics, ClientRectangle);
+            if (Focused) ControlPaint.DrawFocusRectangle(e.Graphics, new Rectangle(4, 4, Width - 8, Height - 8), Color.White, Color.Transparent);
         }
     }
 
@@ -2665,22 +2717,22 @@ try {
         // Row 0: compact toolbar (fixed height).  Row 1: session tab strip.  Row 2: terminal host (fills).
         var root = new TableLayoutPanel {
             Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3,
-            BackColor = Color.Transparent, Padding = new Padding(16, 12, 16, 12) };
+            BackColor = Color.Transparent, Padding = new Padding(16, 12, 16, 16) };
+        terminalRoot = root;
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 40f));   // toolbar
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 80f));   // tab strip (fits the 58px card + margins/padding)
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 8f));    // expands to 70px when sessions exist
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));   // terminal host
         tab.Controls.Add(root);
 
         // ---- toolbar: New | folder path | Recent ▾ | Browse | Close | Pop out ----
         var bar = new TableLayoutPanel {
-            Dock = DockStyle.Fill, ColumnCount = 8, RowCount = 1, BackColor = Color.Transparent, Margin = new Padding(0) };
+            Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 1, BackColor = Color.Transparent, Margin = new Padding(0) };
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112f)); // Agent
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 168f)); // New (shows model)
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126f)); // New + compression badges
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));  // path (stretches)
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58f));  // Recent label
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 124f)); // recent combo
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132f)); // recent combo
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72f));  // Browse
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58f));  // Close
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 66f));  // Pop out
@@ -2707,16 +2759,14 @@ try {
         bar.Controls.Add(termPathBox, 2, 0);
         pathBox = termPathBox;   // single source of truth for the launch folder
 
-        var recCap = new Label { Dock = DockStyle.Fill, Text = "Recent", TextAlign = ContentAlignment.MiddleRight,
-            ForeColor = TextDim, Font = new Font("Segoe UI", 8.5f), Margin = new Padding(0, 0, 6, 0) };
-        bar.Controls.Add(recCap, 3, 0);
-
         // Recent-folders quick-pick: the ONLY leftover launch control from the old left panel,
         // now a compact dropdown so the terminals get essentially all the space.
         recentCombo = new ComboBox { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 8, 6),
             DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Field, ForeColor = Color.White };
         recentCombo.SelectedIndexChanged += (s, e) => { if (recentCombo.SelectedItem != null) termPathBox.Text = recentCombo.SelectedItem.ToString(); };
-        bar.Controls.Add(recentCombo, 4, 0);
+        if (tabTip == null) tabTip = new ToolTip { ShowAlways = true, InitialDelay = 250 };
+        tabTip.SetToolTip(recentCombo, "Recent project folders");
+        bar.Controls.Add(recentCombo, 3, 0);
 
         var browseBtn = GhostBtn("Browse…");
         browseBtn.Dock = DockStyle.Fill; browseBtn.Margin = new Padding(0, 4, 8, 4);
@@ -2724,35 +2774,49 @@ try {
             using (var dlg = new FolderBrowserDialog { Description = "Folder for the next Claude session", ShowNewFolderButton = true })
             { if (Directory.Exists(termPathBox.Text)) dlg.SelectedPath = termPathBox.Text; if (dlg.ShowDialog() == DialogResult.OK) termPathBox.Text = dlg.SelectedPath; }
         };
-        bar.Controls.Add(browseBtn, 5, 0);
+        bar.Controls.Add(browseBtn, 4, 0);
 
         var closeBtn = DangerBtn("Close");
         closeBtn.Dock = DockStyle.Fill; closeBtn.Margin = new Padding(0, 4, 8, 4);
         closeBtn.Click += (s, e) => CloseSelectedTerminal();
-        bar.Controls.Add(closeBtn, 6, 0);
+        bar.Controls.Add(closeBtn, 5, 0);
 
         var focusBtn = GhostBtn("Pop out");
         focusBtn.Dock = DockStyle.Fill; focusBtn.Margin = new Padding(0, 4, 0, 4);
         focusBtn.Click += (s, e) => FocusSelectedTerminal();
-        bar.Controls.Add(focusBtn, 7, 0);
+        bar.Controls.Add(focusBtn, 6, 0);
 
         // ---- browser-style tab strip: one switchable tab per running session ----
         termTabs = new FlowLayoutPanel {
             Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 4),
             FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoScroll = true,
-            BackColor = Color.FromArgb(18, 18, 20), Padding = new Padding(4) };
-        RoundRegion(termTabs, 12);
+            BackColor = Color.Transparent, Padding = new Padding(0), Visible = false };
         root.Controls.Add(termTabs, 0, 1);
 
         // ---- terminal host fills the remaining space ----
         termHost = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 0),
-            BackColor = Color.Black, BorderStyle = BorderStyle.FixedSingle };
+            BackColor = Color.FromArgb(16, 16, 18), BorderStyle = BorderStyle.FixedSingle };
+        RoundRegion(termHost, 12);
         termHost.Resize += (s, e) => ResizeEmbedded();
         root.Controls.Add(termHost, 0, 2);
 
-        termHint = new Label { Text = "No terminals yet. Choose Claude or Codex, then click “+ New”.\n\nH Headroom · R RTK · C Caveman",
-            AutoSize = false, TextAlign = ContentAlignment.MiddleCenter, Dock = DockStyle.Fill, ForeColor = TextDim, BackColor = Color.Black };
-        termHost.Controls.Add(termHint);
+        termEmptyState = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
+        var empty = new Panel { Size = new Size(590, 170), BackColor = Color.Transparent };
+        Action centerEmpty = () => empty.Location = new Point(Math.Max(0, (termEmptyState.ClientSize.Width - empty.Width) / 2),
+                                                               Math.Max(0, (termEmptyState.ClientSize.Height - empty.Height) / 2));
+        termEmptyState.Resize += (s, e) => centerEmpty();
+        empty.Controls.Add(new Label { Text = ">_", Location = new Point(0, 4), Size = new Size(590, 38),
+            TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextFaint, Font = new Font("Consolas", 19f, FontStyle.Bold) });
+        empty.Controls.Add(new Label { Text = "No terminals yet", Location = new Point(0, 49), Size = new Size(590, 24),
+            TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextDim, Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold) });
+        empty.Controls.Add(new Label { Text = "Click “+ New” to start a Claude or Codex session. It runs right here as a tab —\r\nopen as many as you like and switch between them.",
+            Location = new Point(0, 79), Size = new Size(590, 42), TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = TextFaint, Font = new Font("Segoe UI", 8.5f) });
+        empty.Controls.Add(new Label { Text = "H Headroom · R RTK · C Caveman   ·   Ctrl+T new terminal", Location = new Point(0, 132), Size = new Size(590, 20),
+            TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextFaint, Font = new Font("Segoe UI", 8f) });
+        termEmptyState.Controls.Add(empty);
+        centerEmpty();
+        termHost.Controls.Add(termEmptyState);
     }
 
     static string JEsc(string s) { return s.Replace("\\", "\\\\").Replace("\"", "\\\""); }
@@ -3069,7 +3133,7 @@ try {
     void ShowSelectedTerminal()
     {
         var sel = SelectedSession();
-        termHint.Visible = sel == null;
+        if (termEmptyState != null) termEmptyState.Visible = sel == null;
         foreach (var s in sessions)
             if (s.Embedded && s.Hwnd != IntPtr.Zero)
                 ShowWindow(s.Hwnd, s == sel ? SW_SHOW : SW_HIDE);
@@ -3133,94 +3197,101 @@ try {
         {
             var cur = s;
             var tabBtn = new DrawButton {
-                Tag = s, AutoSize = false, Size = new Size(264, 58),
-                Margin = new Padding(4, 3, 0, 3), Cursor = Cursors.Hand, TabStop = false };
-            RoundRegion(tabBtn, 11);
+                Tag = s, AutoSize = false, Size = new Size(230, 58),
+                Margin = new Padding(0, 3, 6, 3), Cursor = Cursors.Hand, TabStop = true };
+            RoundRegion(tabBtn, 8);
             tabBtn.Painter = (g, rect) => PaintTermTab(g, rect, cur, cur == selectedTerm);
-            tabBtn.Click += (a, b) => SelectTerm(cur);
+            tabBtn.MouseUp += (a, e) => {
+                if (e.Button != MouseButtons.Left) return;
+                if (e.Button == MouseButtons.Left && e.X >= tabBtn.Width - 30)
+                {
+                    selectedTerm = cur;
+                    CloseSelectedTerminal();
+                }
+                else SelectTerm(cur);
+            };
+            tabBtn.KeyDown += (a, e) => {
+                if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space)
+                {
+                    SelectTerm(cur);
+                    e.SuppressKeyPress = true;
+                }
+                else if (e.KeyCode == Keys.Delete || (e.Control && e.KeyCode == Keys.W))
+                {
+                    selectedTerm = cur;
+                    CloseSelectedTerminal();
+                    e.SuppressKeyPress = true;
+                }
+            };
             if (tabTip == null) tabTip = new ToolTip { ShowAlways = true, InitialDelay = 250 };
             tabTip.SetToolTip(tabBtn, TermTipText(cur));
             termTabs.Controls.Add(tabBtn);
         }
         termTabs.ResumeLayout();
+        bool hasTabs = sessions.Count > 0;
+        termTabs.Visible = hasTabs;
+        if (terminalRoot != null && terminalRoot.RowStyles.Count > 1)
+        {
+            terminalRoot.RowStyles[1].Height = hasTabs ? 70f : 8f;
+            terminalRoot.PerformLayout();
+        }
+        UpdateSidebarCounts();
     }
 
-    // Rich terminal-tab card: status dot / live spinner, agent, model, task,
-    // folder, and colored status text. Selected tab gets an accent bar + border.
+    // Mac-parity terminal chip: task + runtime model on top, live status below,
+    // close action at right. Compression and folder details remain in the tooltip.
     void PaintTermTab(Graphics g, Rectangle rect, TermSession s, bool on)
     {
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-        Color bg = on ? Color.FromArgb(52, 52, 62) : Panel2;
+        Color bg = on ? Lerp(Field, Accent, 0.20f) : Field;
         using (var b = new SolidBrush(bg)) g.FillRectangle(b, rect);
 
         bool live = s.Status == TermWorking;
-        int cx = 16, cy = rect.Height / 2;
+        int cx = 14, cy = 17;
 
-        // status glyph: rotating arc while live, solid dot otherwise
         if (live)
         {
             float sweepStart = (float)((animT * 220) % 360);
-            using (var pen = new Pen(s.Color, 2.4f))
+            using (var pen = new Pen(s.Color, 2f))
             {
                 pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                g.DrawArc(pen, cx - 7, cy - 7, 14, 14, sweepStart, 270);
+                g.DrawArc(pen, cx - 5, cy - 5, 10, 10, sweepStart, 270);
             }
         }
         else
         {
-            using (var b = new SolidBrush(s.Color)) g.FillEllipse(b, cx - 6, cy - 6, 12, 12);
-            using (var b = new SolidBrush(Color.FromArgb(60, s.Color))) g.FillEllipse(b, cx - 9, cy - 9, 18, 18);
+            using (var b = new SolidBrush(s.Color)) g.FillEllipse(b, cx - 4, cy - 4, 8, 8);
         }
 
-        int tx = 32;
-
-        // ---- per-session compression badges (top-right): H=Headroom, R=RTK, C=Caveman ----
-        int bw = 17, bh = 15, bgap = 3, bcount = 3;
-        int bStart = rect.Width - (bw * bcount + bgap * (bcount - 1)) - 8;
-        int by = 7;
-        DrawCompBadge(g, bStart, by, bw, bh, "H", s.CHeadroom, Color.FromArgb(92, 162, 232));
-        DrawCompBadge(g, bStart + (bw + bgap), by, bw, bh, "R", s.CRtk, Green);
-        DrawCompBadge(g, bStart + (bw + bgap) * 2, by, bw, bh, "C", s.CCaveman, Color.FromArgb(196, 140, 224));
-
-        // Agent and model are distinct so multiple Claude/Codex tabs are easy to tell apart.
+        int tx = 26;
         string hint = TabHint(s.Task, s.Folder);
-        using (var f = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold))
+        using (var f = new Font("Segoe UI Semibold", 9.2f, FontStyle.Bold))
         using (var b = new SolidBrush(on ? Color.White : Color.FromArgb(222, 222, 228)))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(hint, f, b, new RectangleF(tx, 6, 104, 18), sf);
+            g.DrawString(hint, f, b, new RectangleF(tx, 6, 92, 18), sf);
 
-        using (var f = new Font("Segoe UI", 8.2f, FontStyle.Bold))
+        using (var f = new Font("Consolas", 8f))
         using (var b = new SolidBrush(on ? Accent : TextFaint))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(SessionModelLabel(s.Model), f, b, new RectangleF(tx + 108, 7, bStart - tx - 114, 18), sf);
+            g.DrawString(SessionModelLabel(s.Model), f, b, new RectangleF(121, 7, rect.Width - 151, 18), sf);
 
-        // Live state is primary. Task metadata remains in the tooltip.
+        using (var f = new Font("Segoe UI", 8f, FontStyle.Bold))
+        using (var b = new SolidBrush(TextFaint))
+        using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            g.DrawString("×", f, b, new RectangleF(rect.Width - 26, 5, 20, 20), sf);
+
         string status = string.IsNullOrWhiteSpace(s.Status) ? TermReady : s.Status.Trim();
-        using (var f = new Font("Segoe UI", 9f, FontStyle.Bold))
+        using (var f = new Font("Segoe UI", 8.8f, FontStyle.Bold))
         using (var b = new SolidBrush(s.Color))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(status, f, b, new RectangleF(tx, 27, rect.Width - tx - 12, 18), sf);
+            g.DrawString(status, f, b, new RectangleF(tx, 31, rect.Width - tx - 12, 18), sf);
 
-        // Folder basename, kept faint as secondary context.
-        string folder = "";
-        try { folder = new DirectoryInfo(s.Folder).Name; } catch { }
-        if (folder.Length > 22) folder = folder.Substring(0, 21) + "...";
-        using (var f = new Font("Segoe UI", 8f))
-        using (var b = new SolidBrush(TextFaint))
-        using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(folder, f, b, new RectangleF(tx, 42, rect.Width - tx - 12, 16), sf);
-
-        // selected accent bar + border
-        if (on)
-        {
-            using (var b = new SolidBrush(Accent)) g.FillRectangle(b, 0, 8, 4, rect.Height - 16);
-            using (var pen = new Pen(Color.FromArgb(150, Accent), 1.4f))
-            using (var path = RoundedPath(new Rectangle(0, 0, rect.Width - 1, rect.Height - 1), 11))
-                g.DrawPath(pen, path);
-        }
+        using (var pen = new Pen(on ? Color.FromArgb(130, Accent) : Color.FromArgb(48, 255, 255, 255), on ? 1.3f : 1f))
+        using (var path = RoundedPath(new Rectangle(0, 0, rect.Width - 1, rect.Height - 1), 8))
+            g.DrawPath(pen, path);
     }
 
     // Plain-language per-session compression summary, shown on tab hover.
@@ -3238,30 +3309,6 @@ try {
     string AgentLabel(string agent)
     {
         return agent == "Codex" ? "ChatGPT/Codex" : (string.IsNullOrWhiteSpace(agent) ? "Claude" : agent);
-    }
-
-    // One compression badge. Lit (filled + white letter) when the tool was enabled for
-    // this session; otherwise a dim hollow outline so the "off" state is still legible.
-    void DrawCompBadge(Graphics g, int x, int y, int w, int h, string letter, bool on, Color color)
-    {
-        var r = new Rectangle(x, y, w, h);
-        using (var path = RoundedPath(r, 5))
-        {
-            if (on)
-            {
-                using (var b = new SolidBrush(color)) g.FillPath(b, path);
-            }
-            else
-            {
-                using (var b = new SolidBrush(Color.FromArgb(34, 34, 40))) g.FillPath(b, path);
-                using (var pen = new Pen(Color.FromArgb(70, 70, 80), 1f)) g.DrawPath(pen, path);
-            }
-        }
-        Color fg = on ? Color.FromArgb(20, 20, 24) : Color.FromArgb(96, 96, 108);
-        using (var f = new Font("Segoe UI", 7.5f, FontStyle.Bold))
-        using (var b = new SolidBrush(fg))
-        using (var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
-            g.DrawString(letter, f, b, new RectangleF(x, y, w, h), sf);
     }
 
     void TermTick()
@@ -3355,7 +3402,7 @@ try {
         // Unified, beginner-friendly one-page journey: Vision -> Deploy -> Subscriptions,
         // stacked top to bottom with numbered stage headers. The whole page scrolls.
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, BackColor = Color.Transparent,
-            AutoScroll = true, Padding = new Padding(15, 10, 24, 12) };
+            AutoScroll = true, Padding = new Padding(22, 16, 22, 18) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         Action<Control, int> row = (c, h) => {
             if (c.Margin == Padding.Empty) c.Margin = new Padding(0);
@@ -3433,7 +3480,7 @@ try {
             return t;
         };
 
-        row(RowCap("Build a SaaS — from idea to a live, paid product. Just follow the three steps below."), 24);
+        row(PageHeader("Build a SaaS", "From idea to a live, paid product — just follow the three steps below."), 52);
 
         // ---- shared project bar: name + parent + build model ----
         var proj = new TableLayoutPanel { BackColor = Color.Transparent, ColumnCount = 5, Margin = new Padding(0) };
