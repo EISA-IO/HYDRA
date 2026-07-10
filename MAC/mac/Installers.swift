@@ -160,6 +160,15 @@ extension AppState {
         }
     }
 
+    func installAgentSkills() {
+        runSteps("Installing Agent Skills", [("Agent Skills", "echo Installing bundled Addy Osmani Agent Skills for Claude and Codex")]) {
+            self.installAgentSkillsIfPossible()
+            self.agentSkillsInstalled = Self.isAgentSkillsInstalled()
+            self.loadSkills()
+            self.updateStatusLine()
+        }
+    }
+
     // ---- Headroom (optional) ----
     func installHeadroom() {
         if Shell.shared.onPath("headroom") { log("Headroom already installed (optional)."); return }
@@ -248,7 +257,7 @@ extension AppState {
             ("RTK", rtkFullScript()),
             ("Caveman", cavemanCmd() + " || echo '(Caveman needs Node.js — install Node then retry)'")
         ]
-        runSteps("Installing everything (Node · Claude CLI · RTK · Caveman · Claude Video · skills)", steps) {
+        runSteps("Installing everything (Node · Claude CLI · RTK · Caveman · Claude Video · Agent Skills · skills)", steps) {
             // bundled skills, quietly (no folder prompt inside the batch flow)
             if let src = self.findSkillsSource() {
                 DispatchQueue.global(qos: .userInitiated).async { self.doInstallSkills(from: src) }
@@ -260,6 +269,8 @@ extension AppState {
             self.installBundledCavemanForCodexIfPossible()
             self.installClaudeVideoIfPossible()
             self.videoInstalled = Self.isVideoInstalled()
+            self.installAgentSkillsIfPossible()
+            self.agentSkillsInstalled = Self.isAgentSkillsInstalled()
             self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
         }
     }
@@ -279,6 +290,8 @@ extension AppState {
             self.installBundledCavemanForCodexIfPossible()
             self.installClaudeVideoIfPossible()
             self.videoInstalled = Self.isVideoInstalled()
+            self.installAgentSkillsIfPossible()
+            self.agentSkillsInstalled = Self.isAgentSkillsInstalled()
             self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
         }
     }

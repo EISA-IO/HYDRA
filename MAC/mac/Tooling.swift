@@ -106,6 +106,9 @@ extension AppState {
             //    register the vendored plugin where each CLI supports plugin marketplaces.
             self.installClaudeVideoIfPossible()
 
+            // 6) Addy's Agent Skills — lifecycle engineering skills for Claude and ChatGPT/Codex.
+            self.installAgentSkillsIfPossible()
+
             DispatchQueue.main.async { self.refreshAll() }
         }
     }
@@ -168,6 +171,46 @@ extension AppState {
                 _ = Shell.shared.run("codex", ["plugin", "marketplace", "add", root], env: ["CODEX_HOME": Paths.codexDir], timeout: 60)
             }
             _ = Shell.shared.run("codex", ["plugin", "add", "watch@claude-video"], env: ["CODEX_HOME": Paths.codexDir], timeout: 120)
+        }
+    }
+
+    func installAgentSkillsIfPossible() {
+        guard let src = toolsSource() else { return }
+        let root = src + "/agent-skills"
+        let skillsRoot = root + "/skills"
+        guard FS.isDir(skillsRoot), FS.exists(root + "/.codex-plugin/plugin.json") else { return }
+
+        var copied = 0
+        do {
+            try FileManager.default.createDirectory(atPath: Paths.skillsDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(atPath: Paths.codexSkillsDir, withIntermediateDirectories: true)
+            for dir in FS.dirs(skillsRoot) where FS.exists(dir + "/SKILL.md") {
+                let name = FS.base(dir)
+                try FS.copyDir(dir, Paths.skillsDir + "/" + name)
+                try FS.copyDir(dir, Paths.codexSkillsDir + "/" + name)
+                copied += 1
+            }
+            DispatchQueue.main.async { self.setupLog += "Agent Skills installed for Claude and Codex (\(copied) skills).\n" }
+        } catch {
+            DispatchQueue.main.async { self.setupLog += "Agent Skills install warning: \(error.localizedDescription)\n" }
+        }
+
+        let claudeMarketplace = Paths.home + "/.claude/plugins/marketplaces/agent-skills"
+        if FS.exists(root + "/.claude-plugin/plugin.json") && !FS.isDir(claudeMarketplace) {
+            do {
+                try FileManager.default.createDirectory(
+                    atPath: (claudeMarketplace as NSString).deletingLastPathComponent,
+                    withIntermediateDirectories: true)
+                try FS.copyDir(root, claudeMarketplace)
+            } catch { }
+        }
+
+        if Shell.shared.onPath("codex"), FS.exists(root + "/.agents/plugins/marketplace.json") {
+            if !codexMarketplaceConfigured(name: "agent-skills", root: root) {
+                _ = Shell.shared.run("codex", ["plugin", "marketplace", "remove", "agent-skills"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
+                _ = Shell.shared.run("codex", ["plugin", "marketplace", "add", root], env: ["CODEX_HOME": Paths.codexDir], timeout: 60)
+            }
+            _ = Shell.shared.run("codex", ["plugin", "add", "agent-skills@agent-skills"], env: ["CODEX_HOME": Paths.codexDir], timeout: 120)
         }
     }
 

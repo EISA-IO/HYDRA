@@ -37,6 +37,7 @@ final class AppState: ObservableObject {
     @Published var rtkInstalled = false
     @Published var cavemanInstalled = false
     @Published var videoInstalled = false
+    @Published var agentSkillsInstalled = false
     @Published var recents: [String] = []
 
     // Embedded in-app terminals (the Workspace tab).
@@ -245,6 +246,7 @@ final class AppState: ObservableObject {
         rtkInstalled = Self.isRtkInstalled()
         cavemanInstalled = Self.isCavemanInstalled()
         videoInstalled = Self.isVideoInstalled()
+        agentSkillsInstalled = Self.isAgentSkillsInstalled()
         proxyRunning = Self.portOpen(ProxyPort)
         rtk = rtkInstalled
         caveman = cavemanInstalled
@@ -274,6 +276,10 @@ final class AppState: ObservableObject {
         if FS.exists(Paths.home + "/.claude/plugins/marketplaces/claude-video/.claude-plugin/plugin.json") { return true }
         return false
     }
+    static func isAgentSkillsInstalled() -> Bool {
+        FS.exists(Paths.skillsDir + "/using-agent-skills/SKILL.md")
+        && FS.exists(Paths.codexSkillsDir + "/using-agent-skills/SKILL.md")
+    }
     static func portOpen(_ port: Int) -> Bool {
         let sock = socket(AF_INET, SOCK_STREAM, 0)
         if sock < 0 { return false }
@@ -294,14 +300,14 @@ final class AppState: ObservableObject {
     /// and let the Setup tab focus on keeping things up to date. Headroom is optional.
     var allCoreInstalled: Bool {
         let sh = Shell.shared
-        return sh.onPath("claude") && sh.onPath("codex") && sh.onPath("node") && rtkInstalled && cavemanInstalled && videoInstalled
+        return sh.onPath("claude") && sh.onPath("codex") && sh.onPath("node") && rtkInstalled && cavemanInstalled && videoInstalled && agentSkillsInstalled
     }
 
     func updateStatusLine() {
         let sh = Shell.shared
         func mark(_ ok: Bool) -> String { ok ? "OK" : "—" }
         let node = sh.onPath("node")
-        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Video \(mark(videoInstalled))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
+        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Video \(mark(videoInstalled))   AgentSkills \(mark(agentSkillsInstalled))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
     }
 
     func countSkills() -> Int {

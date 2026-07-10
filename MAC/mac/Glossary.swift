@@ -113,6 +113,13 @@ enum Glossary {
         add(V, "~/.claude/skills/watch", "Claude skill install path for /watch.")
         add(V, "~/.agents/skills/watch", "Codex/ChatGPT skill install path for /watch.")
 
+        let A = "Agent Skills"
+        add(A, "tools/agent-skills", "Bundled Hydra copy of addyosmani/agent-skills with 24 production engineering workflow skills.")
+        add(A, "using-agent-skills", "Meta-skill that helps choose the right lifecycle skill for the task.")
+        add(A, "/spec /plan /build /test /review /ship", "Lifecycle commands provided by the Agent Skills plugin for Claude; the same skills are available to Codex from ~/.agents/skills.")
+        add(A, "~/.claude/skills", "Hydra installs Agent Skills here for Claude.")
+        add(A, "~/.agents/skills", "Hydra installs Agent Skills here for ChatGPT/Codex.")
+
         return g
     }()
 }

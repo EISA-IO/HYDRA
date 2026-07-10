@@ -238,19 +238,19 @@ struct SettingsView: View {
                                 Button("Update core packages") { app.updateCore() }
                                     .accentButton()
                                     .disabled(app.setupBusy)
-                                    .help("Update npm · Claude CLI · RTK · Caveman · Claude Video to the latest versions")
+                                    .help("Update npm · Claude CLI · RTK · Caveman · Claude Video · Agent Skills to the latest versions")
                                 Text("Everything's installed ✓")
                                     .font(.system(size: 11)).foregroundStyle(Theme.green)
                             } else {
                                 Button {
                                     app.installEverything()
-                                } label: { Text("Install everything  (Node · CLI · RTK · Caveman · Video · skills)") }
+                                } label: { Text("Install everything  (Node · CLI · RTK · Caveman · Video · Agent Skills · skills)") }
                                 .accentButton()
                                 .disabled(app.setupBusy)
                                 Button("Update core packages") { app.updateCore() }
                                     .blueButton()
                                     .disabled(app.setupBusy)
-                                    .help("Update npm · Claude CLI · RTK · Caveman · Claude Video to the latest versions")
+                                    .help("Update npm · Claude CLI · RTK · Caveman · Claude Video · Agent Skills to the latest versions")
                             }
                             if app.setupBusy {
                                 ProgressView().controlSize(.small)
@@ -258,7 +258,7 @@ struct SettingsView: View {
                             }
                         }
                         Text(app.allCoreInstalled
-                             ? "Your toolchain is complete. “Update core packages” bumps npm · Claude CLI · RTK · Caveman · Claude Video to the latest versions. Individual buttons below are there if you ever need them."
+                             ? "Your toolchain is complete. “Update core packages” bumps npm · Claude CLI · RTK · Caveman · Claude Video · Agent Skills to the latest versions. Individual buttons below are there if you ever need them."
                              : "Fresh machine? “Install everything” installs Node.js first (via Homebrew, or the official pkg with an admin prompt), then the latest CLI + tools. “Update core packages” bumps everything already installed.")
                             .font(.system(size: 10.5)).foregroundStyle(Theme.textFaint)
                             .fixedSize(horizontal: false, vertical: true)
@@ -270,6 +270,7 @@ struct SettingsView: View {
                                 AnyView(Button("RTK") { app.installRtk() }.ghostButton()),
                                 AnyView(Button("Caveman") { app.installCaveman() }.ghostButton()),
                                 AnyView(Button("Claude Video") { app.installClaudeVideo() }.ghostButton()),
+                                AnyView(Button("Agent Skills") { app.installAgentSkills() }.ghostButton()),
                                 AnyView(Button("Headroom") { app.installHeadroom() }.ghostButton()),
                                 AnyView(Button("Skills") { app.installBundledSkills() }.ghostButton()),
                                 AnyView(Button("Open .claude") {

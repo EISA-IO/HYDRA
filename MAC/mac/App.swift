@@ -80,7 +80,7 @@ struct ContentView: View {
                     app.launch(folder: dir)
                 }
             }
-            // QA: `--qa <caveman|video|update|everything>` runs an installer method so the log
+            // QA: `--qa <caveman|video|agent-skills|update|everything>` runs an installer method so the log
             // pipeline can be observed deterministically.
             if let i = CommandLine.arguments.firstIndex(of: "--qa"), i + 1 < CommandLine.arguments.count {
                 let what = CommandLine.arguments[i + 1]
@@ -88,6 +88,7 @@ struct ContentView: View {
                     switch what {
                     case "caveman": app.installCaveman()
                     case "video": app.installClaudeVideo()
+                    case "agent-skills": app.installAgentSkills()
                     case "update": app.updateCore()
                     case "everything": app.installEverything()
                     default: break

@@ -56,15 +56,23 @@ extension AppState {
             ]]
         }
         var root: [String: Any] = ["hooks": hooks]
-        // Caveman (output compression) is a PLUGIN. `enabledPlugins` is NOT a documented merge
-        // key, so when we pass --settings the plugin can fail to load. Declare it per-session
-        // (mirroring the user's global settings exactly) so Caveman reliably loads in EVERY
-        // embedded terminal that has it enabled.
+        var marketplaces: [String: Any] = [:]
+        var enabledPlugins: [String: Any] = [:]
+        // Plugin enabled state is not guaranteed to merge from user settings when we pass
+        // --settings, so declare required plugins per-session.
         if caveman {
-            root["extraKnownMarketplaces"] = [
-                "caveman": ["source": ["source": "github", "repo": "JuliusBrussee/caveman"]]
-            ]
-            root["enabledPlugins"] = ["caveman@caveman": true]
+            marketplaces["caveman"] = ["source": ["source": "github", "repo": "JuliusBrussee/caveman"]]
+            enabledPlugins["caveman@caveman"] = true
+        }
+        if Self.isAgentSkillsInstalled() {
+            marketplaces["addy-agent-skills"] = ["source": ["source": "github", "repo": "addyosmani/agent-skills"]]
+            enabledPlugins["agent-skills@addy-agent-skills"] = true
+        }
+        if !marketplaces.isEmpty {
+            root["extraKnownMarketplaces"] = marketplaces
+        }
+        if !enabledPlugins.isEmpty {
+            root["enabledPlugins"] = enabledPlugins
         }
         let path = Paths.sessDir + "/" + id + ".settings.json"
         if let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted]) {

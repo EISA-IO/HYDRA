@@ -2,7 +2,7 @@
 
 A launcher + toolchain manager for Claude Code and Codex CLI, with an embedded multi-terminal
 Workspace, a token-compression toolchain (RTK + Caveman + Headroom), Claude Video `/watch`,
-a bundled skills library,
+Addy Osmani's Agent Skills, and a bundled skills library,
 and a guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).
 
 ## Repository layout
@@ -56,11 +56,13 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
   "Install everything" / "Update core packages".
   Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,
   and Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
-  Hydra also installs Claude Video `/watch` from the bundled `tools/claude-video` payload into
-  both Claude and Codex skill folders.
+  Hydra also installs Claude Video `/watch` from `tools/claude-video` and Addy Osmani's
+  24-skill lifecycle pack from `tools/agent-skills` into both Claude and Codex skill folders.
 - **SaaS** — the guided *Build a SaaS* lifecycle: describe your idea, scaffold Open SaaS, deploy
   (Firebase / Vercel / Cloud Run via a private GitHub repo + GitHub Actions CI/CD), and add
   subscription billing + subscriber email. Choose Claude or ChatGPT as the builder.
 - **Skills** — manage the bundled skills library. Imports are mirrored into Claude skills and
   Codex/ChatGPT user skills (`~/.agents/skills`) so either builder can use them automatically.
+  The built-in Agent Skills pack adds workflows for spec, plan, build, test, review, performance,
+  security, documentation, launch readiness, and more.
 - **Glossary** — reference for the whole toolchain.

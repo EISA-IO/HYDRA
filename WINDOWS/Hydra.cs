@@ -1107,6 +1107,12 @@ class Hydra : Form
         g.Add(new GEntry(V, "tools/claude-video", "Bundled Hydra copy of bradautomates/claude-video. Hydra installs its watch skill for Claude and Codex."));
         g.Add(new GEntry(V, "%USERPROFILE%\\.claude\\skills\\watch", "Claude skill install path for /watch."));
         g.Add(new GEntry(V, "%USERPROFILE%\\.agents\\skills\\watch", "Codex/ChatGPT skill install path for /watch."));
+        string A = "Agent Skills";
+        g.Add(new GEntry(A, "tools/agent-skills", "Bundled Hydra copy of addyosmani/agent-skills with 24 production engineering workflow skills."));
+        g.Add(new GEntry(A, "using-agent-skills", "Meta-skill that helps choose the right lifecycle skill for the task."));
+        g.Add(new GEntry(A, "/spec /plan /build /test /review /ship", "Lifecycle commands provided by the Agent Skills plugin for Claude; the same skills are available to Codex from %USERPROFILE%\\.agents\\skills."));
+        g.Add(new GEntry(A, "%USERPROFILE%\\.claude\\skills", "Hydra installs Agent Skills here for Claude."));
+        g.Add(new GEntry(A, "%USERPROFILE%\\.agents\\skills", "Hydra installs Agent Skills here for ChatGPT/Codex."));
         return g;
     }
     void RenderGlossary(string filter)
@@ -1556,7 +1562,7 @@ class Hydra : Form
         setupStatus = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Consolas", 9f) };
         row(setupStatus, 20);
 
-        var allBtn = new Button { Text = "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + Video + skills)", Dock = DockStyle.Fill,
+        var allBtn = new Button { Text = "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + Video + Agent Skills + skills)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.Black, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
         Hoverize(allBtn, Accent, AccentHi);
         allBtn.Click += (s, e) => SetupRun(InstallEverything);
@@ -1566,7 +1572,7 @@ class Hydra : Form
         setupAllCap = RowCap("Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest Claude/Codex CLI + tools.");
         row(setupAllCap, 18);
 
-        var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video)", Dock = DockStyle.Fill,
+        var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video · Agent Skills)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Font = new Font("Segoe UI", 10f, FontStyle.Bold) };
         Hoverize(updBtn, Color.FromArgb(70, 110, 150), Color.FromArgb(86, 130, 172));
         updBtn.Click += (s, e) => SetupRun(UpdateCore);
@@ -1588,6 +1594,7 @@ class Hydra : Form
         mk("RTK", Panel2, FieldHi, (s, e) => SetupRun(InstallRtk));
         mk("Caveman", Panel2, FieldHi, (s, e) => SetupRun(InstallCaveman));
         mk("Claude Video", Panel2, FieldHi, (s, e) => SetupRun(InstallClaudeVideoIfPossible));
+        mk("Agent Skills", Panel2, FieldHi, (s, e) => SetupRun(InstallAgentSkillsIfPossible));
         mk("Headroom", Panel2, FieldHi, (s, e) => SetupRun(InstallHeadroom));
         mk("Skills", Panel2, FieldHi, (s, e) => InstallSkillsClicked());
         mk("Open .claude", Panel2, FieldHi, (s, e) => { try { string d = Path.Combine(HomeDir, ".claude"); Directory.CreateDirectory(d); Process.Start(d); } catch { } });
@@ -1746,13 +1753,19 @@ try {
         return false;
     }
 
+    static bool AgentSkillsInstalled()
+    {
+        return File.Exists(Path.Combine(SkillsDir, "using-agent-skills", "SKILL.md"))
+            && File.Exists(Path.Combine(CodexSkillsDir, "using-agent-skills", "SKILL.md"));
+    }
+
     static string Mark(bool ok) { return ok ? "OK" : "--"; }
 
     // Core toolchain fully present? (Headroom is optional.) When true, "Install everything"
     // is pointless, so we hide it and let the Setup tab focus on the Update button.
     bool AllCoreInstalled()
     {
-        return HasClaude() && HasCodex() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled() && VideoInstalled();
+        return HasClaude() && HasCodex() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled() && VideoInstalled() && AgentSkillsInstalled();
     }
 
     void DetectStatus()
@@ -1760,7 +1773,7 @@ try {
         if (setupStatus == null) return;
         bool node = OnPath("node.exe") || OnPath("node");
         setupStatus.Text = "Claude " + Mark(HasClaude()) + "   Codex " + Mark(HasCodex()) + "   Node " + Mark(node) + "   RTK " + Mark(HasRtk() && RtkInstalled())
-            + "   Caveman " + Mark(CavemanInstalled()) + "   Video " + Mark(VideoInstalled()) + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom"))
+            + "   Caveman " + Mark(CavemanInstalled()) + "   Video " + Mark(VideoInstalled()) + "   AgentSkills " + Mark(AgentSkillsInstalled()) + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom"))
             + "   Skills " + CountSkills();
 
         // Focus the tab: once everything's installed, drop "Install everything" and promote Update.
@@ -1772,8 +1785,8 @@ try {
                 : "Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest Claude/Codex CLI + tools.";
         if (setupUpdBtn != null)
         {
-            setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video)   ✓ everything installed"
-                                   : "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video)";
+            setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video · Agent Skills)   ✓ everything installed"
+                                   : "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video · Agent Skills)";
             // promote Update to the primary (accent) style when it's the main action
             Hoverize(setupUpdBtn, all ? Accent : Color.FromArgb(70, 110, 150),
                                   all ? AccentHi : Color.FromArgb(86, 130, 172));
@@ -1849,6 +1862,7 @@ try {
         EnsureCodexCavemanInstructions();
         InstallBundledCavemanForCodexIfPossible();
         InstallClaudeVideoIfPossible();
+        InstallAgentSkillsIfPossible();
     }
 
 
@@ -1897,6 +1911,7 @@ try {
         EnsureCodexCavemanInstructions();
         InstallBundledCavemanForCodexIfPossible();
         InstallClaudeVideoIfPossible();
+        InstallAgentSkillsIfPossible();
         SetupLog(rc == 0 ? "OK  Caveman installed (default output compression)." : "Caveman install returned exit " + rc + ".");
         try { BeginInvoke((Action)(() => { UpdateCavemanStatus(); UpdateLaunchText(); })); } catch { }
     }
@@ -2009,6 +2024,7 @@ try {
                     try { RunLoggedCmd(CodexInstallCmd()); } catch { }
                 }
                 InstallClaudeVideoIfPossible();
+                InstallAgentSkillsIfPossible();
             }
             catch { }
             try { BeginInvoke((Action)DetectStatus); } catch { }
@@ -2115,10 +2131,54 @@ try {
         try { BeginInvoke((Action)LoadSkills); } catch { }
     }
 
+    void InstallAgentSkillsIfPossible()
+    {
+        string src = FindToolsSource();
+        if (src == null) { SetupLog("Agent Skills skipped: bundled tools folder not found."); return; }
+        string root = Path.Combine(src, "agent-skills");
+        string skillsRoot = Path.Combine(root, "skills");
+        if (!Directory.Exists(skillsRoot) || !File.Exists(Path.Combine(root, ".codex-plugin", "plugin.json")))
+        {
+            SetupLog("Agent Skills skipped: tools\\agent-skills\\skills not found.");
+            return;
+        }
+
+        Directory.CreateDirectory(SkillsDir);
+        Directory.CreateDirectory(CodexSkillsDir);
+        int copied = 0;
+        foreach (string dir in Directory.GetDirectories(skillsRoot))
+        {
+            if (!File.Exists(Path.Combine(dir, "SKILL.md"))) continue;
+            string name = new DirectoryInfo(dir).Name;
+            bool ok = false;
+            try { CopyDir(dir, Path.Combine(SkillsDir, name)); ok = true; } catch (Exception ex) { SetupLog("  x Claude " + name + ": " + ex.Message); }
+            try { CopyDir(dir, Path.Combine(CodexSkillsDir, name)); ok = true; } catch (Exception ex) { SetupLog("  x Codex " + name + ": " + ex.Message); }
+            if (ok) copied++;
+        }
+
+        string claudeMarketplace = Path.Combine(HomeDir, ".claude", "plugins", "marketplaces", "agent-skills");
+        if (File.Exists(Path.Combine(root, ".claude-plugin", "plugin.json")) && !Directory.Exists(claudeMarketplace))
+        {
+            try { CopyDir(root, claudeMarketplace); SetupLog("  + Agent Skills marketplace seeded"); } catch { }
+        }
+
+        if (HasCodex() && File.Exists(Path.Combine(root, ".agents", "plugins", "marketplace.json")))
+        {
+            if (!CodexMarketplaceConfigured("agent-skills", root))
+            {
+                RunCodexCmd("plugin marketplace remove agent-skills");
+                RunCodexCmd("plugin marketplace add " + CmdQ(root));
+            }
+            RunCodexCmd("plugin add agent-skills@agent-skills");
+        }
+        SetupLog("OK  Agent Skills installed for Claude and Codex (" + copied + " skills).");
+        try { BeginInvoke((Action)LoadSkills); } catch { }
+    }
+
     void InstallEverything()
     {
         SetupLog("");
-        SetupLog("===== Installing everything (Node + Claude CLI + Codex CLI + RTK + Caveman + Claude Video + skills) =====");
+        SetupLog("===== Installing everything (Node + Claude CLI + Codex CLI + RTK + Caveman + Claude Video + Agent Skills + skills) =====");
         if (!EnsureNode())
         {
             SetupLog("Node.js is required and could not be installed automatically. Fix that, then click Install everything again.");
@@ -2129,6 +2189,7 @@ try {
         InstallRtk();
         InstallCaveman();
         InstallClaudeVideoIfPossible();
+        InstallAgentSkillsIfPossible();
         string src = FindSkillsSource();
         if (src != null) DoInstallSkills(src);
         else SetupLog("No bundled skills found next to the app — use the Skills button to pick a folder.");
@@ -2164,6 +2225,7 @@ try {
         EnsureCodexCavemanInstructions();
         InstallBundledCavemanForCodexIfPossible();
         InstallClaudeVideoIfPossible();
+        InstallAgentSkillsIfPossible();
         try { BeginInvoke((Action)(() => { UpdateCavemanStatus(); UpdateLaunchText(); })); } catch { }
         // Headroom is optional: only bump it if it's already present
         if (OnPath("headroom.exe") || OnPath("headroom"))
@@ -2458,13 +2520,37 @@ try {
         if (rtk)
             sb.Append(",\n    \"PreToolUse\": [{\"matcher\":\"Bash|PowerShell\",\"hooks\":[{\"type\":\"command\",\"command\":\"rtk hook claude\"}]}]");
         sb.Append("\n  }");
-        // Caveman (output compression) is a PLUGIN. enabledPlugins is not guaranteed to merge from
-        // user settings when we pass --settings, so declare it per-session so it reliably loads in
-        // every embedded terminal that enabled it.
-        if (caveman)
+        // Plugin enabled state is not guaranteed to merge from user settings when we pass
+        // --settings, so declare required plugins per-session.
+        bool agentSkills = AgentSkillsInstalled();
+        if (caveman || agentSkills)
         {
-            sb.Append(",\n  \"extraKnownMarketplaces\": {\"caveman\":{\"source\":{\"source\":\"github\",\"repo\":\"JuliusBrussee/caveman\"}}}");
-            sb.Append(",\n  \"enabledPlugins\": {\"caveman@caveman\":true}");
+            sb.Append(",\n  \"extraKnownMarketplaces\": {");
+            bool first = true;
+            if (caveman)
+            {
+                sb.Append("\"caveman\":{\"source\":{\"source\":\"github\",\"repo\":\"JuliusBrussee/caveman\"}}");
+                first = false;
+            }
+            if (agentSkills)
+            {
+                if (!first) sb.Append(",");
+                sb.Append("\"addy-agent-skills\":{\"source\":{\"source\":\"github\",\"repo\":\"addyosmani/agent-skills\"}}");
+            }
+            sb.Append("}");
+            sb.Append(",\n  \"enabledPlugins\": {");
+            first = true;
+            if (caveman)
+            {
+                sb.Append("\"caveman@caveman\":true");
+                first = false;
+            }
+            if (agentSkills)
+            {
+                if (!first) sb.Append(",");
+                sb.Append("\"agent-skills@addy-agent-skills\":true");
+            }
+            sb.Append("}");
         }
         sb.Append("\n}\n");
         string path = Path.Combine(SessDir, id + ".settings.json");
