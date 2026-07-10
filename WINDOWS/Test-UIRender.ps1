@@ -43,6 +43,19 @@ try {
         }
     }
 
+    function Assert-RegionHasInk([string]$Name, [int]$X, [int]$Y, [int]$Width, [int]$Height, [int]$Minimum = 20) {
+        $ink = 0
+        for ($px = $X; $px -lt ($X + $Width); $px += 2) {
+            for ($py = $Y; $py -lt ($Y + $Height); $py += 2) {
+                $pixel = $image.GetPixel($px, $py)
+                if ([Math]::Max($pixel.R, [Math]::Max($pixel.G, $pixel.B)) -gt 75) { $ink++ }
+            }
+        }
+        if ($ink -lt $Minimum) {
+            throw "$Name contains only $ink bright samples; expected at least $Minimum rendered-text samples."
+        }
+    }
+
     Assert-PixelNear "sidebar" 4 500 @(16, 16, 18)
     Assert-PixelNear "content canvas" 200 40 @(22, 22, 25)
     Assert-PixelNear "active navigation accent" 8 (139 + 40 * $Tab) @(217, 119, 87) 12
@@ -51,6 +64,9 @@ try {
         Assert-PixelNear "recent folders control" 755 65 @(40, 40, 45) 12
         Assert-PixelNear "terminal host" 500 300 @(16, 16, 18) 10
     }
+    Assert-RegionHasInk "sidebar brand" 48 48 100 42 20
+    Assert-RegionHasInk "Ollama action" 34 344 135 28 18
+    Assert-RegionHasInk "sidebar footer" 14 618 164 46 15
     Write-Output "Hydra Windows tab $Tab rendered: $($image.Width)x$($image.Height), $((Get-Item $Screenshot).Length) bytes"
 }
 finally {
