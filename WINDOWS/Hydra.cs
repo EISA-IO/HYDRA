@@ -136,10 +136,13 @@ class Hydra : Form
         {
             int screenshot = Array.IndexOf(args, "--screenshot");
             screenshotMode = screenshot >= 0 && screenshot + 1 < args.Length;
+            int screenshotTab = 0;
+            int tabArg = Array.IndexOf(args, "--tab");
+            if (tabArg >= 0 && tabArg + 1 < args.Length) int.TryParse(args[tabArg + 1], out screenshotTab);
             var mgr = new Hydra();
             if (Array.IndexOf(args, "--demo") >= 0) mgr.EnableDemo();
             if (Array.IndexOf(args, "--demolaunch") >= 0) mgr.EnableDemoLaunch();
-            if (screenshotMode) mgr.EnableScreenshot(args[screenshot + 1]);
+            if (screenshotMode) mgr.EnableScreenshot(args[screenshot + 1], screenshotTab);
             Application.Run(mgr);
         }
         catch (Exception ex)
@@ -155,9 +158,10 @@ class Hydra : Form
 
     // Native Windows render contract used by CI. It captures the actual WinForms
     // control tree after first layout, then exits without requiring user input.
-    public void EnableScreenshot(string path)
+    public void EnableScreenshot(string path, int tab)
     {
         Shown += (s, e) => {
+            SelectNav(Math.Max(0, Math.Min(4, tab)));
             var timer = new System.Windows.Forms.Timer { Interval = 750 };
             timer.Tick += (a, b) => {
                 timer.Stop();
