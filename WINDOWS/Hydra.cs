@@ -1634,6 +1634,10 @@ class Hydra : Form
 
         Modernize(content);
         SelectNav(0);
+        // The sidebar owns the entire left edge, including the hidden-title-bar area.
+        // Bring it forward last so Windows caption chrome cannot duplicate the brand.
+        sidebar.BringToFront();
+        sideDivider.BringToFront();
     }
 
     Panel NewContentPanel(Control host)
@@ -1673,7 +1677,7 @@ class Hydra : Form
             else if (c is ComboBox)
             {
                 var cb = (ComboBox)c;
-                cb.FlatStyle = FlatStyle.Flat; cb.BackColor = Field; cb.ForeColor = Color.White;
+                StyleDarkCombo(cb);
             }
             else if (c is ListBox)
             {
@@ -1687,6 +1691,25 @@ class Hydra : Form
             }
             if (c.HasChildren) Modernize(c);
         }
+    }
+
+    void StyleDarkCombo(ComboBox cb)
+    {
+        cb.FlatStyle = FlatStyle.Flat;
+        cb.BackColor = Field;
+        cb.ForeColor = Color.White;
+        if (cb.DrawMode == DrawMode.OwnerDrawFixed) return;
+        cb.DrawMode = DrawMode.OwnerDrawFixed;
+        cb.ItemHeight = 22;
+        cb.DrawItem += (s, e) => {
+            Color fill = (e.State & DrawItemState.Selected) != 0 ? FieldHi : Field;
+            using (var brush = new SolidBrush(fill)) e.Graphics.FillRectangle(brush, e.Bounds);
+            string text = e.Index >= 0 && e.Index < cb.Items.Count ? cb.Items[e.Index].ToString() : cb.Text;
+            TextRenderer.DrawText(e.Graphics, text ?? "", cb.Font,
+                new Rectangle(e.Bounds.X + 6, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 8), e.Bounds.Height),
+                Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            if ((e.State & DrawItemState.Focus) != 0) e.DrawFocusRectangle();
+        };
     }
 
     Label Caption(string t, int x, int y) { return new Label { Text = t, AutoSize = true, Location = new Point(x, y), ForeColor = TextDim }; }
@@ -2772,13 +2795,39 @@ try {
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 66f));  // Pop out
         root.Controls.Add(bar, 0, 0);
 
-        var agentPick = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList,
-            FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 6, 8, 6) };
+        // Mac-style segmented agent picker; keep an invisible ComboBox as the existing
+        // settings synchronization boundary so launch behavior stays unchanged.
+        var agentPick = new ComboBox { Visible = false, DropDownStyle = ComboBoxStyle.DropDownList };
         agentPick.Items.AddRange(new object[] { "Claude", "Codex" });
         agentPick.SelectedItem = agentCombo != null ? agentCombo.SelectedItem : "Claude";
         termAgentCombo = agentPick;
-        agentPick.SelectedIndexChanged += (s, e) => { if (agentCombo != null && agentCombo.SelectedItem != agentPick.SelectedItem) agentCombo.SelectedItem = agentPick.SelectedItem; };
-        bar.Controls.Add(agentPick, 0, 0);
+        var segment = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 8, 6), BackColor = Field };
+        RoundRegion(segment, 7);
+        var claudeSegment = new Button { Text = "Claude", FlatStyle = FlatStyle.Flat, Location = new Point(0, 0),
+            Size = new Size(52, 28), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand, TabStop = true };
+        var codexSegment = new Button { Text = "Codex", FlatStyle = FlatStyle.Flat, Location = new Point(52, 0),
+            Size = new Size(52, 28), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand, TabStop = true };
+        claudeSegment.FlatAppearance.BorderSize = 0;
+        codexSegment.FlatAppearance.BorderSize = 0;
+        Action syncSegments = () => {
+            bool claude = (agentPick.SelectedItem ?? "Claude").ToString() != "Codex";
+            claudeSegment.BackColor = claude ? FieldHi : Field;
+            codexSegment.BackColor = claude ? Field : FieldHi;
+            claudeSegment.ForeColor = claude ? Color.White : TextDim;
+            codexSegment.ForeColor = claude ? TextDim : Color.White;
+            claudeSegment.Font = new Font("Segoe UI", 8f, claude ? FontStyle.Bold : FontStyle.Regular);
+            codexSegment.Font = new Font("Segoe UI", 8f, claude ? FontStyle.Regular : FontStyle.Bold);
+        };
+        claudeSegment.Click += (s, e) => agentPick.SelectedItem = "Claude";
+        codexSegment.Click += (s, e) => agentPick.SelectedItem = "Codex";
+        agentPick.SelectedIndexChanged += (s, e) => {
+            syncSegments();
+            if (agentCombo != null && agentCombo.SelectedItem != agentPick.SelectedItem) agentCombo.SelectedItem = agentPick.SelectedItem;
+        };
+        segment.Controls.Add(claudeSegment);
+        segment.Controls.Add(codexSegment);
+        syncSegments();
+        bar.Controls.Add(segment, 0, 0);
 
         var newBtn = AccentBtn("+ New");
         newBtn.Dock = DockStyle.Fill; newBtn.Margin = new Padding(0, 4, 8, 4);
