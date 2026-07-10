@@ -16,7 +16,7 @@ enum SaaSPhase: String, CaseIterable, Identifiable {
     }
     var blurb: String {
         switch self {
-        case .vision: return "Scaffold Open SaaS, capture the vision, let Claude build it."
+        case .vision: return "Scaffold Open SaaS, capture the vision, let your builder build it."
         case .deploy: return "Ship to Vercel, Firebase, or Cloud Run — with a real backend."
         case .subs:   return "Recurring billing + email your subscribers, done right."
         }
@@ -28,7 +28,8 @@ final class SaaSModel: ObservableObject {
     @Published var phase: SaaSPhase = .vision
     @Published var name = "my-saas"
     @Published var parent = Paths.home
-    @Published var buildModel = "Default"   // which Claude model builds the SaaS
+    @Published var buildAgent = "Claude"
+    @Published var buildModel = "Default"
     @Published var log = "From idea to a live, paid product — follow the three steps.\n"
 
     // ---- vision ----
@@ -98,12 +99,16 @@ final class SaaSModel: ObservableObject {
     var appDir: String { parent.trimmingCharacters(in: .whitespaces) + "/" + name.trimmingCharacters(in: .whitespaces) }
     func out(_ s: String) { DispatchQueue.main.async { self.log += s + "\n" } }
 
+    private func launchBuilder(folder: String, prompt: String) {
+        app?.launch(folder: folder, startupPrompt: prompt, modelOverride: buildModel, agentOverride: buildAgent)
+    }
+
     // ---- persistence: the form survives app restarts (~/.claude-manager/saas.json) ----
     private var configPath: String { Paths.stateDir + "/saas.json" }
 
     func saveConfig() {
         let d: [String: String] = [
-            "name": name, "parent": parent, "buildModel": buildModel,
+            "name": name, "parent": parent, "buildAgent": buildAgent, "buildModel": buildModel,
             "pitch": pitch, "features": features, "auth": auth, "pay": pay, "aiProvider": aiProvider,
             "target": target, "backend": backend, "region": region, "publicDir": publicDir,
             "gcpProject": gcpProject, "serviceName": serviceName, "repoVisibility": repoVisibility,
@@ -119,7 +124,7 @@ final class SaaSModel: ObservableObject {
         guard let data = FileManager.default.contents(atPath: configPath),
               let d = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else { return }
         func get(_ k: String, _ cur: String) -> String { (d[k]?.isEmpty == false) ? d[k]! : cur }
-        name = get("name", name); parent = get("parent", parent); buildModel = get("buildModel", buildModel)
+        name = get("name", name); parent = get("parent", parent); buildAgent = get("buildAgent", buildAgent); buildModel = get("buildModel", buildModel)
         pitch = d["pitch"] ?? pitch; features = d["features"] ?? features
         auth = get("auth", auth); pay = get("pay", pay); aiProvider = get("aiProvider", aiProvider)
         target = get("target", target); backend = get("backend", backend); region = get("region", region)
@@ -257,6 +262,7 @@ final class SaaSModel: ObservableObject {
         lines.append(deployLine)
         lines.append("GitHub     \(repoVisibility.lowercased()) repo + Actions CI/CD")
         lines.append("Billing    \(subProvider) · \(trialDays)-day trial · email via \(emailProvider)")
+        lines.append("Builder    \(buildAgent)")
         lines.append("Model      \(buildModel)")
         return lines.joined(separator: "\n")
     }
@@ -272,7 +278,7 @@ final class SaaSModel: ObservableObject {
         let confirm = NSAlert()
         confirm.messageText = "⚡ Instant build — confirm your stack"
         confirm.informativeText = stackSummary()
-            + "\n\nClaude will scaffold Open SaaS, build every feature, wire billing + email, create the GitHub repo, and deploy — in one run."
+            + "\n\n\(buildAgent) will scaffold Open SaaS, build every feature, wire billing + email, create the GitHub repo, and deploy — in one run."
         confirm.addButton(withTitle: "Build")
         confirm.addButton(withTitle: "Cancel")
         guard confirm.runModal() == .alertFirstButtonReturn else {
@@ -280,7 +286,7 @@ final class SaaSModel: ObservableObject {
             return
         }
         try? FileManager.default.createDirectory(atPath: appDir, withIntermediateDirectories: true)
-        // Write EVERY spec up front so one Claude session has the full picture.
+        // Write EVERY spec up front so one builder session has the full picture.
         FS.write(appDir + "/PLAYBOOK.md", playbookDoc())
         FS.write(appDir + "/VISION.md", visionDoc())
         let pk = paymentKey()
@@ -304,14 +310,14 @@ final class SaaSModel: ObservableObject {
             + "(5) Deploy to \(target) per DEPLOY.md and report the live URL. "
             + "Work through this as one continuous mission; verify each stage works before the next; ask me only when a decision is truly mine (accounts, payments, spend)."
             + skillsHint
-        app?.launch(folder: appDir, startupPrompt: prompt, modelOverride: buildModel)
-        out("⚡ Instant build started — Claude is orchestrating scaffold → build → billing → GitHub → deploy in the Workspace.")
+        launchBuilder(folder: appDir, prompt: prompt)
+        out("⚡ Instant build started — \(buildAgent) is orchestrating scaffold → build → billing → GitHub → deploy in the Workspace.")
     }
 
-    /// Nudge Claude to actually USE the bundled skills that fit the task. Appended to every
+    /// Nudge the selected builder to actually USE the bundled skills that fit the task. Appended to every
     /// build prompt so the SaaS gets premium UI, correct deploy, and correct billing.
     var skillsHint: String {
-        " Before you start, check which Claude skills are installed and USE every one that fits: "
+        " Before you start, check which \(buildAgent == "ChatGPT" ? "Codex" : "Claude") skills are installed and USE every one that fits: "
         + "design-taste-frontend / high-end-visual-design / industrial-brutalist-ui for premium, non-templated UI; "
         + "imagegen-frontend-web / imagegen-frontend-mobile / brandkit for visuals and brand; "
         + "image-to-code for turning designs into code; full-output-enforcement so nothing is left as a stub; "
@@ -378,8 +384,8 @@ final class SaaSModel: ObservableObject {
         FS.write(appDir + "/.env.analytics.example", analyticsEnvExample())
         out("Wrote ANALYTICS.md + .env.analytics.example (Google Analytics 4 — mandatory).")
         let prompt = "FIRST read PLAYBOOK.md in this folder — the battle-tested production sequence and pitfall list; follow its phase order throughout. Then read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (\(Self.templateRepo)). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — mandatory for every use case (consent-gated gtag, required events, admin stats job; env ids stubbed). Start by summarizing the plan and asking me to confirm before major changes." + skillsHint
-        app?.launch(folder: appDir, startupPrompt: prompt, modelOverride: buildModel)
-        out("Opened a Claude session in the Workspace to build it.")
+        launchBuilder(folder: appDir, prompt: prompt)
+        out("Opened a \(buildAgent) session in the Workspace to build it.")
     }
 
     func run() {
@@ -506,7 +512,7 @@ final class SaaSModel: ObservableObject {
         }
         FS.write(dir + "/DEPLOY.md", deploySpec()); wrote.append("DEPLOY.md")
         out("Wrote \(wrote.joined(separator: ", ")) into \(dir)")
-        out("Review the config, then 'Deploy now'. Or 'Build with Claude' to wire the backend + config end-to-end.")
+        out("Review the config, then 'Deploy now'. Or 'Build with \(buildAgent)' to wire the backend + config end-to-end.")
     }
 
     func deployNow() {
@@ -536,8 +542,8 @@ final class SaaSModel: ObservableObject {
         let dir = deployDir()
         FS.write(dir + "/DEPLOY.md", deploySpec())
         let prompt = "Read DEPLOY.md in this folder and get this project deployed to \(target) with the specified backend. This is an Open SaaS (Wasp) app (\(Self.templateRepo)) — use `wasp build` outputs (static client + server Dockerfile) rather than assuming a plain SPA. Set up the config, wire the backend/database, handle env vars/secrets safely, then run the deploy and report the live URL. Confirm the plan before any paid or destructive step." + skillsHint
-        app?.launch(folder: dir, startupPrompt: prompt, modelOverride: buildModel)
-        out("Wrote DEPLOY.md and opened Claude in the Workspace to deploy it.")
+        launchBuilder(folder: dir, prompt: prompt)
+        out("Wrote DEPLOY.md and opened \(buildAgent) in the Workspace to deploy it.")
     }
 
     func openDeployGuide() {
@@ -751,7 +757,7 @@ final class SaaSModel: ObservableObject {
         FS.write(dir + "/EMAIL.md", emailSpec())
         FS.write(dir + "/.env.subscriptions.example", subEnvExample())
         out("Wrote SUBSCRIPTIONS.md, EMAIL.md and .env.subscriptions.example into \(dir)")
-        out("Fill the keys, then 'Build with Claude' to implement the full billing + email flow.")
+        out("Fill the keys, then 'Build with \(buildAgent)' to implement the full billing + email flow.")
     }
 
     func buildSubsWithClaude() {
@@ -760,8 +766,8 @@ final class SaaSModel: ObservableObject {
         FS.write(dir + "/SUBSCRIPTIONS.md", subscriptionSpec())
         FS.write(dir + "/EMAIL.md", emailSpec())
         let prompt = "Read SUBSCRIPTIONS.md and EMAIL.md in this folder and implement the full subscription infrastructure they describe (checkout, signed webhooks, entitlement checks, customer portal) plus the subscriber email flows (transactional + broadcast with unsubscribe). This is an Open SaaS (Wasp) app (\(Self.templateRepo)) — follow its conventions (main.wasp operations, Prisma entities, src/server) and its payments plumbing where it fits. Use the database as the source of truth. Summarize the plan, then build it incrementally and keep it runnable." + skillsHint
-        app?.launch(folder: dir, startupPrompt: prompt, modelOverride: buildModel)
-        out("Wrote the specs and opened Claude in the Workspace to build the subscription + email system.")
+        launchBuilder(folder: dir, prompt: prompt)
+        out("Wrote the specs and opened \(buildAgent) in the Workspace to build the subscription + email system.")
     }
 
     func openBillingDocs() {
@@ -1000,7 +1006,7 @@ final class SaaSModel: ObservableObject {
           next session resumes instead of rediscovering.
 
         ## Skills to load, per phase (MANDATORY — load BEFORE the phase's work, not after)
-        The installed Claude skills encode taste and guardrails this playbook depends on.
+        The installed builder skills encode taste and guardrails this playbook depends on.
         Skipping them produces generic output that later needs redoing — slower, not faster.
         - **Whole build, always on**: `karpathy-guidelines` (surgical changes, no
           overengineering, verifiable success criteria) + `full-output-enforcement`

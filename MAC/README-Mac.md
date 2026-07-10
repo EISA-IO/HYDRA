@@ -18,10 +18,11 @@ Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossar
   Headroom, skills, "Install everything", "Update core") that streams to a log.
   Selecting Codex switches the model selector to ChatGPT models, including **ChatGPT 5.6**,
   and Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
-- **SaaS** — capture a product vision, scaffold Open SaaS (Wasp), then hand it to Claude to
-  build. Generates `VISION.md` and a verified `PAYMENTS.md` (incl. the Tap vs Moyasar
+- **SaaS** — capture a product vision, scaffold Open SaaS (Wasp), then hand it to Claude or
+  ChatGPT to build. Generates `VISION.md` and a verified `PAYMENTS.md` (incl. the Tap vs Moyasar
   amount-unit gotcha for KSA).
-- **Skills** — enable / disable / import / delete the skills in `~/.claude/skills`.
+- **Skills** — enable / disable / import / delete skills. The app mirrors enabled skills into
+  `~/.claude/skills` and Codex/ChatGPT's `~/.agents/skills`.
 - **Glossary** — searchable reference: slash commands, CLI flags, keyboard tips, and the
   RTK / Caveman / Headroom command sets.
 

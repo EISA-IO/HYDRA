@@ -142,19 +142,20 @@ extension AppState {
     /// Launch a Claude session as an embedded terminal tab inside the Workspace.
     /// `modelOverride` lets a caller (e.g. the SaaS builder) pick the model for THIS session
     /// without changing the global default.
-    func launch(folder rawFolder: String? = nil, startupPrompt: String? = nil, modelOverride: String? = nil) {
+    func launch(folder rawFolder: String? = nil, startupPrompt: String? = nil, modelOverride: String? = nil, agentOverride: String? = nil) {
         let f = (rawFolder ?? folder).trimmingCharacters(in: .whitespaces)
         guard FS.isDir(f) else {
             alert("Folder not found", f); return
         }
-        if headroom && agent == "Claude" && !ensureProxy() { return }
+        let selectedAgent = (agentOverride == "ChatGPT") ? "Codex" : (agentOverride ?? agent)
+        if headroom && selectedAgent == "Claude" && !ensureProxy() { return }
 
         let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased())
         let selectedModel = (modelOverride ?? model).trimmingCharacters(in: .whitespaces)
-        let m = agent == "Codex" ? cliModelName(selectedModel) : selectedModel
+        let m = selectedAgent == "Codex" ? cliModelName(selectedModel) : selectedModel
         let extra = extraArgs.trimmingCharacters(in: .whitespaces)
         var cli: String
-        if agent == "Codex" {
+        if selectedAgent == "Codex" {
             ensureCodexCompressionForLaunch(useRtk: rtk, useCaveman: caveman)
             cli = "codex -C \(TerminalLauncher.shellQuote(f))"
             if !m.isEmpty && m != "Default" { cli += " --model \(TerminalLauncher.shellQuote(m))" }
@@ -186,12 +187,12 @@ extension AppState {
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         env["CODEX_HOME"] = Paths.codexDir
-        if headroom && agent == "Claude" { env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:\(ProxyPort)" }
+        if headroom && selectedAgent == "Claude" { env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:\(ProxyPort)" }
         applyCreds(to: &env)   // shared tokens/keys (Settings → Access & API keys)
         let envArr = env.map { "\($0.key)=\($0.value)" }
 
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
-                        agent: agent, headroom: agent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman)
+                        agent: selectedAgent, headroom: selectedAgent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman)
         saveRecent(f)
         saveSettings()
         refreshRecents()
@@ -282,15 +283,19 @@ extension AppState {
         let found = findSkillMds(under: src)
         if found.isEmpty { alert("No skills found", "No SKILL.md found in that folder."); return }
         try? FileManager.default.createDirectory(atPath: Paths.skillsDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(atPath: Paths.codexSkillsDir, withIntermediateDirectories: true)
         var n = 0
         for md in found {
             let parent = (md as NSString).deletingLastPathComponent
             var name = Self.readMeta(md).name
             if name.isEmpty { name = FS.base(parent) }
-            do { try FS.copyDir(parent, Paths.skillsDir + "/" + name); n += 1 } catch { }
+            var copied = false
+            do { try FS.copyDir(parent, Paths.skillsDir + "/" + name); copied = true } catch { }
+            do { try FS.copyDir(parent, Paths.codexSkillsDir + "/" + name); copied = true } catch { }
+            if copied { n += 1 }
         }
         loadSkills(); updateStatusLine()
-        alert("Skills imported", "Imported \(n) skill(s).")
+        alert("Skills imported", "Imported \(n) skill(s) for Claude and ChatGPT/Codex.")
     }
 
     func toggleSkill(_ skill: Skill) {
@@ -299,6 +304,13 @@ extension AppState {
         let target = destRoot + "/" + skill.name
         if FS.exists(target) { alert("Name clash", "A skill named '\(skill.name)' already exists on the other side."); return }
         try? FileManager.default.moveItem(atPath: skill.path, toPath: target)
+        let codexSource = (skill.enabled ? Paths.codexSkillsDir : Paths.codexDisabledDir) + "/" + skill.name
+        let codexDestRoot = skill.enabled ? Paths.codexDisabledDir : Paths.codexSkillsDir
+        let codexTarget = codexDestRoot + "/" + skill.name
+        try? FileManager.default.createDirectory(atPath: codexDestRoot, withIntermediateDirectories: true)
+        if FS.exists(codexSource), !FS.exists(codexTarget) {
+            try? FileManager.default.moveItem(atPath: codexSource, toPath: codexTarget)
+        }
         loadSkills(); updateStatusLine()
     }
 
@@ -311,6 +323,8 @@ extension AppState {
         a.alertStyle = .warning
         if a.runModal() == .alertFirstButtonReturn {
             try? FileManager.default.removeItem(atPath: skill.path)
+            try? FileManager.default.removeItem(atPath: Paths.codexSkillsDir + "/" + skill.name)
+            try? FileManager.default.removeItem(atPath: Paths.codexDisabledDir + "/" + skill.name)
             loadSkills(); updateStatusLine()
         }
     }

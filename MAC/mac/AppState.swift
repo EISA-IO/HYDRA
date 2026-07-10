@@ -68,7 +68,7 @@ final class AppState: ObservableObject {
                              "Accept edits automatically", "Ask for each action"]
 
     func launchModelOptions(for agent: String) -> [String] {
-        agent == "Codex" ? chatGPTModelOptions : claudeModelOptions
+        (agent == "Codex" || agent == "ChatGPT") ? chatGPTModelOptions : claudeModelOptions
     }
 
     func cliModelName(_ selection: String) -> String {

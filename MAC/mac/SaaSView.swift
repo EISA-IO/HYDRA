@@ -142,8 +142,21 @@ struct SaaSView: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    HelpLabel(text: "Build with model", help: "Which Claude model does the building. \"Default\" uses your account's default. Opus is the most capable for complex, multi-file builds; Sonnet is a fast, cheaper all-rounder; Haiku is fastest for simple tasks. You can change it any time.")
-                    DarkPicker(options: app.modelOptions, selection: $m.buildModel)
+                    FieldLabel(text: "Builder")
+                    Picker("", selection: $m.buildAgent) {
+                        Text("Claude").tag("Claude")
+                        Text("ChatGPT").tag("ChatGPT")
+                    }
+                    .pickerStyle(.segmented)
+                }.frame(width: 130)
+                VStack(alignment: .leading, spacing: 6) {
+                    HelpLabel(text: "Build with model", help: "Choose Claude or ChatGPT as the SaaS builder. ChatGPT launches through Codex and uses the ChatGPT model list, including ChatGPT 5.6.")
+                    DarkPicker(options: app.launchModelOptions(for: m.buildAgent), selection: $m.buildModel)
+                        .onChange(of: m.buildAgent) {
+                            if !app.launchModelOptions(for: m.buildAgent).contains(m.buildModel) {
+                                m.buildModel = "Default"
+                            }
+                        }
                 }.frame(width: 190)
             }
         }
@@ -158,13 +171,13 @@ struct SaaSView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "bolt.fill").font(.system(size: 13)).foregroundStyle(Theme.yellow)
                             Text("Instant SaaS").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
-                            HelpButton(text: "The one-click path: writes ALL the specs (vision, payments, deploy, subscriptions, email, analytics) into your app folder and starts a single Claude session that scaffolds the app, builds every feature, wires billing + subscriber email + Google Analytics, creates your GitHub repo with CI/CD, and deploys — reporting the live URL at the end. You only step in for sign-ins and real payment keys.")
+                            HelpButton(text: "The one-click path: writes ALL the specs (vision, payments, deploy, subscriptions, email, analytics) into your app folder and starts a single Claude or ChatGPT session that scaffolds the app, builds every feature, wires billing + subscriber email + Google Analytics, creates your GitHub repo with CI/CD, and deploys — reporting the live URL at the end. You only step in for sign-ins and real payment keys.")
                         }
-                        Text("Fill the pitch (or pick a preset), then let Claude take it from idea to a live URL in one run.")
+                        Text("Fill the pitch (or pick a preset), then let your builder take it from idea to a live URL in one run.")
                             .font(.system(size: 11)).foregroundStyle(Theme.textFaint)
                     }
                     Spacer()
-                    Button("⚡ Build it all with Claude") { m.buildEverything() }.accentButton()
+                    Button("⚡ Build it all") { m.buildEverything() }.accentButton()
                 }
                 Divider().overlay(Color.white.opacity(0.05))
                 // Live stack preview — exactly what pressing ⚡ will build, before you press it.
@@ -242,7 +255,7 @@ struct SaaSView: View {
                     }
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 6) {
-                            HelpLabel(text: "AI layer", help: "The brain behind your AI features — our own integrated router, not a third-party gateway. It calls providers in a best→cheapest priority order and falls back automatically when one is rate-limited. \"Smart fallback\" serves free users on commercial-free models (Groq, OpenRouter :free, Gemini) at $0 and unlocks frontier models (GPT-4o, Gemini 2.5 Pro, DeepSeek R1) for paid tiers. \"OpenRouter only\" = one key, 300+ models. \"Groq only\" = fastest free tokens. \"BYOK\" = each customer brings their own key, so AI costs you nothing. Every provider here allows commercial use within its free limits — no ToS games. Claude drops a ready router (src/server/ai/router.ts) into the app.")
+                            HelpLabel(text: "AI layer", help: "The brain behind your AI features — our own integrated router, not a third-party gateway. It calls providers in a best→cheapest priority order and falls back automatically when one is rate-limited. \"Smart fallback\" serves free users on commercial-free models (Groq, OpenRouter :free, Gemini) at $0 and unlocks frontier models (GPT-4o, Gemini 2.5 Pro, DeepSeek R1) for paid tiers. \"OpenRouter only\" = one key, 300+ models. \"Groq only\" = fastest free tokens. \"BYOK\" = each customer brings their own key, so AI costs you nothing. Every provider here allows commercial use within its free limits — no ToS games. Your builder drops a ready router (src/server/ai/router.ts) into the app.")
                             DarkPicker(options: m.aiProviderOptions, selection: $m.aiProvider)
                         }
                         Spacer(minLength: 0)
@@ -262,7 +275,7 @@ struct SaaSView: View {
                         AnyView(Button("Create app") { m.createApp() }.ghostButton())
                     }
                     stepDivider
-                    StepRow(n: 3, title: "Build with Claude", subtitle: "Save your vision, then Claude builds it") {
+                    StepRow(n: 3, title: "Build with \(m.buildAgent)", subtitle: "Save your vision, then \(m.buildAgent) builds it") {
                         AnyView(Button("Save + build") { m.build() }.accentButton())
                     }
                     stepDivider
@@ -358,7 +371,7 @@ struct SaaSView: View {
                             Text("Claude sets up config, backend, CI/CD and deploys — end to end.").font(.system(size: 11)).foregroundStyle(Theme.textFaint)
                         }
                         Spacer()
-                        Button("Let Claude deploy it") { m.buildDeployWithClaude() }.blueButton()
+                        Button("Let \(m.buildAgent) deploy it") { m.buildDeployWithClaude() }.blueButton()
                     }
                     .padding(.vertical, 2)
                     stepDivider
@@ -392,7 +405,7 @@ struct SaaSView: View {
                             DarkField(placeholder: "14", text: $m.trialDays)
                         }.frame(width: 150)
                     }
-                    HelpLabel(text: "Plans / tiers (one per line)", help: "Your pricing tiers, one per line as \"Name — price\" (e.g. Pro — 69 SAR/mo). Claude builds the plan picker, checkout, and feature-gating (entitlements) from these. Include a Free tier if you want one.")
+                    HelpLabel(text: "Plans / tiers (one per line)", help: "Your pricing tiers, one per line as \"Name — price\" (e.g. Pro — 69 SAR/mo). Your builder creates the plan picker, checkout, and feature-gating (entitlements) from these. Include a Free tier if you want one.")
                     DarkEditor(text: $m.tiers).frame(height: 84)
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 6) {
@@ -411,14 +424,14 @@ struct SaaSView: View {
             Card {
                 VStack(alignment: .leading, spacing: 4) {
                     SectionCap(text: "Subscription + email infrastructure")
-                    Text("Claude implements checkout, webhooks, the customer portal, and subscriber emails.")
+                    Text("\(m.buildAgent) implements checkout, webhooks, the customer portal, and subscriber emails.")
                         .font(.system(size: 11)).foregroundStyle(Theme.textFaint).padding(.bottom, 6)
                     StepRow(n: 1, title: "Write the spec", subtitle: "Save SUBSCRIPTIONS.md + EMAIL.md into your project") {
                         AnyView(Button("Scaffold specs") { m.scaffoldSubscriptions() }.ghostButton())
                     }
                     stepDivider
-                    StepRow(n: 2, title: "Build it with Claude", subtitle: "Full billing + email system, wired to your DB") {
-                        AnyView(Button("Build with Claude") { m.buildSubsWithClaude() }.accentButton())
+                    StepRow(n: 2, title: "Build it with \(m.buildAgent)", subtitle: "Full billing + email system, wired to your DB") {
+                        AnyView(Button("Build with \(m.buildAgent)") { m.buildSubsWithClaude() }.accentButton())
                     }
                     stepDivider
                     HStack(spacing: 8) {

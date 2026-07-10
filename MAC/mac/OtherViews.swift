@@ -12,7 +12,7 @@ struct SkillsView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Skills").font(.system(size: 19, weight: .bold)).foregroundStyle(.white)
-                    Text(app.skillsSummary.isEmpty ? "Manage the skills Claude can invoke with /<name>." : app.skillsSummary)
+                    Text(app.skillsSummary.isEmpty ? "Manage skills for Claude and ChatGPT/Codex." : app.skillsSummary)
                         .font(.system(size: 12)).foregroundStyle(Theme.textDim)
                 }
                 Spacer()
@@ -22,7 +22,7 @@ struct SkillsView: View {
 
             Card {
                 if app.skills.isEmpty {
-                    Text("No skills installed yet.\nUse Import… to add a folder containing SKILL.md files, or install the bundled pack from the Setup tab.")
+                    Text("No skills installed yet.\nUse Import… to add a folder containing SKILL.md files, or install the bundled pack from the Setup tab. Imports are mirrored to Claude and ChatGPT/Codex.")
                         .font(.system(size: 13)).foregroundStyle(Theme.textDim)
                         .frame(maxWidth: .infinity, minHeight: 120)
                         .multilineTextAlignment(.center)

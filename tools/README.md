@@ -3,6 +3,8 @@
 Claude Manager ships these so a user never has to hunt down or download tools by hand.
 On launch the app copies the right binary for the current OS into `~/.claude-manager/bin`
 (prepended to every embedded terminal's PATH) and seeds the Caveman plugin locally.
+Bundled skills are mirrored into both `~/.claude/skills` and Codex/ChatGPT's
+documented user skill folder, `~/.agents/skills`.
 
 ## What's bundled
 - `mac-arm64/rtk`, `mac-x64/rtk`, `win-x64/rtk.exe` — RTK input-compression binary (per platform).

@@ -32,6 +32,8 @@ enum Paths {
     static let sessDir      = stateDir + "/sessions"
     static let skillsDir    = home + "/.claude/skills"
     static let disabledDir  = home + "/.claude/skills-disabled"
+    static let codexSkillsDir = home + "/.agents/skills"
+    static let codexDisabledDir = home + "/.agents/skills-disabled"
     static let pluginsFile  = home + "/.claude/plugins/installed_plugins.json"
     static let claudeSettings = home + "/.claude/settings.json"
     static let claudeJson   = home + "/.claude.json"
@@ -42,7 +44,7 @@ enum Paths {
     static let codexRtk     = codexDir + "/RTK.md"
 
     static func ensureDirs() {
-        for d in [stateDir, eventsDir, sessDir, codexDir] {
+        for d in [stateDir, eventsDir, sessDir, codexDir, codexSkillsDir] {
             try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
         }
     }

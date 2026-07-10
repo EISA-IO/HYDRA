@@ -20,7 +20,7 @@ CLAUDE-MANAGER/
 │   ├── Claude-Manager.bat        — compiles + launches (rebuilds when the source changes)
 │   ├── ClaudeManager.ps1         — lightweight fallback launcher
 │   ├── bot.ico, bot.png
-├── SKILLS-BACKUP/    — the bundled skills library (shared by BOTH apps; auto-seeded into ~/.claude/skills)
+├── SKILLS-BACKUP/    — bundled skills (auto-seeded into ~/.claude/skills and ~/.agents/skills)
 └── README.md
 ```
 
@@ -56,6 +56,7 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
   and Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
 - **SaaS** — the guided *Build a SaaS* lifecycle: describe your idea, scaffold Open SaaS, deploy
   (Firebase / Vercel / Cloud Run via a private GitHub repo + GitHub Actions CI/CD), and add
-  subscription billing + subscriber email. KSA-first payments (Tap / Moyasar) by default.
-- **Skills** — manage the bundled skills library.
+  subscription billing + subscriber email. Choose Claude or ChatGPT as the builder.
+- **Skills** — manage the bundled skills library. Imports are mirrored into Claude skills and
+  Codex/ChatGPT user skills (`~/.agents/skills`) so either builder can use them automatically.
 - **Glossary** — reference for the whole toolchain.

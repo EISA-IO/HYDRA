@@ -21,6 +21,8 @@ class ClaudeManager : Form
     static readonly string SettingsFile= Path.Combine(StateDir, "settings.txt");
     static readonly string SkillsDir   = Path.Combine(HomeDir, ".claude", "skills");
     static readonly string DisabledDir = Path.Combine(HomeDir, ".claude", "skills-disabled");
+    static readonly string CodexSkillsDir = Path.Combine(HomeDir, ".agents", "skills");
+    static readonly string CodexDisabledDir = Path.Combine(HomeDir, ".agents", "skills-disabled");
     static readonly string PluginsFile = Path.Combine(HomeDir, ".claude", "plugins", "installed_plugins.json");
     static readonly string ClaudeSettings = Path.Combine(HomeDir, ".claude", "settings.json");
     static readonly string CodexDir    = Environment.GetEnvironmentVariable("CODEX_HOME") ?? Path.Combine(HomeDir, ".codex");
@@ -84,7 +86,7 @@ class ClaudeManager : Form
 
     // saas builder — unified one-page lifecycle (Vision / Deploy / Subscriptions)
     TextBox saasName, saasFolder, saasPitch, saasFeatures, saasStatus;
-    ComboBox saasAuth, saasPay, saasBuildModel, saasPreset, saasAI;
+    ComboBox saasAuth, saasPay, saasBuildAgent, saasBuildModel, saasPreset, saasAI;
     ComboBox saasTarget, saasBackend, saasRegion, saasRepoVis, saasSubProvider, saasEmailProvider;
     TextBox saasGcpProject, saasServiceName, saasPublicDir, saasTiers, saasTrial, saasFromEmail;
     Label saasProgress;   // live launch checklist
@@ -643,13 +645,13 @@ class ClaudeManager : Form
         try { SaveSettings(); } catch { }   // create settings file so this only runs once
     }
 
-    // Ship the bundled SKILLS-BACKUP skills as a native default: on first run (empty skills
-    // dir), copy them into ~/.claude/skills in the background.
+    // Ship bundled skills as a native default for Claude and ChatGPT/Codex.
     void QuietInstallBundledSkills()
     {
         try
         {
-            if (CountSkills() > 0) return;
+            bool codexHasSkills = Directory.Exists(CodexSkillsDir) && Directory.GetFiles(CodexSkillsDir, "SKILL.md", SearchOption.AllDirectories).Length > 0;
+            if (CountSkills() > 0 && codexHasSkills) return;
             string src = FindSkillsSource();
             if (src == null) return;
             var th = new Thread(() => { try { DoInstallSkills(src); } catch { } });
@@ -740,6 +742,23 @@ class ClaudeManager : Form
             modelCombo.Text = current;
         else
             modelCombo.Text = "Default";
+    }
+    void RefreshSaasBuildModelChoices()
+    {
+        if (saasBuildModel == null) return;
+        string agent = (saasBuildAgent != null && saasBuildAgent.SelectedItem != null) ? saasBuildAgent.SelectedItem.ToString() : "Claude";
+        object[] choices = agent == "ChatGPT" ? ChatGptModelChoices : ClaudeModelChoices;
+        string current = (saasBuildModel.Text ?? "").Trim();
+        saasBuildModel.BeginUpdate();
+        saasBuildModel.Items.Clear();
+        saasBuildModel.Items.AddRange(choices);
+        saasBuildModel.EndUpdate();
+        if (current.Length == 0 || string.Equals(current, "Default", StringComparison.OrdinalIgnoreCase))
+            saasBuildModel.Text = "Default";
+        else if (ChoiceContains(choices, current))
+            saasBuildModel.Text = current;
+        else
+            saasBuildModel.Text = "Default";
     }
     static string CmdQ(string s) { return "\"" + s.Replace("\"", "\\\"") + "\""; }
     int RunCodexCmd(string args)
@@ -857,15 +876,19 @@ class ClaudeManager : Form
             catch (Exception ex) { MessageBox.Show("Scan failed:\n" + ex.Message, "Claude Manager"); return; }
             if (found.Length == 0) { MessageBox.Show("No SKILL.md found in that folder.", "Claude Manager", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             Directory.CreateDirectory(SkillsDir);
+            Directory.CreateDirectory(CodexSkillsDir);
             int n = 0;
             foreach (var md in found)
             {
                 string nm, ds; ReadMeta(md, out nm, out ds);
                 string src = Path.GetDirectoryName(md);
                 if (string.IsNullOrEmpty(nm)) nm = new DirectoryInfo(src).Name;
-                try { CopyDir(src, Path.Combine(SkillsDir, nm)); n++; } catch { }
+                bool copied = false;
+                try { CopyDir(src, Path.Combine(SkillsDir, nm)); copied = true; } catch { }
+                try { CopyDir(src, Path.Combine(CodexSkillsDir, nm)); copied = true; } catch { }
+                if (copied) n++;
             }
-            MessageBox.Show("Imported " + n + " skill(s).", "Claude Manager");
+            MessageBox.Show("Imported " + n + " skill(s) for Claude and ChatGPT/Codex.", "Claude Manager");
             LoadSkills();
         }
     }
@@ -876,6 +899,8 @@ class ClaudeManager : Form
         if (MessageBox.Show("Delete skill '" + new DirectoryInfo(dir).Name + "'?\n\n" + dir, "Claude Manager",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
         try { Directory.Delete(dir, true); } catch (Exception ex) { MessageBox.Show("Delete failed:\n" + ex.Message, "Claude Manager"); }
+        try { Directory.Delete(Path.Combine(CodexSkillsDir, new DirectoryInfo(dir).Name), true); } catch { }
+        try { Directory.Delete(Path.Combine(CodexDisabledDir, new DirectoryInfo(dir).Name), true); } catch { }
         LoadSkills();
     }
     void ToggleSkill()
@@ -889,6 +914,15 @@ class ClaudeManager : Form
         string target = Path.Combine(destRoot, name);
         if (Directory.Exists(target)) { MessageBox.Show("A skill named '" + name + "' already exists on the other side.", "Claude Manager"); return; }
         try { Directory.Move(dir, target); } catch (Exception ex) { MessageBox.Show("Move failed:\n" + ex.Message, "Claude Manager"); }
+        string codexSrc = Path.Combine(enabled ? CodexSkillsDir : CodexDisabledDir, name);
+        string codexDestRoot = enabled ? CodexDisabledDir : CodexSkillsDir;
+        string codexTarget = Path.Combine(codexDestRoot, name);
+        try
+        {
+            Directory.CreateDirectory(codexDestRoot);
+            if (Directory.Exists(codexSrc) && !Directory.Exists(codexTarget)) Directory.Move(codexSrc, codexTarget);
+        }
+        catch { }
         LoadSkills();
     }
     void OpenSkillsFolder() { try { Directory.CreateDirectory(SkillsDir); Process.Start(SkillsDir); } catch { } }
@@ -1915,15 +1949,19 @@ try {
         catch (Exception ex) { SetupLog("Skill scan failed: " + ex.Message); return; }
         if (found.Length == 0) { SetupLog("No SKILL.md found under " + src); return; }
         Directory.CreateDirectory(SkillsDir);
+        Directory.CreateDirectory(CodexSkillsDir);
         int n = 0;
         foreach (var md in found)
         {
             string nm, ds; ReadMeta(md, out nm, out ds);
             string parent = Path.GetDirectoryName(md);
             if (string.IsNullOrEmpty(nm)) nm = new DirectoryInfo(parent).Name;
-            try { CopyDir(parent, Path.Combine(SkillsDir, nm)); n++; SetupLog("  + " + nm); } catch (Exception ex) { SetupLog("  x " + nm + ": " + ex.Message); }
+            bool copied = false;
+            try { CopyDir(parent, Path.Combine(SkillsDir, nm)); copied = true; } catch (Exception ex) { SetupLog("  x Claude " + nm + ": " + ex.Message); }
+            try { CopyDir(parent, Path.Combine(CodexSkillsDir, nm)); copied = true; } catch (Exception ex) { SetupLog("  x Codex " + nm + ": " + ex.Message); }
+            if (copied) { n++; SetupLog("  + " + nm); }
         }
-        SetupLog("OK  Installed/updated " + n + " skill(s) into " + SkillsDir);
+        SetupLog("OK  Installed/updated " + n + " skill(s) into " + SkillsDir + " and " + CodexSkillsDir);
         try { BeginInvoke((Action)LoadSkills); } catch { }
     }
 
@@ -1943,7 +1981,7 @@ try {
         string src = FindSkillsSource();
         if (src != null) DoInstallSkills(src);
         else SetupLog("No bundled skills found next to the app — use the Skills button to pick a folder.");
-        SetupLog("===== Done. Restart any open Claude sessions to pick up new tools/skills. =====");
+        SetupLog("===== Done. Restart any open Claude/Codex sessions to pick up new tools/skills. =====");
     }
 
     // Update the core packages in place to their latest versions. Assumes they're already
@@ -1983,7 +2021,7 @@ try {
             else if (OnPath("uv")) RunLoggedCmd("uv tool upgrade headroom-ai");
             else if (OnPath("pip")) RunLoggedCmd("pip install --upgrade \"headroom-ai[all]\"");
         }
-        SetupLog("===== Update complete. Restart any open Claude sessions. =====");
+        SetupLog("===== Update complete. Restart any open Claude/Codex sessions. =====");
     }
 
     void RefreshRecent()
@@ -2796,18 +2834,20 @@ try {
         row(RowCap("Build a SaaS — from idea to a live, paid product. Just follow the three steps below."), 24);
 
         // ---- shared project bar: name + parent + build model ----
-        var proj = new TableLayoutPanel { BackColor = Color.Transparent, ColumnCount = 4, Margin = new Padding(0) };
-        proj.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30f));
-        proj.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 44f));
-        proj.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44f));
+        var proj = new TableLayoutPanel { BackColor = Color.Transparent, ColumnCount = 5, Margin = new Padding(0) };
         proj.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 26f));
+        proj.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36f));
+        proj.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44f));
+        proj.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 16f));
+        proj.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 22f));
         proj.RowStyles.Add(new RowStyle(SizeType.Absolute, 18f));
         proj.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
         var nCap = RowCap("App name (folder-safe)"); nCap.Margin = new Padding(0, 0, 8, 0);
         proj.Controls.Add(nCap, 0, 0);
         proj.Controls.Add(RowCap("Parent folder"), 1, 0);
         proj.Controls.Add(new Label(), 2, 0);
-        proj.Controls.Add(RowCap("Build with model"), 3, 0);
+        proj.Controls.Add(RowCap("Builder"), 3, 0);
+        proj.Controls.Add(RowCap("Build with model"), 4, 0);
         saasName = SaasBox("my-saas"); saasName.Margin = new Padding(0, 2, 8, 2);
         proj.Controls.Add(saasName, 0, 1);
         saasFolder = SaasBox(HomeDir); saasFolder.Margin = new Padding(0, 2, 8, 2);
@@ -2815,9 +2855,13 @@ try {
         var brB = GhostBtn("…"); brB.Dock = DockStyle.Fill; brB.Margin = new Padding(0, 2, 8, 2);
         brB.Click += (s, e) => { using (var d = new FolderBrowserDialog { ShowNewFolderButton = true }) { if (Directory.Exists(saasFolder.Text)) d.SelectedPath = saasFolder.Text; if (d.ShowDialog() == DialogResult.OK) saasFolder.Text = d.SelectedPath; } };
         proj.Controls.Add(brB, 2, 1);
-        saasBuildModel = mkCombo(new object[] { "Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5" }, 0);
+        saasBuildAgent = mkCombo(new object[] { "Claude", "ChatGPT" }, 0);
+        saasBuildAgent.Margin = new Padding(0, 2, 8, 2);
+        saasBuildAgent.SelectedIndexChanged += (s, e) => { RefreshSaasBuildModelChoices(); };
+        proj.Controls.Add(saasBuildAgent, 3, 1);
+        saasBuildModel = mkCombo(ClaudeModelChoices, 0);
         saasBuildModel.Margin = new Padding(0, 2, 0, 2);
-        proj.Controls.Add(saasBuildModel, 3, 1);
+        proj.Controls.Add(saasBuildModel, 4, 1);
         row(proj, 52);
 
         // ---- ⚡ instant mode + live launch checklist ----
@@ -2829,9 +2873,9 @@ try {
         instMid.RowStyles.Add(new RowStyle(SizeType.Percent, 55f));
         instMid.RowStyles.Add(new RowStyle(SizeType.Percent, 45f));
         instMid.Controls.Add(new Label { Text = "⚡ Instant SaaS", ForeColor = Color.White, Font = new Font("Segoe UI", 11f, FontStyle.Bold), Dock = DockStyle.Fill, TextAlign = ContentAlignment.BottomLeft }, 0, 0);
-        instMid.Controls.Add(new Label { Text = "Fill the pitch (or pick a template), then let Claude take it from idea to a live URL in one run.", ForeColor = TextDim, Font = new Font("Segoe UI", 8.5f), Dock = DockStyle.Fill, TextAlign = ContentAlignment.TopLeft }, 0, 1);
+        instMid.Controls.Add(new Label { Text = "Fill the pitch (or pick a template), then let your builder take it from idea to a live URL in one run.", ForeColor = TextDim, Font = new Font("Segoe UI", 8.5f), Dock = DockStyle.Fill, TextAlign = ContentAlignment.TopLeft }, 0, 1);
         inst.Controls.Add(instMid, 0, 0);
-        var instBtn = AccentBtn("⚡ Build it all with Claude"); instBtn.Dock = DockStyle.Fill; instBtn.Margin = new Padding(6, 6, 0, 6);
+        var instBtn = AccentBtn("⚡ Build it all"); instBtn.Dock = DockStyle.Fill; instBtn.Margin = new Padding(6, 6, 0, 6);
         instBtn.Click += (s, e) => SaasBuildEverything();
         inst.Controls.Add(instBtn, 1, 0);
         row(inst, 52);
@@ -2882,7 +2926,7 @@ try {
         var st3 = AccentBtn("Save + build"); st3.Click += (s, e) => SaasBuild();
         row(step(1, "Prerequisites", "Install the Wasp CLI (one-time)", st1), 44);
         row(step(2, "Scaffold", "Create the Open SaaS app folder", st2), 44);
-        row(step(3, "Build with Claude", "Save your vision, then Claude builds it", st3), 44);
+        row(step(3, "Build with builder", "Save your vision, then Claude or ChatGPT builds it", st3), 44);
         var runB = GhostBtn("Run app locally"); runB.Click += (s, e) => SaasRun();
         var docsB = GhostBtn("Open docs"); docsB.Click += (s, e) => { try { Process.Start("https://docs.opensaas.sh"); } catch { } };
         row(flow(new Button[] { runB, docsB }), 44);
@@ -2916,8 +2960,8 @@ try {
         row(step(2, "Push to GitHub", "Create your repo — code home & deploy source", dPush), 44);
         row(step(3, "Go live", "Publish and get your live URL (config written for you)", dNow), 44);
 
-        var dClaude = OkBtn("Let Claude deploy it"); dClaude.Click += (s, e) => SaasBuildDeployWithClaude();
-        row(step(0, "Rather not do it yourself?", "Claude sets up config, backend, CI/CD and deploys — end to end", dClaude), 44);
+        var dClaude = OkBtn("Let builder deploy it"); dClaude.Click += (s, e) => SaasBuildDeployWithClaude();
+        row(step(0, "Rather not do it yourself?", "Claude or ChatGPT sets up config, backend, CI/CD and deploys — end to end", dClaude), 44);
 
         var dCi = GhostBtn("Auto-deploy on push"); dCi.Click += (s, e) => SaasAddGitHubActions();
         var dScaf = GhostBtn("Config files"); dScaf.Click += (s, e) => SaasScaffoldDeploy();
@@ -2946,7 +2990,7 @@ try {
         row(subNote, 30);
 
         var sScaf = GhostBtn("Scaffold specs"); sScaf.Click += (s, e) => SaasScaffoldSubscriptions();
-        var sBuild = AccentBtn("Build with Claude"); sBuild.Click += (s, e) => SaasBuildSubsWithClaude();
+        var sBuild = AccentBtn("Build with builder"); sBuild.Click += (s, e) => SaasBuildSubsWithClaude();
         var sDocs = GhostBtn("Billing docs"); sDocs.Click += (s, e) => SaasOpenBillingDocs();
         row(flow(new Button[] { sScaf, sBuild, sDocs }), 44);
 
@@ -2959,7 +3003,7 @@ try {
         // Help bubbles — hover any field for a detailed explanation (the Windows analog of the "?" popovers).
         var tip = new ToolTip { AutoPopDelay = 30000, InitialDelay = 300, ReshowDelay = 100, ShowAlways = true, IsBalloon = true, ToolTipTitle = "What is this?" };
         tip.SetToolTip(saasName, "The folder + repo name for your app. Lowercase, no spaces (e.g. my-saas).");
-        tip.SetToolTip(saasBuildModel, "Which Claude model builds the SaaS. Default uses your account default; Opus is most capable for complex builds; Sonnet is a fast all-rounder; Haiku is fastest for simple tasks.");
+        tip.SetToolTip(saasBuildModel, "Which model builds the SaaS. ChatGPT uses Codex and includes ChatGPT 5.6; Claude uses the Claude model list.");
         tip.SetToolTip(saasPitch, "Your one-line elevator pitch. Claude uses it to understand the product's purpose and target user — it shapes every screen and feature. Be specific about WHO it's for.");
         tip.SetToolTip(saasFeatures, "The main pages/capabilities, one per line (e.g. Dashboard, Invoice editor, Client list). Claude turns each into real routes, UI, and database models.");
         tip.SetToolTip(saasAuth, "How users sign in. Email + password is simplest; adding Google/GitHub gives one-click login (built into Open SaaS). Integrated platforms go further: Firebase Auth = Google's hosted sign-in (email + Google + Apple, free tier); Supabase Auth = same idea on Postgres; Clerk = drop-in sign-in components with almost no code. Claude wires your pick, including syncing users into your database.");
@@ -2973,18 +3017,18 @@ try {
         tip.SetToolTip(saasRepoVis, "Your code lives in a GitHub repo — the single source of truth. Private keeps it hidden. Every push can then auto-deploy via GitHub Actions.");
         tip.SetToolTip(saasSubProvider, "Who charges subscribers on a recurring basis. Tap & Moyasar handle Saudi recurring payments; Stripe has built-in subscription billing + a customer portal.");
         tip.SetToolTip(saasTrial, "How many days new users get free before the first charge. 0 = no trial.");
-        tip.SetToolTip(saasTiers, "Your pricing tiers, one per line as Name — price. Claude builds the plan picker, checkout, and feature-gating from these.");
+        tip.SetToolTip(saasTiers, "Your pricing tiers, one per line as Name — price. Your builder creates the plan picker, checkout, and feature-gating from these.");
         tip.SetToolTip(saasEmailProvider, "Who sends your emails. Resend = modern & easy. Postmark = best deliverability for receipts. SendGrid = mature with campaigns. Used for receipts, dunning, and newsletters.");
         tip.SetToolTip(saasFromEmail, "The from address subscribers see. Use a domain you control — add SPF/DKIM/DMARC DNS records so email lands in the inbox.");
         tip.SetToolTip(saasPreset, "Pre-fills the pitch, features, and pricing tiers for a common SaaS type — Middle-East-first ideas at the top. Pick Custom to write everything yourself. Choosing a template overwrites those three fields.");
         tip.SetToolTip(saasStackPreview, "This is the exact stack the ⚡ instant build uses — it updates live as you change the options below. Every build starts from the Open SaaS template (github.com/wasp-lang/open-saas): Wasp + React + Node.js + Prisma + PostgreSQL, whatever the use case. You'll also confirm this summary in a dialog before anything runs.");
-        tip.SetToolTip(saasAI, "The brain behind your AI features — our own integrated router, not a third-party gateway. It calls providers in a best-to-cheapest priority order and falls back automatically when one is rate-limited. Smart fallback serves free users on commercial-free models (Groq, OpenRouter :free, Gemini) at $0 and unlocks frontier models (GPT-4o, Gemini 2.5 Pro, DeepSeek R1) for paid tiers. OpenRouter only = one key, 300+ models. Groq only = fastest free tokens. BYOK = each customer brings their own key, so AI costs you nothing. Every provider allows commercial use within its free limits. Claude drops a ready router (src/server/ai/router.ts) into the app.");
+        tip.SetToolTip(saasAI, "The brain behind your AI features — our own integrated router, not a third-party gateway. It calls providers in a best-to-cheapest priority order and falls back automatically when one is rate-limited. Smart fallback serves free users on commercial-free models (Groq, OpenRouter :free, Gemini) at $0 and unlocks frontier models (GPT-4o, Gemini 2.5 Pro, DeepSeek R1) for paid tiers. OpenRouter only = one key, 300+ models. Groq only = fastest free tokens. BYOK = each customer brings their own key, so AI costs you nothing. Every provider allows commercial use within its free limits. Your builder drops a ready router (src/server/ai/router.ts) into the app.");
 
         // ---- restore the saved form, then autosave any change (via the checklist timer) ----
         LoadSaasForm();
         foreach (Control c in new Control[] { saasName, saasFolder, saasPitch, saasFeatures, saasGcpProject, saasServiceName, saasPublicDir, saasTiers, saasTrial, saasFromEmail })
             c.TextChanged += (s, e) => { saasDirty = true; RefreshSaasStackPreview(); };
-        foreach (ComboBox c in new[] { saasAuth, saasPay, saasBuildModel, saasTarget, saasBackend, saasRegion, saasRepoVis, saasSubProvider, saasEmailProvider, saasPreset, saasAI })
+        foreach (ComboBox c in new[] { saasAuth, saasPay, saasBuildAgent, saasBuildModel, saasTarget, saasBackend, saasRegion, saasRepoVis, saasSubProvider, saasEmailProvider, saasPreset, saasAI })
             c.SelectedIndexChanged += (s, e) => { saasDirty = true; RefreshSaasStackPreview(); };
         UpdateSaasProgress();
         RefreshSaasStackPreview();
@@ -3028,19 +3072,31 @@ try {
         }
         catch (Exception ex) { SaasLog("Failed: " + ex.Message); }
     }
-    // Launch Claude in an embedded workspace terminal with the chosen SaaS build model.
-    void SaasLaunchClaude(string dir, string prompt)
+    string SaasBuilderName()
+    {
+        return (saasBuildAgent != null && saasBuildAgent.SelectedItem != null) ? saasBuildAgent.SelectedItem.ToString() : "Claude";
+    }
+    // Launch the selected SaaS builder in an embedded workspace terminal with the chosen model.
+    void SaasLaunchBuilder(string dir, string prompt)
     {
         string savedExtra = extraBox.Text, savedModel = modelCombo.Text;
+        object savedAgent = agentCombo != null ? agentCombo.SelectedItem : null;
         try
         {
             pathBox.Text = dir;
+            string builder = SaasBuilderName();
+            if (agentCombo != null) agentCombo.SelectedItem = builder == "ChatGPT" ? "Codex" : "Claude";
             extraBox.Text = "\"" + prompt.Replace("\"", "'") + "\"";
             string bm = saasBuildModel != null ? (saasBuildModel.Text ?? "").Trim() : "";
             if (bm.Length > 0) modelCombo.Text = bm;
             NewTerminal(dir);
         }
-        finally { extraBox.Text = savedExtra; modelCombo.Text = savedModel; }
+        finally
+        {
+            if (agentCombo != null && savedAgent != null) agentCombo.SelectedItem = savedAgent;
+            extraBox.Text = savedExtra;
+            modelCombo.Text = savedModel;
+        }
     }
 
     void SaasTargetTool(out string exe, out string install, out string login)
@@ -3095,7 +3151,7 @@ try {
             else { File.WriteAllText(Path.Combine(dir, "vercel.json"), SaasVercelJson()); wrote.Add("vercel.json"); }
             File.WriteAllText(Path.Combine(dir, "DEPLOY.md"), SaasDeploySpec()); wrote.Add("DEPLOY.md");
             SaasLog("Wrote " + string.Join(", ", wrote.ToArray()) + " into " + dir);
-            SaasLog("Review the config, then Deploy now. Or Build with Claude to wire the backend + config end-to-end.");
+            SaasLog("Review the config, then Deploy now. Or Build with " + SaasBuilderName() + " to wire the backend + config end-to-end.");
         }
         catch (Exception ex) { SaasLog("Scaffold failed: " + ex.Message); }
     }
@@ -3162,8 +3218,8 @@ try {
         string dir = SaasDeployDir();
         try { File.WriteAllText(Path.Combine(dir, "DEPLOY.md"), SaasDeploySpec()); } catch (Exception ex) { SaasLog("Could not write DEPLOY.md: " + ex.Message); return; }
         string prompt = "Read DEPLOY.md in this folder and get this project deployed to " + saasTarget.SelectedItem + " with the specified backend. This is an Open SaaS (Wasp) app (" + SaasTemplateRepo + ") — use `wasp build` outputs (static client + server Dockerfile) rather than assuming a plain SPA. Set up the config, wire the backend/database, handle env vars/secrets safely, then run the deploy and report the live URL. Confirm the plan before any paid or destructive step." + SaasSkillsHint();
-        SaasLaunchClaude(dir, prompt);
-        SaasLog("Wrote DEPLOY.md and opened Claude in the Workspace to deploy it.");
+        SaasLaunchBuilder(dir, prompt);
+        SaasLog("Wrote DEPLOY.md and opened " + SaasBuilderName() + " in the Workspace to deploy it.");
     }
 
     void SaasOpenDeployGuide()
@@ -3311,7 +3367,7 @@ try {
             File.WriteAllText(Path.Combine(dir, "EMAIL.md"), SaasEmailSpec());
             File.WriteAllText(Path.Combine(dir, ".env.subscriptions.example"), SaasSubEnvExample());
             SaasLog("Wrote SUBSCRIPTIONS.md, EMAIL.md and .env.subscriptions.example into " + dir);
-            SaasLog("Fill the keys, then Build with Claude to implement the full billing + email flow.");
+            SaasLog("Fill the keys, then Build with " + SaasBuilderName() + " to implement the full billing + email flow.");
         }
         catch (Exception ex) { SaasLog("Scaffold failed: " + ex.Message); }
     }
@@ -3322,8 +3378,8 @@ try {
         try { File.WriteAllText(Path.Combine(dir, "SUBSCRIPTIONS.md"), SaasSubscriptionSpec()); File.WriteAllText(Path.Combine(dir, "EMAIL.md"), SaasEmailSpec()); }
         catch (Exception ex) { SaasLog("Could not write specs: " + ex.Message); return; }
         string prompt = "Read SUBSCRIPTIONS.md and EMAIL.md in this folder and implement the full subscription infrastructure they describe (checkout, signed webhooks, entitlement checks, customer portal) plus the subscriber email flows (transactional + broadcast with unsubscribe). This is an Open SaaS (Wasp) app (" + SaasTemplateRepo + ") — follow its conventions (main.wasp operations, Prisma entities, src/server) and its payments plumbing where it fits. Use the database as the source of truth. Summarize the plan, then build it incrementally and keep it runnable." + SaasSkillsHint();
-        SaasLaunchClaude(dir, prompt);
-        SaasLog("Wrote the specs and opened Claude in the Workspace to build the subscription + email system.");
+        SaasLaunchBuilder(dir, prompt);
+        SaasLog("Wrote the specs and opened " + SaasBuilderName() + " in the Workspace to build the subscription + email system.");
     }
     void SaasOpenBillingDocs()
     {
@@ -3406,10 +3462,10 @@ try {
 
     void SaasLog(string line) { try { saasStatus.AppendText("\r\n" + line); } catch { } }
 
-    // Nudge Claude to USE the bundled skills that fit the task — appended to every build prompt.
+    // Nudge the selected builder to USE the bundled skills that fit the task.
     string SaasSkillsHint()
     {
-        return " Before you start, check which Claude skills are installed and USE every one that fits: "
+        return " Before you start, check which " + (SaasBuilderName() == "ChatGPT" ? "Codex" : "Claude") + " skills are installed and USE every one that fits: "
             + "design-taste-frontend / high-end-visual-design / industrial-brutalist-ui for premium, non-templated UI; "
             + "imagegen-frontend-web / imagegen-frontend-mobile / brandkit for visuals and brand; "
             + "image-to-code for turning designs into code; full-output-enforcement so nothing is left as a stub; "
@@ -3534,7 +3590,7 @@ try {
         {
             var sb = new StringBuilder();
             sb.AppendLine("name=" + saasName.Text); sb.AppendLine("parent=" + saasFolder.Text);
-            sb.AppendLine("model=" + saasBuildModel.Text); sb.AppendLine("preset=" + saasPreset.Text);
+            sb.AppendLine("builder=" + saasBuildAgent.Text); sb.AppendLine("model=" + saasBuildModel.Text); sb.AppendLine("preset=" + saasPreset.Text);
             sb.AppendLine("pitch=" + EncNL(saasPitch.Text)); sb.AppendLine("features=" + EncNL(saasFeatures.Text));
             sb.AppendLine("auth=" + saasAuth.Text); sb.AppendLine("pay=" + saasPay.Text);
             sb.AppendLine("ai=" + saasAI.Text);
@@ -3565,6 +3621,7 @@ try {
                 {
                     case "name": saasName.Text = v; break;
                     case "parent": saasFolder.Text = v; break;
+                    case "builder": if (v == "Claude" || v == "ChatGPT") { saasBuildAgent.Text = v; RefreshSaasBuildModelChoices(); } break;
                     case "model": saasBuildModel.Text = v; break;
                     case "preset": saasPreset.SelectedItem = v; break;
                     case "pitch": saasPitch.Text = DecNL(v); break;
@@ -3643,7 +3700,8 @@ try {
         sb.AppendLine("Deploy:     " + t + " · backend: " + (saasBackend.SelectedItem ?? "") + (t == "Cloud Run" ? " · " + saasRegion.SelectedItem : ""));
         sb.AppendLine("GitHub:     " + (saasRepoVis.SelectedItem ?? "Private").ToString().ToLower() + " repo + Actions CI/CD");
         sb.AppendLine("Billing:    " + (saasSubProvider.SelectedItem ?? "") + " · " + (saasTrial.Text ?? "14").Trim() + "-day trial · email via " + (saasEmailProvider.SelectedItem ?? ""));
-        sb.AppendLine("Model:      " + (saasBuildModel.SelectedItem ?? "Default"));
+        sb.AppendLine("Builder:    " + SaasBuilderName());
+        sb.AppendLine("Model:      " + (saasBuildModel.Text.Length > 0 ? saasBuildModel.Text : "Default"));
         return sb.ToString();
     }
 
@@ -3660,7 +3718,7 @@ try {
         if (n.Length == 0 || !Directory.Exists(p)) { MessageBox.Show("Set a valid parent folder and app name first.", "Claude Manager"); return; }
         if ((saasPitch.Text ?? "").Trim().Length == 0) { MessageBox.Show("Write the one-line pitch (or pick a template) so Claude knows what to build.", "Claude Manager"); return; }
         // Show the exact stack and get an explicit OK before anything is written or launched.
-        if (MessageBox.Show(SaasStackSummary() + "\nClaude will scaffold Open SaaS, build every feature, wire billing + email, create the GitHub repo, and deploy — in one run.",
+        if (MessageBox.Show(SaasStackSummary() + "\n" + SaasBuilderName() + " will scaffold Open SaaS, build every feature, wire billing + email, create the GitHub repo, and deploy — in one run.",
                 "⚡ Instant build — confirm your stack", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
         { SaasLog("Instant build cancelled — adjust the stack and press ⚡ again when ready."); return; }
         string app = SaasAppDir();
@@ -3696,8 +3754,8 @@ try {
             + "(5) Deploy to " + saasTarget.SelectedItem + " per DEPLOY.md and report the live URL. "
             + "Work through this as one continuous mission; verify each stage works before the next; ask me only when a decision is truly mine (accounts, payments, spend)."
             + SaasSkillsHint();
-        SaasLaunchClaude(app, prompt);
-        SaasLog("⚡ Instant build started — Claude is orchestrating scaffold → build → billing → GitHub → deploy in the Workspace.");
+        SaasLaunchBuilder(app, prompt);
+        SaasLog("⚡ Instant build started — " + SaasBuilderName() + " is orchestrating scaffold → build → billing → GitHub → deploy in the Workspace.");
     }
 
     void SaasCheckWasp()
@@ -3971,7 +4029,7 @@ RESEND_API_KEY + EMAIL_FROM=support@yourdomain and send a live test.
   next session resumes instead of rediscovering.
 
 ## Skills to load, per phase (MANDATORY — load BEFORE the phase's work, not after)
-The installed Claude skills encode taste and guardrails this playbook depends on.
+The installed builder skills encode taste and guardrails this playbook depends on.
 Skipping them produces generic output that later needs redoing — slower, not faster.
 - **Whole build, always on**: `karpathy-guidelines` (surgical changes, no
   overengineering, verifiable success criteria) + `full-output-enforcement`
@@ -4432,11 +4490,11 @@ inbox wipe. All are pre-empted above — read Phase 2 and Phase 7 before writing
         }
         catch (Exception ex) { SaasLog("Could not write VISION.md: " + ex.Message); return; }
 
-        // launch Claude in the app folder as a managed terminal, primed with the build prompt,
+        // launch the selected builder in the app folder as a managed terminal, primed with the build prompt,
         // using the chosen build model.
         string prompt = "FIRST read PLAYBOOK.md in this folder — the battle-tested production sequence and pitfall list; follow its phase order throughout. Then read VISION.md (and PAYMENTS.md / AI.md if present) in this folder and build the SaaS it describes on top of the Open SaaS template (" + SaasTemplateRepo + "). If the folder is not an Open SaaS app yet (no main.wasp), scaffold it FIRST with `wasp new -t saas` — Open SaaS is the mandatory base for every use case; never substitute another starter. If AI.md is present, add its multi-provider router (src/server/ai/router.ts) and route every AI feature through it. Wire Google Analytics 4 per ANALYTICS.md — mandatory for every use case (consent-gated gtag, required events, admin stats job; env ids stubbed). Start by summarizing the plan and asking me to confirm before major changes." + SaasSkillsHint();
-        SaasLaunchClaude(app, prompt);
-        SaasLog("Opened a Claude session in the Workspace to build it.");
+        SaasLaunchBuilder(app, prompt);
+        SaasLog("Opened a " + SaasBuilderName() + " session in the Workspace to build it.");
     }
 
     void SaasRun()

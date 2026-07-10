@@ -187,7 +187,7 @@ extension AppState {
         return false
     }
 
-    /// Copy every SKILL.md pack under `src` into ~/.claude/skills. Runs on the calling queue.
+    /// Copy every SKILL.md pack under `src` into Claude and Codex user skill folders.
     private func doInstallSkills(from src: String) {
         var out: [String] = []
         if let en = FileManager.default.enumerator(atPath: src) {
@@ -195,14 +195,18 @@ extension AppState {
         }
         if out.isEmpty { log("No SKILL.md found under \(src)"); return }
         try? FileManager.default.createDirectory(atPath: Paths.skillsDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(atPath: Paths.codexSkillsDir, withIntermediateDirectories: true)
         var n = 0
         for md in out {
             let parent = (md as NSString).deletingLastPathComponent
             var name = Self.readMeta(md).name
             if name.isEmpty { name = FS.base(parent) }
-            do { try FS.copyDir(parent, Paths.skillsDir + "/" + name); n += 1; log("  + " + name) } catch { log("  x " + name) }
+            var copied = false
+            do { try FS.copyDir(parent, Paths.skillsDir + "/" + name); copied = true } catch { log("  x Claude " + name) }
+            do { try FS.copyDir(parent, Paths.codexSkillsDir + "/" + name); copied = true } catch { log("  x Codex " + name) }
+            if copied { n += 1; log("  + " + name) }
         }
-        log("OK Installed/updated \(n) skill(s) into \(Paths.skillsDir)")
+        log("OK Installed/updated \(n) skill(s) into \(Paths.skillsDir) and \(Paths.codexSkillsDir)")
         DispatchQueue.main.async { self.loadSkills(); self.updateStatusLine() }
     }
 
@@ -216,9 +220,10 @@ extension AppState {
     /// we never re-install after the user curates or deletes their own skills).
     func autoInstallBundledSkillsIfEmpty() {
         let marker = Paths.stateDir + "/.skills-seeded"
-        guard !FS.exists(marker) else { return }
-        guard countSkills() == 0, let src = findSkillsSource() else {
-            if countSkills() > 0 { FS.write(marker, "") }   // already has skills — don't keep checking
+        let codexCount = FS.dirs(Paths.codexSkillsDir).filter { FS.exists($0 + "/SKILL.md") }.count
+        if FS.exists(marker), codexCount > 0 { return }
+        guard (countSkills() == 0 || codexCount == 0), let src = findSkillsSource() else {
+            if countSkills() > 0 && codexCount > 0 { FS.write(marker, "") }   // already has skills — don't keep checking
             return
         }
         FS.write(marker, "")
