@@ -13,7 +13,10 @@ struct WorkspaceView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 150)
-                .onChange(of: app.agent) { app.saveSettings() }
+                .onChange(of: app.agent) {
+                    app.sanitizeLaunchModel()
+                    app.saveSettings()
+                }
                 .help("Choose which CLI the next terminal launches")
 
                 Button {

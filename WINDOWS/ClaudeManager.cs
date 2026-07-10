@@ -459,6 +459,7 @@ class ClaudeManager : Form
                         if ((string)permCombo.Items[i] == v) { permCombo.SelectedIndex = i; break; }
                 }
             }
+            RefreshModelChoicesForAgent();
         }
         catch { }
     }
@@ -975,6 +976,22 @@ class ClaudeManager : Form
         g.Add(new GEntry(F, "--debug", "Enable debug logging."));
         g.Add(new GEntry(F, "--append-system-prompt \"...\"", "Append text to the default system prompt."));
 
+        string X = "Codex CLI";
+        g.Add(new GEntry(X, "codex", "Start an interactive ChatGPT/Codex coding session in the current folder."));
+        g.Add(new GEntry(X, "codex -C <dir>", "Start Codex with an explicit working root. Claude Manager uses this for every Codex terminal."));
+        g.Add(new GEntry(X, "--model <id>", "Choose a ChatGPT model for Codex, e.g. ChatGPT 5.6 maps to gpt-5.6."));
+        g.Add(new GEntry(X, "--dangerously-bypass-approvals-and-sandbox", "YOLO mode: no approvals and no sandbox. Claude Manager starts Codex terminals this way."));
+        g.Add(new GEntry(X, "--ask-for-approval <policy>", "Approval policy for Codex when not using YOLO: untrusted, on-request, or never."));
+        g.Add(new GEntry(X, "--sandbox <mode>", "Codex sandbox mode: read-only, workspace-write, or danger-full-access."));
+        g.Add(new GEntry(X, "resume --last", "Resume the most recent Codex conversation."));
+        g.Add(new GEntry(X, "codex plugin list", "Show installed Codex plugins and their enabled/installed status."));
+        g.Add(new GEntry(X, "codex plugin marketplace add <path>", "Register a local Codex plugin marketplace, like the bundled Caveman marketplace."));
+        g.Add(new GEntry(X, "codex plugin add caveman@caveman", "Install Caveman from the local marketplace for Codex sessions."));
+        g.Add(new GEntry(X, "~/.codex/AGENTS.md", "Global Codex instructions. Claude Manager writes RTK/Caveman guidance here."));
+        g.Add(new GEntry(X, "~/.agents/skills", "Codex/ChatGPT user skills folder. Claude Manager mirrors bundled/imported skills here."));
+        g.Add(new GEntry(X, "rtk init -g --codex", "Install RTK guidance for Codex so shell commands use token-filtered rtk output."));
+        g.Add(new GEntry(X, "CODEX_HOME", "Points Codex at its config/state directory; Claude Manager sets it to ~/.codex."));
+
         string K = "Keyboard & prompt tips";
         g.Add(new GEntry(K, "Esc", "Interrupt Claude / cancel the current action."));
         g.Add(new GEntry(K, "Esc  Esc", "Rewind — edit a previous message and branch."));
@@ -1016,7 +1033,7 @@ class ClaudeManager : Form
         g.Add(new GEntry(C, "/caveman-review", "One-line PR review comments, e.g. L42: bug: user null. Add guard."));
         g.Add(new GEntry(C, "/caveman-stats", "Show real token savings this session + lifetime + USD."));
         g.Add(new GEntry(C, "/caveman-compress <file>", "Rewrite a memory file (e.g. CLAUDE.md) into caveman-speak to save input tokens every session."));
-        g.Add(new GEntry(C, "Install / Remove", "Toggle it on the Launch tab, or run: npx -y github:JuliusBrussee/caveman --only claude"));
+        g.Add(new GEntry(C, "Install / Remove", "Toggle it in Settings, or run: npx -y github:JuliusBrussee/caveman --only claude --only codex"));
         return g;
     }
     void RenderGlossary(string filter)
@@ -1403,7 +1420,7 @@ class ClaudeManager : Form
             if (termAgentCombo != null && termAgentCombo.SelectedItem != agentCombo.SelectedItem) termAgentCombo.SelectedItem = agentCombo.SelectedItem;
             UpdateLaunchText(); SaveSettings();
         };
-        modelCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
+        modelCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
         modelCombo.Items.AddRange(ClaudeModelChoices);
         modelCombo.Text = "Default";
         modelCombo.TextChanged += (s, e) => UpdateLaunchText();

@@ -86,6 +86,7 @@ final class AppState: ObservableObject {
         Paths.ensureDirs()
         terminals.app = self
         loadSettings()
+        sanitizeLaunchModel()
         creds = CredStore.load()
         refreshRecents()
         refreshAll()
@@ -115,6 +116,11 @@ final class AppState: ObservableObject {
                 if permissionOptions.contains(v) { permission = v }
             }
         }
+        sanitizeLaunchModel()
+    }
+
+    func sanitizeLaunchModel() {
+        if !launchModelOptions(for: agent).contains(model) { model = "Default" }
     }
 
     func saveSettings() {

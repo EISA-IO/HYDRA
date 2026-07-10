@@ -166,9 +166,7 @@ struct SettingsView: View {
                             }
                         }
                         .onChange(of: app.agent) {
-                            if !app.launchModelOptions(for: app.agent).contains(app.model) {
-                                app.model = "Default"
-                            }
+                            app.sanitizeLaunchModel()
                             app.saveSettings()
                         }
                         .onChange(of: app.model) { app.saveSettings() }
