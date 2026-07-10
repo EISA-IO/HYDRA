@@ -167,7 +167,16 @@ class Hydra : Form
                     if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
                     using (var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb))
                     {
-                        DrawToBitmap(bitmap, new Rectangle(0, 0, Width, Height));
+                        using (var graphics = Graphics.FromImage(bitmap))
+                        {
+                            IntPtr hdc = graphics.GetHdc();
+                            try
+                            {
+                                if (!PrintWindow(Handle, hdc, 2))
+                                    throw new InvalidOperationException("PrintWindow could not capture the composed Hydra window.");
+                            }
+                            finally { graphics.ReleaseHdc(hdc); }
+                        }
                         bitmap.Save(path, ImageFormat.Png);
                     }
                 }
@@ -177,6 +186,7 @@ class Hydra : Form
                     try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
                 }
                 Close();
+                Application.ExitThread();
             };
             timer.Start();
         };
@@ -2649,6 +2659,7 @@ try {
 
     // ================= Terminals + realtime alerts =================
     [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+    [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint flags);
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
     [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
