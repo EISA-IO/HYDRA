@@ -1,0 +1,24 @@
+# Bundled native toolchain
+
+Hydra ships these so a user never has to hunt down or download tools by hand.
+On launch the app copies the right binary for the current OS into `~/.claude-manager/bin`
+(prepended to every embedded terminal's PATH) and seeds the Caveman plugin locally.
+Bundled skills are mirrored into both `~/.claude/skills` and Codex/ChatGPT's
+documented user skill folder, `~/.agents/skills`.
+
+## What's bundled
+- `mac-arm64/rtk`, `mac-x64/rtk`, `win-x64/rtk.exe` — RTK input-compression binary (per platform).
+- `caveman/` — the Caveman marketplace (a local, offline Claude plugin source, Codex plugin
+  marketplace, and Node installer).
+
+## Completing cross-platform coverage
+This repo is built on Apple Silicon, so only `mac-arm64/rtk` ships prefilled. To make the app
+fully self-contained on the other targets, drop the matching binary into its slot:
+- Intel Mac: build/download `rtk` → `tools/mac-x64/rtk`
+- Windows x64: `rtk.exe` → `tools/win-x64/rtk.exe`
+The manifest lists a `fallbackInstall` command the app runs automatically if a slot is empty,
+so the app still self-provisions — bundling just makes it instant and offline.
+
+## Agent CLIs
+Anthropic's `claude` binary and OpenAI's `codex` binary are not vendored. If either is missing,
+the app installs it once into `~/.claude-manager/bin` and keeps that directory first on PATH.

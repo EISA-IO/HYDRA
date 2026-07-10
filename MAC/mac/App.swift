@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 @main
-struct ClaudeManagerApp: App {
+struct HydraApp: App {
     @StateObject private var app = AppState()
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
@@ -40,7 +40,7 @@ struct ContentView: View {
     @State private var tab = initialTab()
 
     static func initialTab() -> Int {
-        // Allow `open -n "Claude Manager.app" --args --tab 3` to preselect a tab (used for QA).
+        // Allow `open -n "Hydra.app" --args --tab 3` to preselect a tab (used for QA).
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--tab"), i + 1 < args.count, let n = Int(args[i + 1]), (0...4).contains(n) {
             return n
@@ -74,7 +74,7 @@ struct ContentView: View {
             // QA hook: `--demoterm` auto-opens one embedded terminal so the Workspace can be
             // screenshotted running a real session without clicking.
             if CommandLine.arguments.contains("--demoterm") {
-                let dir = FS.isDir(Paths.home + "/Desktop/CLAUDE-MANAGER") ? Paths.home + "/Desktop/CLAUDE-MANAGER" : Paths.home
+                let dir = FS.isDir(Paths.home + "/Desktop/HYDRA") ? Paths.home + "/Desktop/HYDRA" : Paths.home
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     app.folder = dir
                     app.launch(folder: dir)
@@ -112,7 +112,7 @@ struct ContentView: View {
                 logo
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
-                        Text("Claude Manager").font(.system(size: 14.5, weight: .bold)).foregroundStyle(.white)
+                        Text("Hydra").font(.system(size: 14.5, weight: .bold)).foregroundStyle(.white)
                         Text("v1").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.accent)
                     }
                     Text("By Ahmed Al-Eissa")

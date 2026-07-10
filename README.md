@@ -1,4 +1,4 @@
-# Claude Manager  ·  by Ahmed Al-Eissa
+# Hydra  ·  by Ahmed Al-Eissa
 
 A launcher + toolchain manager for Claude Code and Codex CLI, with an embedded multi-terminal
 Workspace, a token-compression toolchain (RTK + Caveman + Headroom), a bundled skills library,
@@ -7,18 +7,18 @@ and a guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).
 ## Repository layout
 
 ```
-CLAUDE-MANAGER/
+HYDRA/
 ├── MAC/              — the native macOS app (SwiftUI, built with Swift Package Manager)
 │   ├── mac/          — Swift sources
 │   ├── Package.swift, Package.resolved
-│   ├── build-mac.sh              — builds "Claude Manager.app"
-│   ├── Claude-Manager-Mac.command — double-click launcher (builds on first run)
+│   ├── build-mac.sh              — builds "Hydra.app"
+│   ├── Hydra-Mac.command — double-click launcher (builds on first run)
 │   ├── README-Mac.md
 │   └── bot.png
 ├── WINDOWS/          — the native Windows app (C# WinForms)
-│   ├── ClaudeManager.cs
-│   ├── Claude-Manager.bat        — compiles + launches (rebuilds when the source changes)
-│   ├── ClaudeManager.ps1         — lightweight fallback launcher
+│   ├── Hydra.cs
+│   ├── Hydra.bat        — compiles + launches (rebuilds when the source changes)
+│   ├── Hydra.ps1         — lightweight fallback launcher
 │   ├── bot.ico, bot.png
 ├── SKILLS-BACKUP/    — bundled skills (auto-seeded into ~/.claude/skills and ~/.agents/skills)
 └── README.md
@@ -31,12 +31,12 @@ app finds it in the repo root (the parent of `WINDOWS/`).
 
 **macOS** (needs Xcode Command Line Tools — `xcode-select --install`):
 ```bash
-cd MAC && ./build-mac.sh && open "Claude Manager.app"
+cd MAC && ./build-mac.sh && open "Hydra.app"
 ```
-or just double-click `MAC/Claude-Manager-Mac.command`.
+or just double-click `MAC/Hydra-Mac.command`.
 
 **Windows** (needs the .NET Framework compiler that ships with Windows):
-double-click `WINDOWS/Claude-Manager.bat` — it compiles `ClaudeManager.cs` on first run
+double-click `WINDOWS/Hydra.bat` — it compiles `Hydra.cs` on first run
 (and whenever the source is newer than the exe), then launches the GUI.
 
 ## The SaaS production playbook

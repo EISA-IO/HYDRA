@@ -18,7 +18,7 @@ extension AppState {
         let cands = [
             res + "/tools",                                   // shipped inside the .app
             exeDir + "/tools",                                // next to the .app (portable)
-            Paths.home + "/Desktop/CLAUDE-MANAGER/tools"      // dev checkout
+            Paths.home + "/Desktop/HYDRA/tools"      // dev checkout
         ]
         for c in cands where FS.isDir(c) && FS.exists(c + "/manifest.json") { return c }
         return nil

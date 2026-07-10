@@ -175,8 +175,8 @@ extension AppState {
             exeDir + "/SKILLS-BACKUP",        // next to the .app (dev / portable)
             exeDir + "/skills",
             exeDir + "/ESSENTIAL-SKILLS",
-            Paths.home + "/Desktop/CLAUDE-MANAGER/SKILLS-BACKUP",
-            Paths.home + "/Desktop/CLAUDE-MANAGER/ESSENTIAL-SKILLS"
+            Paths.home + "/Desktop/HYDRA/SKILLS-BACKUP",
+            Paths.home + "/Desktop/HYDRA/ESSENTIAL-SKILLS"
         ].filter { !$0.isEmpty }
         for c in cands where FS.isDir(c) && hasAnySkill(c) { return c }
         return nil

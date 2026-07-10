@@ -1,0 +1,23 @@
+{
+  "name": "caveman",
+  "interface": {
+    "displayName": "Caveman"
+  },
+  "plugins": [
+    {
+      "name": "caveman",
+      "source": {
+        "source": "local",
+        "path": "./plugins/caveman"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+        "products": [
+          "CODEX"
+        ]
+      },
+      "category": "Productivity"
+    }
+  ]
+}

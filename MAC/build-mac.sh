@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Build "Claude Manager.app" — a native SwiftUI macOS app — from the Swift sources
+# Build "Hydra.app" — a native SwiftUI macOS app — from the Swift sources
 # in ./mac. Requires the Xcode Command Line Tools (swiftc). No Xcode project needed.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$HERE/Claude Manager.app"
+APP="$HERE/Hydra.app"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
-BIN="$MACOS/Claude Manager"
+BIN="$MACOS/Hydra"
 
 echo "› Building with Swift Package Manager (pulls in SwiftTerm on first run)…"
 rm -rf "$APP"
 mkdir -p "$MACOS" "$RES"
 ( cd "$HERE" && swift build -c release )
-BUILT="$HERE/.build/release/ClaudeManager"
+BUILT="$HERE/.build/release/Hydra"
 if [ ! -x "$BUILT" ]; then
   echo "✗ Build failed — $BUILT not produced." >&2
   exit 1
@@ -27,12 +27,12 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>            <string>Claude Manager</string>
-  <key>CFBundleDisplayName</key>     <string>Claude Manager</string>
-  <key>CFBundleIdentifier</key>      <string>com.claudemanager.mac</string>
+  <key>CFBundleName</key>            <string>Hydra</string>
+  <key>CFBundleDisplayName</key>     <string>Hydra</string>
+  <key>CFBundleIdentifier</key>      <string>io.eisa.hydra</string>
   <key>CFBundleVersion</key>         <string>1.0.0</string>
   <key>CFBundleShortVersionString</key><string>1.0.0</string>
-  <key>CFBundleExecutable</key>      <string>Claude Manager</string>
+  <key>CFBundleExecutable</key>      <string>Hydra</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>CFBundleIconFile</key>        <string>AppIcon</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
@@ -43,10 +43,10 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
        touching protected folders at startup, so these appear only when YOU open a project
        there. NOTE: rebuilding the app re-signs it (new ad-hoc identity), which makes macOS
        forget previous grants — normal launches never rebuild, so grants stick. -->
-  <key>NSDesktopFolderUsageDescription</key>  <string>Claude Manager opens Claude sessions in project folders you choose, including ones on your Desktop.</string>
-  <key>NSDocumentsFolderUsageDescription</key><string>Claude Manager opens Claude sessions in project folders you choose, including ones in Documents.</string>
-  <key>NSDownloadsFolderUsageDescription</key><string>Claude Manager opens Claude sessions in project folders you choose, including ones in Downloads.</string>
-  <key>NSAppleEventsUsageDescription</key>    <string>Claude Manager only uses Apple Events if you ask it to control an external Terminal window.</string>
+  <key>NSDesktopFolderUsageDescription</key>  <string>Hydra opens Claude sessions in project folders you choose, including ones on your Desktop.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Hydra opens Claude sessions in project folders you choose, including ones in Documents.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>Hydra opens Claude sessions in project folders you choose, including ones in Downloads.</string>
+  <key>NSAppleEventsUsageDescription</key>    <string>Hydra only uses Apple Events if you ask it to control an external Terminal window.</string>
 </dict>
 </plist>
 PLIST

@@ -1,6 +1,6 @@
-# Claude Manager — macOS
+# Hydra — macOS
 
-A native SwiftUI app (v1, by Ahmed Al-Eissa) that mirrors the Windows Claude Manager:
+A native SwiftUI app (v1, by Ahmed Al-Eissa) that mirrors the Windows Hydra:
 launch and manage multiple Claude CLI or Codex CLI sessions, toggle the token-compression toolchain,
 manage skills, scaffold a SaaS, and browse a CLI reference — all in one dark, native window.
 
@@ -31,11 +31,11 @@ Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossar
 Requires the Xcode Command Line Tools (`xcode-select --install`) — no full Xcode needed.
 
 ```bash
-./build-mac.sh          # → "Claude Manager.app" (fetches SwiftTerm on first build)
-open "Claude Manager.app"
+./build-mac.sh          # → "Hydra.app" (fetches SwiftTerm on first build)
+open "Hydra.app"
 ```
 
-Or just double-click **Claude-Manager-Mac.command** — it builds the app on first run,
+Or just double-click **Hydra-Mac.command** — it builds the app on first run,
 then launches it. If Swift isn't available it falls back to a lightweight folder/model picker.
 
 ## How it works (Mac specifics)
@@ -54,6 +54,6 @@ then launches it. If Swift isn't available it falls back to a lightweight folder
 
 ## QA flags
 
-`open -n "Claude Manager.app" --args --tab <0-4>` preselects a tab;
+`open -n "Hydra.app" --args --tab <0-4>` preselects a tab;
 `--demoterm` auto-opens one embedded session (used for screenshots). Both are inert on a
 normal double-click launch.

@@ -640,7 +640,7 @@ final class SaaSModel: ObservableObject {
 
             ## No-service-account alternative (proven simpler)
             If the user already has a CI token (`firebase login:ci`, ideally stored in
-            Claude Manager → Settings → Access & API keys), skip the service account:
+            Hydra → Settings → Access & API keys), skip the service account:
             set a `FIREBASE_TOKEN` repo secret and replace the deploy step with
             `npx firebase-tools deploy --only hosting --non-interactive --token "$FIREBASE_TOKEN"`
             (project id comes from .firebaserc).
@@ -808,7 +808,7 @@ final class SaaSModel: ObservableObject {
         5. Payments: create the Lemon Squeezy store NOW (self-serve, no approval gate) if
            international; Moyasar if KSA-local-only. Seller verification runs in the background
            while you build.
-        6. Store every token/key in Claude Manager → Settings → Access & API keys — they inject
+        6. Store every token/key in Hydra → Settings → Access & API keys — they inject
            into every terminal and every future project reuses them.
 
         ## Phase 1 — Scaffold (goal: `wasp start` green in 15 minutes)

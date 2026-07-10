@@ -1,6 +1,6 @@
 # Bundled native toolchain
 
-Claude Manager ships these so a user never has to hunt down or download tools by hand.
+Hydra ships these so a user never has to hunt down or download tools by hand.
 On launch the app copies the right binary for the current OS into `~/.claude-manager/bin`
 (prepended to every embedded terminal's PATH) and seeds the Caveman plugin locally.
 Bundled skills are mirrored into both `~/.claude/skills` and Codex/ChatGPT's

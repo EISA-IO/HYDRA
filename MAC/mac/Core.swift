@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 // ============================================================================
-// Theme — dark "liquid glass" palette, matched to the Windows ClaudeManager.
+// Theme — dark "liquid glass" palette, matched to the Windows Hydra.
 // ============================================================================
 enum Theme {
     static let bg        = Color(nsColor: NSColor(srgbRed: 22/255,  green: 22/255,  blue: 25/255,  alpha: 1))
@@ -91,7 +91,7 @@ final class Shell {
         var parts = resolved.split(separator: ":").map(String.init)
         // The app's OWN managed bin comes FIRST so the natively-bundled tools (rtk, and any
         // vendored claude/headroom) always resolve — even on a machine where the user has
-        // installed nothing. This is what makes Claude Manager self-dependent.
+        // installed nothing. This is what makes Hydra self-dependent.
         let managed = home + "/.claude-manager/bin"
         parts.removeAll { $0 == managed }
         parts.insert(managed, at: 0)

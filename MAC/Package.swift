@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClaudeManager",
+    name: "Hydra",
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0")
     ],
     targets: [
         .executableTarget(
-            name: "ClaudeManager",
+            name: "Hydra",
             dependencies: ["SwiftTerm"],
             path: "mac"
         )

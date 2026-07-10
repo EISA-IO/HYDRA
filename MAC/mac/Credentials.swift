@@ -68,7 +68,7 @@ enum CredStore {
     }
 
     static func save(_ creds: [String: String]) {
-        var lines = ["# Claude Manager — shared access tokens & API keys.",
+        var lines = ["# Hydra — shared access tokens & API keys.",
                      "# Injected as env vars into every terminal the app launches. Do not commit."]
         // Catalog keys first (stable order), then any custom extras alphabetically.
         let catalogKeys = CredCatalog.all.map(\.key)

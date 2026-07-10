@@ -1,5 +1,5 @@
 {
-  "description": "Native toolchain bundled with Claude Manager so tools work with no manual download.",
+  "description": "Native toolchain bundled with Hydra so tools work with no manual download.",
   "tools": {
     "rtk": {
       "role": "input compression (Rust Token Killer)",
