@@ -31,12 +31,14 @@ jobs:
       - name: Render and validate UI
         shell: pwsh
         run: |
-          .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\WINDOWS\Hydra-ci.exe) -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-windows-ui.png")
+          foreach ($tab in 0..4) {
+            .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\WINDOWS\Hydra-ci.exe) -Tab $tab -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-windows-ui-$tab.png")
+          }
 
       - name: Upload Windows UI screenshot
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: hydra-windows-ui
-          path: ${{ runner.temp }}/hydra-windows-ui.png
+          path: ${{ runner.temp }}/hydra-windows-ui-*.png
           if-no-files-found: warn

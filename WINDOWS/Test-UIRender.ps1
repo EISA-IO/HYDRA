@@ -1,14 +1,16 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Executable,
-    [string]$Screenshot = (Join-Path $env:TEMP "hydra-windows-ui.png")
+    [string]$Screenshot = (Join-Path $env:TEMP "hydra-windows-ui.png"),
+    [ValidateRange(0, 4)]
+    [int]$Tab = 0
 )
 
 $ErrorActionPreference = "Stop"
 Remove-Item $Screenshot -Force -ErrorAction SilentlyContinue
 
 $process = Start-Process -FilePath $Executable `
-    -ArgumentList @("--screenshot", $Screenshot) `
+    -ArgumentList @("--screenshot", $Screenshot, "--tab", $Tab) `
     -PassThru
 
 if (-not $process.WaitForExit(15000)) {
@@ -43,11 +45,13 @@ try {
 
     Assert-PixelNear "sidebar" 4 500 @(16, 16, 18)
     Assert-PixelNear "content canvas" 200 40 @(22, 22, 25)
-    Assert-PixelNear "active navigation accent" 8 139 @(217, 119, 87) 12
-    Assert-PixelNear "project path field" 620 65 @(43, 43, 51) 12
-    Assert-PixelNear "recent folders control" 755 65 @(40, 40, 45) 12
-    Assert-PixelNear "terminal host" 500 300 @(16, 16, 18) 10
-    Write-Output "Hydra Windows UI rendered: $($image.Width)x$($image.Height), $((Get-Item $Screenshot).Length) bytes"
+    Assert-PixelNear "active navigation accent" 8 (139 + 40 * $Tab) @(217, 119, 87) 12
+    if ($Tab -eq 0) {
+        Assert-PixelNear "project path field" 620 65 @(43, 43, 51) 12
+        Assert-PixelNear "recent folders control" 755 65 @(40, 40, 45) 12
+        Assert-PixelNear "terminal host" 500 300 @(16, 16, 18) 10
+    }
+    Write-Output "Hydra Windows tab $Tab rendered: $($image.Width)x$($image.Height), $((Get-Item $Screenshot).Length) bytes"
 }
 finally {
     $image.Dispose()
