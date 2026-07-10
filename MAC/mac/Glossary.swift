@@ -51,7 +51,7 @@ enum Glossary {
         let X = "Codex CLI"
         add(X, "codex", "Start an interactive ChatGPT/Codex coding session in the current folder.")
         add(X, "codex -C <dir>", "Start Codex with an explicit working root. Hydra uses this for every Codex terminal.")
-        add(X, "--model <id>", "Choose a ChatGPT model for Codex, e.g. ChatGPT 5.6 maps to gpt-5.6.")
+        add(X, "--model <id>", "Choose a Codex model, e.g. gpt-5.6-sol, gpt-5.6-terra, or gpt-5.6-luna.")
         add(X, "--dangerously-bypass-approvals-and-sandbox", "YOLO mode: no approvals and no sandbox. Hydra starts Codex terminals this way.")
         add(X, "--ask-for-approval <policy>", "Approval policy for Codex when not using YOLO: untrusted, on-request, or never.")
         add(X, "--sandbox <mode>", "Codex sandbox mode: read-only, workspace-write, or danger-full-access.")

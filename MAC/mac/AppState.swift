@@ -61,7 +61,8 @@ final class AppState: ObservableObject {
 
     let claudeModelOptions = ["Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5",
                               "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"]
-    let chatGPTModelOptions = ["Default", "ChatGPT 5.6", "ChatGPT 5.5", "gpt-5.6", "gpt-5.5"]
+    let chatGPTModelOptions = ["Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+                               "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"]
     var modelOptions: [String] { claudeModelOptions }
     let agentOptions = ["Claude", "Codex"]
     let permissionOptions = ["Bypass – skip all prompts", "Plan mode (read-only)",
@@ -72,9 +73,13 @@ final class AppState: ObservableObject {
     }
 
     func cliModelName(_ selection: String) -> String {
-        switch selection.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "chatgpt 5.6": return "gpt-5.6"
-        case "chatgpt 5.5": return "gpt-5.5"
+        let key = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+        switch key {
+        case "chatgpt5.6", "gpt5.6": return "gpt-5.6-sol"
+        case "chatgpt5.5": return "gpt-5.5"
         default: return selection
         }
     }
@@ -120,6 +125,10 @@ final class AppState: ObservableObject {
     }
 
     func sanitizeLaunchModel() {
+        if agent == "Codex" || agent == "ChatGPT" {
+            let normalized = cliModelName(model)
+            if launchModelOptions(for: agent).contains(normalized) { model = normalized }
+        }
         if !launchModelOptions(for: agent).contains(model) { model = "Default" }
     }
 

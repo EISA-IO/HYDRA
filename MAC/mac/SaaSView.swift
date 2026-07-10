@@ -113,7 +113,10 @@ struct SaaSView: View {
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .onAppear { m.app = app }
+        .onAppear {
+            m.app = app
+            sanitizeBuildModel()
+        }
     }
 
     // ---- chrome ----
@@ -150,16 +153,22 @@ struct SaaSView: View {
                     .pickerStyle(.segmented)
                 }.frame(width: 130)
                 VStack(alignment: .leading, spacing: 6) {
-                    HelpLabel(text: "Build with model", help: "Choose Claude or ChatGPT as the SaaS builder. ChatGPT launches through Codex and uses the ChatGPT model list, including ChatGPT 5.6.")
+                    HelpLabel(text: "Build with model", help: "Choose Claude or ChatGPT as the SaaS builder. ChatGPT launches through Codex and uses the Codex model list, including gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna.")
                     DarkPicker(options: app.launchModelOptions(for: m.buildAgent), selection: $m.buildModel)
                         .onChange(of: m.buildAgent) {
-                            if !app.launchModelOptions(for: m.buildAgent).contains(m.buildModel) {
-                                m.buildModel = "Default"
-                            }
+                            sanitizeBuildModel()
                         }
                 }.frame(width: 190)
             }
         }
+    }
+
+    private func sanitizeBuildModel() {
+        if m.buildAgent == "ChatGPT" {
+            let normalized = app.cliModelName(m.buildModel)
+            if app.launchModelOptions(for: m.buildAgent).contains(normalized) { m.buildModel = normalized }
+        }
+        if !app.launchModelOptions(for: m.buildAgent).contains(m.buildModel) { m.buildModel = "Default" }
     }
 
     // ---- ⚡ instant mode + live launch checklist ----

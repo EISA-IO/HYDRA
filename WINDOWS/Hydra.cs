@@ -31,7 +31,7 @@ class Hydra : Form
     static readonly string EventsDir   = Path.Combine(StateDir, "events");
     static readonly string SessDir     = Path.Combine(StateDir, "sessions");
     static readonly object[] ClaudeModelChoices = { "Default", "opus", "sonnet", "haiku", "fable", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5" };
-    static readonly object[] ChatGptModelChoices = { "Default", "ChatGPT 5.6", "ChatGPT 5.5", "gpt-5.6", "gpt-5.5" };
+    static readonly object[] ChatGptModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark" };
 
     // palette — dark liquid-glass
     static readonly Color Bg        = Color.FromArgb(22, 22, 25);
@@ -717,8 +717,9 @@ class Hydra : Form
     static string CliModelName(string selection)
     {
         string m = (selection ?? "").Trim();
-        if (string.Equals(m, "ChatGPT 5.6", StringComparison.OrdinalIgnoreCase)) return "gpt-5.6";
-        if (string.Equals(m, "ChatGPT 5.5", StringComparison.OrdinalIgnoreCase)) return "gpt-5.5";
+        string key = m.ToLowerInvariant().Replace(" ", "").Replace("-", "");
+        if (key == "chatgpt5.6" || key == "gpt5.6") return "gpt-5.6-sol";
+        if (key == "chatgpt5.5") return "gpt-5.5";
         return m;
     }
     static bool ChoiceContains(object[] choices, string value)
@@ -733,6 +734,7 @@ class Hydra : Form
         string agent = (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
         object[] choices = agent == "Codex" ? ChatGptModelChoices : ClaudeModelChoices;
         string current = (modelCombo.Text ?? "").Trim();
+        if (agent == "Codex") current = CliModelName(current);
         modelCombo.BeginUpdate();
         modelCombo.Items.Clear();
         modelCombo.Items.AddRange(choices);
@@ -750,6 +752,7 @@ class Hydra : Form
         string agent = (saasBuildAgent != null && saasBuildAgent.SelectedItem != null) ? saasBuildAgent.SelectedItem.ToString() : "Claude";
         object[] choices = agent == "ChatGPT" ? ChatGptModelChoices : ClaudeModelChoices;
         string current = (saasBuildModel.Text ?? "").Trim();
+        if (agent == "ChatGPT") current = CliModelName(current);
         saasBuildModel.BeginUpdate();
         saasBuildModel.Items.Clear();
         saasBuildModel.Items.AddRange(choices);
@@ -979,7 +982,7 @@ class Hydra : Form
         string X = "Codex CLI";
         g.Add(new GEntry(X, "codex", "Start an interactive ChatGPT/Codex coding session in the current folder."));
         g.Add(new GEntry(X, "codex -C <dir>", "Start Codex with an explicit working root. Hydra uses this for every Codex terminal."));
-        g.Add(new GEntry(X, "--model <id>", "Choose a ChatGPT model for Codex, e.g. ChatGPT 5.6 maps to gpt-5.6."));
+        g.Add(new GEntry(X, "--model <id>", "Choose a Codex model, e.g. gpt-5.6-sol, gpt-5.6-terra, or gpt-5.6-luna."));
         g.Add(new GEntry(X, "--dangerously-bypass-approvals-and-sandbox", "YOLO mode: no approvals and no sandbox. Hydra starts Codex terminals this way."));
         g.Add(new GEntry(X, "--ask-for-approval <policy>", "Approval policy for Codex when not using YOLO: untrusted, on-request, or never."));
         g.Add(new GEntry(X, "--sandbox <mode>", "Codex sandbox mode: read-only, workspace-write, or danger-full-access."));
@@ -3020,7 +3023,7 @@ try {
         // Help bubbles — hover any field for a detailed explanation (the Windows analog of the "?" popovers).
         var tip = new ToolTip { AutoPopDelay = 30000, InitialDelay = 300, ReshowDelay = 100, ShowAlways = true, IsBalloon = true, ToolTipTitle = "What is this?" };
         tip.SetToolTip(saasName, "The folder + repo name for your app. Lowercase, no spaces (e.g. my-saas).");
-        tip.SetToolTip(saasBuildModel, "Which model builds the SaaS. ChatGPT uses Codex and includes ChatGPT 5.6; Claude uses the Claude model list.");
+        tip.SetToolTip(saasBuildModel, "Which model builds the SaaS. ChatGPT uses Codex and includes gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna; Claude uses the Claude model list.");
         tip.SetToolTip(saasPitch, "Your one-line elevator pitch. Claude uses it to understand the product's purpose and target user — it shapes every screen and feature. Be specific about WHO it's for.");
         tip.SetToolTip(saasFeatures, "The main pages/capabilities, one per line (e.g. Dashboard, Invoice editor, Client list). Claude turns each into real routes, UI, and database models.");
         tip.SetToolTip(saasAuth, "How users sign in. Email + password is simplest; adding Google/GitHub gives one-click login (built into Open SaaS). Integrated platforms go further: Firebase Auth = Google's hosted sign-in (email + Google + Apple, free tier); Supabase Auth = same idea on Postgres; Clerk = drop-in sign-in components with almost no code. Claude wires your pick, including syncing users into your database.");

@@ -16,7 +16,7 @@ Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossar
   token-compression toggles (RTK / Caveman / Headroom) with live status + a "don't overlap"
   advisory, and a one-click **Install & setup** section (Node, Claude CLI, Codex CLI, RTK, Caveman,
   Headroom, skills, "Install everything", "Update core") that streams to a log.
-  Selecting Codex switches the model selector to ChatGPT models, including **ChatGPT 5.6**,
+  Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,
   and Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
 - **SaaS** — capture a product vision, scaffold Open SaaS (Wasp), then hand it to Claude or
   ChatGPT to build. Generates `VISION.md` and a verified `PAYMENTS.md` (incl. the Tap vs Moyasar
