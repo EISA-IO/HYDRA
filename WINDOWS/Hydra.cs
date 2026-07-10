@@ -185,8 +185,6 @@ class Hydra : Form
                     Environment.ExitCode = 1;
                     try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
                 }
-                Close();
-                Application.ExitThread();
                 Environment.Exit(Environment.ExitCode);
             };
             timer.Start();
