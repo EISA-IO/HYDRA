@@ -45,7 +45,7 @@ try {
     Assert-PixelNear "content canvas" 200 40 @(22, 22, 25)
     Assert-PixelNear "active navigation accent" 8 129 @(217, 119, 87) 12
     Assert-PixelNear "project path field" 620 65 @(43, 43, 51) 12
-    Assert-PixelNear "recent folders control" 700 65 @(40, 40, 45) 12
+    Assert-PixelNear "recent folders control" 755 65 @(40, 40, 45) 12
     Assert-PixelNear "terminal host" 500 300 @(16, 16, 18) 10
     Write-Output "Hydra Windows UI rendered: $($image.Width)x$($image.Height), $((Get-Item $Screenshot).Length) bytes"
 }
