@@ -7,6 +7,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -14,6 +15,7 @@ using System.Windows.Forms;
 class Hydra : Form
 {
     const int ProxyPort = 8787;
+    const int OllamaPort = 11434;
     const string TermReady = "Ready";
     const string TermWorking = "Working";
     const string TermWaiting = "Waiting for User";
@@ -87,6 +89,14 @@ class Hydra : Form
     System.Windows.Forms.Timer termTimer;
     FileSystemWatcher evWatcher;
     readonly List<TermSession> sessions = new List<TermSession>();
+
+    // Optional local inference. Never started during app launch; Hydra only owns
+    // the exact `ollama serve` process created by the Start Ollama button.
+    Process ollamaProcess;
+    Button ollamaButton, ollamaTerminalButton;
+    Label ollamaStatus;
+    System.Windows.Forms.Timer ollamaTimer;
+    bool ollamaProbePending, ollamaStartPending;
 
     // saas builder — unified one-page lifecycle (Vision / Deploy / Subscriptions)
     TextBox saasName, saasFolder, saasPitch, saasFeatures, saasStatus;
@@ -190,10 +200,18 @@ class Hydra : Form
             for (int i = 0; i < args.Length - 1; i++)
                 if (args[i] == "--session") { id = args[i + 1]; break; }
             if (id.Length == 0) return;
-            // stdin may carry the hook's JSON payload; we don't need it, drain briefly.
+            string payload = "";
+            try
+            {
+                using (var input = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8))
+                    payload = input.ReadToEnd();
+            }
+            catch { }
             Directory.CreateDirectory(EventsDir);
             string file = Path.Combine(EventsDir, id + "__" + ev + "__" + DateTime.Now.Ticks + ".evt");
-            File.WriteAllText(file, DateTime.Now.ToString("HH:mm:ss"));
+            string temp = file + ".tmp";
+            File.WriteAllText(temp, payload);
+            File.Move(temp, file);
         }
         catch { }
     }
@@ -225,6 +243,7 @@ class Hydra : Form
         LoadSkills();
         RenderGlossary("");
         InitAlerts();
+        InitOllama();
         EnsureDefaultCompression(firstRun);
         ProvisionNativeToolchain();   // make claude/rtk/caveman native — no manual download
         FormClosing += (s, e) => Shutdown();
@@ -239,6 +258,7 @@ class Hydra : Form
 
         evWatcher = new FileSystemWatcher(EventsDir, "*.evt") { EnableRaisingEvents = true };
         evWatcher.Created += (s, e) => { try { BeginInvoke((Action<string>)OnEventFile, e.FullPath); } catch { } };
+        evWatcher.Renamed += (s, e) => { try { BeginInvoke((Action<string>)OnEventFile, e.FullPath); } catch { } };
 
         termTimer = new System.Windows.Forms.Timer { Interval = 400 };
         termTimer.Tick += (s, e) => TermTick();
@@ -251,6 +271,184 @@ class Hydra : Form
         animTimer = new System.Windows.Forms.Timer { Interval = 55 };
         animTimer.Tick += (s, e) => AnimTick();
         animTimer.Start();
+    }
+
+    void InitOllama()
+    {
+        // Status polling observes an already-running server, but construction is
+        // deliberately side-effect free: Ollama remains off until the user acts.
+        QueueOllamaRefresh();
+        ollamaTimer = new System.Windows.Forms.Timer { Interval = 2500 };
+        ollamaTimer.Tick += (s, e) => QueueOllamaRefresh();
+        ollamaTimer.Start();
+    }
+
+    void QueueOllamaRefresh()
+    {
+        if (ollamaProbePending || IsDisposed || Disposing) return;
+        ollamaProbePending = true;
+        ThreadPool.QueueUserWorkItem(_ => {
+            bool reachable = TestPort(OllamaPort);
+            bool installed = FindOllamaExecutable() != null;
+            try
+            {
+                BeginInvoke((Action)(() => {
+                    ollamaProbePending = false;
+                    ApplyOllamaState(reachable, installed);
+                }));
+            }
+            catch { ollamaProbePending = false; }
+        });
+    }
+
+    void ApplyOllamaState(bool reachable, bool installed)
+    {
+        if (ollamaButton == null || ollamaStatus == null) return;
+        bool owned = false;
+        try { owned = ollamaProcess != null && !ollamaProcess.HasExited; }
+        catch { ollamaProcess = null; }
+
+        if (owned)
+        {
+            ollamaButton.Text = "Stop Ollama";
+            ollamaButton.Enabled = true;
+            ollamaStatus.Text = reachable ? "Ollama · local server running" : "Ollama · starting on 127.0.0.1:" + OllamaPort;
+            ollamaStatus.ForeColor = reachable ? Green : Yellow;
+        }
+        else if (reachable)
+        {
+            ollamaProcess = null;
+            ollamaButton.Text = "Ollama Running";
+            ollamaButton.Enabled = false;
+            ollamaStatus.Text = "Ollama · managed outside Hydra";
+            ollamaStatus.ForeColor = Green;
+        }
+        else
+        {
+            ollamaProcess = null;
+            ollamaButton.Text = "Start Ollama";
+            ollamaButton.Enabled = true;
+            ollamaStatus.Text = installed ? "Ollama · off" : "Ollama · not installed";
+            ollamaStatus.ForeColor = installed ? TextFaint : Yellow;
+        }
+    }
+
+    void ToggleOllama()
+    {
+        bool owned = false;
+        try { owned = ollamaProcess != null && !ollamaProcess.HasExited; } catch { }
+        if (owned) { StopOwnedOllama(); QueueOllamaRefresh(); return; }
+        if (ollamaStartPending) return;
+        ollamaStartPending = true;
+        ollamaButton.Enabled = false;
+        ollamaButton.Text = "Checking…";
+        ThreadPool.QueueUserWorkItem(_ => {
+            bool reachable = TestPort(OllamaPort);
+            string executable = FindOllamaExecutable();
+            try
+            {
+                BeginInvoke((Action)(() => {
+                    ollamaStartPending = false;
+                    if (reachable) { ApplyOllamaState(true, executable != null); return; }
+                    if (executable == null)
+                    {
+                        MessageBox.Show("Install Ollama from ollama.com, then try again. Hydra never installs it silently.",
+                            "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        ApplyOllamaState(false, false);
+                        return;
+                    }
+                    StartOwnedOllama(executable);
+                }));
+            }
+            catch { ollamaStartPending = false; }
+        });
+    }
+
+    void StartOwnedOllama(string executable)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo(executable, "serve")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = HomeDir
+            };
+            psi.EnvironmentVariables["OLLAMA_HOST"] = "127.0.0.1:" + OllamaPort;
+            Process started = Process.Start(psi);
+            if (started == null) throw new InvalidOperationException("Ollama did not create a process.");
+            ollamaProcess = started;
+            started.EnableRaisingEvents = true;
+            started.Exited += (s, e) => {
+                try { BeginInvoke((Action)(() => {
+                    if (object.ReferenceEquals(ollamaProcess, started)) ollamaProcess = null;
+                    QueueOllamaRefresh();
+                })); } catch { }
+            };
+            ApplyOllamaState(false, true);
+            QueueOllamaRefresh();
+        }
+        catch (Exception ex)
+        {
+            ollamaProcess = null;
+            MessageBox.Show("Could not start Ollama:\n" + ex.Message, "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            QueueOllamaRefresh();
+        }
+    }
+
+    void StopOwnedOllama()
+    {
+        Process process = ollamaProcess;
+        ollamaProcess = null;
+        try
+        {
+            if (process != null && !process.HasExited)
+            {
+                var kill = new ProcessStartInfo("taskkill", "/PID " + process.Id + " /T /F")
+                    { UseShellExecute = false, CreateNoWindow = true };
+                Process.Start(kill);
+            }
+        }
+        catch { }
+    }
+
+    void OpenOllamaTerminal()
+    {
+        string executable = FindOllamaExecutable();
+        if (executable == null)
+        {
+            MessageBox.Show("Install Ollama from ollama.com, then try again. Hydra never installs it silently.",
+                "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        bool running = TestPort(OllamaPort);
+        string id = Guid.NewGuid().ToString("N").Substring(0, 12);
+        string task = running ? "Manage local models" : "Serve local models";
+        string command = running
+            ? CmdQ(executable) + " ps"
+            : "set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\" && " + CmdQ(executable) + " serve";
+        var sess = new TermSession {
+            Id = id, Folder = HomeDir, Agent = "Ollama", Model = "Local server",
+            Task = task, Name = TabHint(task, HomeDir), Status = running ? TermReady : TermWorking,
+            Color = running ? Green : Accent
+        };
+        try
+        {
+            var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title Ollama " + id + " & " + command)
+                { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = HomeDir };
+            sess.Proc = Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Could not open Ollama terminal:\n" + ex.Message, "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        sessions.Add(sess);
+        selectedTerm = sess;
+        SelectNav(0);
+        RefreshTermList();
+        ShowSelectedTerminal();
     }
 
     // Keyboard shortcuts: Ctrl+1..5 switch tabs, Ctrl+T new terminal, Ctrl+W close terminal.
@@ -287,7 +485,9 @@ class Hydra : Form
     {
         try { if (termTimer != null) termTimer.Stop(); } catch { }
         try { if (animTimer != null) animTimer.Stop(); } catch { }
+        try { if (ollamaTimer != null) ollamaTimer.Stop(); } catch { }
         try { if (evWatcher != null) evWatcher.EnableRaisingEvents = false; } catch { }
+        StopOwnedOllama();
         foreach (var s in sessions.ToArray()) KillSession(s);
         try { if (tray != null) { tray.Visible = false; tray.Dispose(); } } catch { }
     }
@@ -304,6 +504,26 @@ class Hydra : Form
         string p = Environment.GetEnvironmentVariable("PATH") ?? "";
         foreach (var dir in p.Split(';')) { try { if (dir.Length > 0 && File.Exists(Path.Combine(dir, exe))) return true; } catch { } }
         return false;
+    }
+    static string FindOllamaExecutable()
+    {
+        string path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var dir in path.Split(';'))
+        {
+            try
+            {
+                string candidate = Path.Combine(dir.Trim().Trim('"'), "ollama.exe");
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch { }
+        }
+        string[] candidates = {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Ollama", "ollama.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Ollama", "ollama.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Ollama", "ollama.exe")
+        };
+        foreach (var candidate in candidates) if (File.Exists(candidate)) return candidate;
+        return null;
     }
     static void CopyDir(string src, string dst)
     {
@@ -1226,6 +1446,34 @@ class Hydra : Form
         return null;
     }
 
+    void BuildOllamaControls(Panel header)
+    {
+        ollamaStatus = new Label {
+            Text = "Ollama · off", AutoEllipsis = true,
+            Location = new Point(header.Width - 356, 4), Size = new Size(338, 19),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            TextAlign = ContentAlignment.MiddleRight, ForeColor = TextFaint,
+            Font = new Font("Segoe UI", 8.2f, FontStyle.Bold)
+        };
+        header.Controls.Add(ollamaStatus);
+
+        ollamaButton = GhostBtn("Start Ollama");
+        ollamaButton.Location = new Point(header.Width - 238, 27);
+        ollamaButton.Size = new Size(106, 24);
+        ollamaButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        ollamaButton.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+        ollamaButton.Click += (s, e) => ToggleOllama();
+        header.Controls.Add(ollamaButton);
+
+        ollamaTerminalButton = GhostBtn("Ollama Terminal");
+        ollamaTerminalButton.Location = new Point(header.Width - 124, 27);
+        ollamaTerminalButton.Size = new Size(106, 24);
+        ollamaTerminalButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        ollamaTerminalButton.Font = new Font("Segoe UI", 8.2f, FontStyle.Bold);
+        ollamaTerminalButton.Click += (s, e) => OpenOllamaTerminal();
+        header.Controls.Add(ollamaTerminalButton);
+    }
+
     void BuildUi()
     {
         Text = "Hydra";
@@ -1271,6 +1519,7 @@ class Hydra : Form
             AutoSize = true, Location = new Point(66, 35), ForeColor = TextFaint,
             Font = new Font("Segoe UI", 8.5f, FontStyle.Italic) };
         header.Controls.Add(hSub);
+        BuildOllamaControls(header);
         Controls.Add(header);
 
         // ---- nav pill row ----
@@ -2514,6 +2763,7 @@ try {
         Func<string, string> cmd = ev => JEsc("\"" + exe + "\" --hook " + ev + " --session " + id);
         var sb = new StringBuilder();
         sb.Append("{\n  \"hooks\": {\n");
+        sb.Append("    \"SessionStart\":     [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("ready") + "\"}]}],\n");
         sb.Append("    \"UserPromptSubmit\": [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("work") + "\"}]}],\n");
         sb.Append("    \"Notification\":     [{\"matcher\":\"permission_prompt|idle_prompt|elicitation_dialog\",\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("notify") + "\"}]}],\n");
         sb.Append("    \"Stop\":             [{\"hooks\":[{\"type\":\"command\",\"command\":\"" + cmd("stop") + "\"}]}],\n");
@@ -2588,6 +2838,7 @@ try {
             sb.Append("command_windows = \"" + TomlEsc(command(ev, json)) + "\"\n");
             sb.Append("timeout = 5\n\n");
         };
+        add("SessionStart", "ready", false);
         add("UserPromptSubmit", "work", false);
         add("PermissionRequest", "notify", false);
         add("Stop", "stop", true);
@@ -2697,11 +2948,12 @@ try {
             if (extra.Length > 0) cmd += " " + extra;
         }
 
+        string task = TaskLabelForLaunch(extra, continueChk.Checked);
         var sess = new TermSession { Id = id, Folder = folder,
             Agent = agent,
             Model = SessionModelLabel(model),
-            Task = TaskLabelForLaunch(extra, continueChk.Checked, agent),
-            Name = (agent == "Codex" ? "Cx" : "Cl") + (sessions.Count + 1) + "  " + new DirectoryInfo(folder).Name,
+            Task = task,
+            Name = TabHint(task, folder),
             CHeadroom = agent == "Codex" ? false : useHeadroom,
             CRtk = useRtk,
             CCaveman = useCaveman,
@@ -2735,19 +2987,31 @@ try {
     string SessionModelLabel(string model)
     {
         string m = (model ?? "").Trim();
-        return m.Length == 0 || string.Equals(m, "Default", StringComparison.OrdinalIgnoreCase) ? "Default" : m;
+        return m.Length == 0 || string.Equals(m, "Default", StringComparison.OrdinalIgnoreCase) ? "Resolving model…" : m;
     }
 
-    string TaskLabelForLaunch(string extra, bool resume, string agent)
+    string TabHint(string task, string folder)
     {
-        string p = (extra ?? "").Trim().Trim('"');
+        string value = (task ?? "").Trim();
+        if (value.Length > 0 && !string.Equals(value, "Interactive session", StringComparison.OrdinalIgnoreCase)) return value;
+        try
+        {
+            string project = new DirectoryInfo(folder).Name;
+            return string.IsNullOrWhiteSpace(project) ? "Workspace" : project;
+        }
+        catch { return "Workspace"; }
+    }
+
+    string TaskLabelForLaunch(string extra, bool resume)
+    {
+        string p = Regex.Replace((extra ?? "").Trim().Trim('"', '\''), "\\s+", " ");
         if (p.Length == 0) return resume ? "Resume last session" : "Interactive session";
         string l = p.ToLowerInvariant();
         if (l.Contains("complete saas") || l.Contains("vision.md")) return "Build SaaS";
         if (l.Contains("deploy.md") || l.Contains("deployed to")) return "Deploy project";
         if (l.Contains("subscriptions.md") || l.Contains("subscription infrastructure")) return "Implement billing";
         if (l.Contains("playbook.md")) return "Run project mission";
-        return agent == "Codex" ? "ChatGPT task" : "Claude task";
+        return p.Length <= 42 ? p : p.Substring(0, 41) + "…";
     }
 
     TermSession SelectedSession()
@@ -2922,16 +3186,16 @@ try {
         DrawCompBadge(g, bStart + (bw + bgap) * 2, by, bw, bh, "C", s.CCaveman, Color.FromArgb(196, 140, 224));
 
         // Agent and model are distinct so multiple Claude/Codex tabs are easy to tell apart.
-        string agent = AgentLabel(s.Agent);
+        string hint = TabHint(s.Task, s.Folder);
         using (var f = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold))
         using (var b = new SolidBrush(on ? Color.White : Color.FromArgb(222, 222, 228)))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(agent, f, b, new RectangleF(tx, 6, 82, 18), sf);
+            g.DrawString(hint, f, b, new RectangleF(tx, 6, 104, 18), sf);
 
         using (var f = new Font("Segoe UI", 8.2f, FontStyle.Bold))
         using (var b = new SolidBrush(on ? Accent : TextFaint))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(s.Model ?? "Default", f, b, new RectangleF(tx + 86, 7, bStart - tx - 92, 18), sf);
+            g.DrawString(SessionModelLabel(s.Model), f, b, new RectangleF(tx + 108, 7, bStart - tx - 114, 18), sf);
 
         // Live state is primary. Task metadata remains in the tooltip.
         string status = string.IsNullOrWhiteSpace(s.Status) ? TermReady : s.Status.Trim();
@@ -3015,12 +3279,13 @@ try {
 
     void OnEventFile(string path)
     {
-        string ev = "", id = "";
+        string ev = "", id = "", payload = "";
         try
         {
             string fn = Path.GetFileNameWithoutExtension(path);
             var parts = fn.Split(new[] { "__" }, StringSplitOptions.None);
             if (parts.Length >= 2) { id = parts[0]; ev = parts[1]; }
+            payload = File.ReadAllText(path);
             try { File.Delete(path); } catch { }
         }
         catch { return; }
@@ -3029,9 +3294,16 @@ try {
         foreach (var t in sessions) if (t.Id == id) { s = t; break; }
         if (s == null) return;
 
+        string actualModel = ModelFromHookPayload(payload);
+        if (!string.IsNullOrEmpty(actualModel)) s.Model = actualModel;
+
         if (s.Status == TermStopped) return;
 
-        if (ev == "notify")
+        if (ev == "ready")
+        {
+            s.Status = TermReady; s.Color = Green;
+        }
+        else if (ev == "notify")
         {
             s.Status = TermWaiting; s.Color = Yellow;
             Alert(s.Name, s.Agent + " is waiting for your answer.");
@@ -3051,6 +3323,19 @@ try {
             Alert(s.Name, s.Agent + " stopped or reached a token/usage limit.");
         }
         RefreshTermList();
+    }
+
+    static string ModelFromHookPayload(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload)) return null;
+        try
+        {
+            var match = Regex.Match(payload, "\\\"model\\\"\\s*:\\s*\\\"((?:\\\\.|[^\\\"])*)\\\"");
+            if (!match.Success) return null;
+            string model = Regex.Unescape(match.Groups[1].Value).Trim();
+            return model.Length == 0 || string.Equals(model, "Default", StringComparison.OrdinalIgnoreCase) ? null : model;
+        }
+        catch { return null; }
     }
 
     void Alert(string title, string msg)

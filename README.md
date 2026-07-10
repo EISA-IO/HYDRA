@@ -52,16 +52,17 @@ linking, deliverability, acceptance tests). Canonical copy: `docs/BUILD-A-SAAS-P
 - **Workspace** — create multiple embedded Claude and Codex terminals in tabs; each terminal gets
   RTK + Caveman when enabled. Terminal tabs make live state primary: **Ready**, **Working**,
   **Waiting for User**, or **Stopped / Token Limit**. Per-session Claude and Codex hooks drive
-  turn state; process exit supplies the stopped fallback. Agent, exact model, task, and folder remain
-  available as context. Claude and Codex keep separate default
+  turn state and report the actual runtime model; unresolved sessions say **Resolving model…**, never
+  “Default.” Tabs use a short prompt-derived task hint, or the project folder for an interactive
+  session, instead of an agent name. Process exit supplies the stopped fallback. Claude and Codex keep separate default
   model choices, so a Codex default like **gpt-5.6-sol** is not overwritten when you switch back
   to Claude.
-- **Ollama (macOS sidebar)** — Ollama stays off by default. **Start Ollama** runs the installed
+- **Ollama (macOS sidebar / Windows header)** — Ollama stays off by default. **Start Ollama** runs the installed
   official CLI as a localhost-only `ollama serve` process; **Stop Ollama** stops only the process
   Hydra owns. Hydra also detects a server started from another terminal without taking ownership.
   **Open Ollama Terminal** starts the server in an embedded PTY, or opens a management shell when
   one already runs. Install Ollama separately from [ollama.com](https://ollama.com); Hydra recognizes
-  both PATH installs and the CLI inside `Ollama.app`.
+  PATH installs, the CLI inside macOS `Ollama.app`, and standard Windows Ollama install folders.
 - **Settings** — choose the default agent, launch defaults, token-compression toggles, one-click
   "Install everything" / "Update core packages".
   Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,

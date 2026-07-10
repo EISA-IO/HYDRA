@@ -78,4 +78,47 @@ struct TerminalStatusTests {
         #expect(json.contains("StopFailure"))
         #expect(json.contains("session123__failure__"))
     }
+
+    @Test("never renders Default while runtime model is unresolved")
+    func unresolvedModelLabel() {
+        #expect(TerminalPresentation.modelLabel(configured: "Default") == "Resolving model…")
+        #expect(TerminalPresentation.modelLabel(configured: "") == "Resolving model…")
+        #expect(TerminalPresentation.modelLabel(configured: "gpt-5.4") == "gpt-5.4")
+    }
+
+    @Test("uses task hint when meaningful and project name for interactive sessions")
+    func tabHintUsesTaskOrProject() {
+        #expect(TerminalPresentation.tabHint(task: "Build SaaS", folder: "/Users/me/payments") == "Build SaaS")
+        #expect(TerminalPresentation.tabHint(task: "Interactive session", folder: "/Users/me/payments") == "payments")
+        #expect(TerminalPresentation.tabHint(task: "", folder: "/Users/me/payments") == "payments")
+    }
+
+    @Test("derives useful task hints from arbitrary startup prompts")
+    func startupPromptTaskHint() {
+        #expect(TerminalPresentation.taskLabel(startupPrompt: "Fix checkout webhook retries", resume: false) == "Fix checkout webhook retries")
+        #expect(TerminalPresentation.taskLabel(startupPrompt: nil, resume: false) == "Interactive session")
+        #expect(TerminalPresentation.taskLabel(startupPrompt: nil, resume: true) == "Resume last session")
+        #expect(!TerminalPresentation.taskLabel(startupPrompt: "Investigate the intermittent production checkout failure and report the root cause", resume: false).contains("Claude"))
+    }
+
+    @Test("decodes actual model from lifecycle payload")
+    func eventPayloadModel() {
+        let payload = SessionEventPayload.decode(Data(#"{"hook_event_name":"SessionStart","model":"claude-opus-4-8"}"#.utf8))
+        #expect(payload?.model == "claude-opus-4-8")
+    }
+
+    @Test("session hooks capture payload atomically and emit initial ready event")
+    func hookConfigCapturesPayloadAndModel() throws {
+        let claudeHooks = SessionHookConfig.claudeHooks(id: "session123", eventsDirectory: "/tmp/events")
+        let claudeData = try JSONSerialization.data(withJSONObject: claudeHooks, options: [.sortedKeys])
+        let claudeJSON = String(decoding: claudeData, as: UTF8.self)
+        let codexProfile = SessionHookConfig.codexProfile(id: "session123", eventsDirectory: "/tmp/events")
+
+        #expect(claudeJSON.contains("SessionStart"))
+        #expect(claudeJSON.contains("session123__ready__"))
+        #expect(codexProfile.contains("[[hooks.SessionStart]]"))
+        #expect(codexProfile.contains("session123__ready__"))
+        #expect(claudeJSON.contains("cat >"))
+        #expect(codexProfile.contains("mv "))
+    }
 }

@@ -395,7 +395,9 @@ final class AppState: ObservableObject {
             // format: <id>__<ev>__<ticks>.evt
             let parts = f.replacingOccurrences(of: ".evt", with: "").components(separatedBy: "__")
             if parts.count >= 2 {
-                terminals.setStatus(parts[0], parts[1])
+                let path = Paths.eventsDir + "/" + f
+                let payload = (try? Data(contentsOf: URL(fileURLWithPath: path))).flatMap(SessionEventPayload.decode)
+                terminals.applyEvent(id: parts[0], event: parts[1], payload: payload)
             }
             try? FileManager.default.removeItem(atPath: Paths.eventsDir + "/" + f)
         }

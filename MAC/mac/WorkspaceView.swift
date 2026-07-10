@@ -103,7 +103,7 @@ struct TermTabChip: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 7) {
                 Circle().fill(statusColor).frame(width: 7, height: 7)
-                Text(agentLabel)
+                Text(tabHint)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(selected ? .white : Theme.textDim)
                     .lineLimit(1)
@@ -143,6 +143,10 @@ struct TermTabChip: View {
 
     var agentLabel: String {
         tab.agent == "Codex" ? "ChatGPT/Codex" : tab.agent
+    }
+
+    var tabHint: String {
+        TerminalPresentation.tabHint(task: tab.task, folder: tab.folder)
     }
 
     var statusColor: Color {

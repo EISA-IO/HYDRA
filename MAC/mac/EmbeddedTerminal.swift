@@ -7,7 +7,7 @@ final class TermTab: ObservableObject, Identifiable {
     let id: String
     let folder: String
     let agent: String
-    let model: String
+    @Published var model: String
     @Published var task: String
     let headroom: Bool
     let rtk: Bool
@@ -22,16 +22,17 @@ final class TermTab: ObservableObject, Identifiable {
 
     init(id: String, folder: String, agent: String, model: String, task: String,
          headroom: Bool, rtk: Bool, caveman: Bool, cleanupPaths: [String]) {
+        let taskLabel = task.isEmpty ? "Interactive session" : task
         self.id = id
         self.folder = folder
         self.agent = agent
-        self.model = model.isEmpty ? "Default" : model
-        self.task = task.isEmpty ? "Interactive session" : task
+        self.model = TerminalPresentation.modelLabel(configured: model)
+        self.task = taskLabel
         self.headroom = headroom
         self.rtk = rtk
         self.caveman = caveman
         self.cleanupPaths = cleanupPaths
-        self.title = (agent == "Codex" ? "Cx · " : "Cl · ") + FS.base(folder)
+        self.title = TerminalPresentation.tabHint(task: taskLabel, folder: folder)
         self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         view.nativeBackgroundColor = NSColor(srgbRed: 16/255, green: 16/255, blue: 18/255, alpha: 1)
         view.nativeForegroundColor = NSColor(srgbRed: 235/255, green: 235/255, blue: 240/255, alpha: 1)
@@ -85,8 +86,15 @@ final class TerminalManager: ObservableObject {
     }
 
     func setStatus(_ id: String, _ ev: String) {
+        applyEvent(id: id, event: ev, payload: nil)
+    }
+
+    func applyEvent(id: String, event: String, payload: SessionEventPayload?) {
         guard let t = tab(id) else { return }
-        t.status = t.status.applying(event: ev)
+        if let model = payload?.model {
+            t.model = TerminalPresentation.modelLabel(configured: model)
+        }
+        t.status = t.status.applying(event: event)
     }
 
     private func cleanup(_ tab: TermTab) {

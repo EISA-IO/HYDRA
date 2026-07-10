@@ -197,7 +197,7 @@ extension AppState {
         let envArr = env.map { "\($0.key)=\($0.value)" }
 
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
-                        agent: selectedAgent, model: sessionModelLabel(m), task: taskLabel(startupPrompt: startupPrompt, agent: selectedAgent),
+                        agent: selectedAgent, model: sessionModelLabel(m), task: taskLabel(startupPrompt: startupPrompt),
                         headroom: selectedAgent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman,
                         cleanupPaths: cleanupPaths)
         saveRecent(f)
@@ -248,20 +248,11 @@ extension AppState {
     }
 
     private func sessionModelLabel(_ cliModel: String) -> String {
-        let trimmed = cliModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty || trimmed == "Default" ? "Default" : trimmed
+        TerminalPresentation.modelLabel(configured: cliModel)
     }
 
-    private func taskLabel(startupPrompt: String?, agent: String) -> String {
-        guard let prompt = startupPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty else {
-            return continueLast ? "Resume last session" : "Interactive session"
-        }
-        let p = prompt.lowercased()
-        if p.contains("complete saas") || p.contains("vision.md") { return "Build SaaS" }
-        if p.contains("deploy.md") || p.contains("deployed to") { return "Deploy project" }
-        if p.contains("subscriptions.md") || p.contains("subscription infrastructure") { return "Implement billing" }
-        if p.contains("playbook.md") { return "Run project mission" }
-        return agent == "Codex" ? "ChatGPT task" : "Claude task"
+    private func taskLabel(startupPrompt: String?) -> String {
+        TerminalPresentation.taskLabel(startupPrompt: startupPrompt, resume: continueLast)
     }
 
     private func shellTaskLabel(note: String?, command: String) -> String {
