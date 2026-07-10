@@ -1,0 +1,44 @@
+name: Windows UI render
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "WINDOWS/**"
+      - ".github/workflows/windows-ui.yml"
+  push:
+    branches: [main]
+    paths:
+      - "WINDOWS/**"
+      - ".github/workflows/windows-ui.yml"
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile Hydra
+        shell: pwsh
+        run: |
+          $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path $csc)) { $csc = "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe" }
+          & $csc /nologo /target:winexe /out:WINDOWS\Hydra-ci.exe /win32icon:WINDOWS\bot.ico /resource:WINDOWS\bot.ico,bot.ico /resource:WINDOWS\bot.png,bot.png /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll WINDOWS\Hydra.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Render and validate UI
+        shell: pwsh
+        run: |
+          foreach ($tab in 0..4) {
+            .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\WINDOWS\Hydra-ci.exe) -Tab $tab -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-windows-ui-$tab.png")
+          }
+
+      - name: Upload Windows UI screenshot
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hydra-windows-ui
+          path: ${{ runner.temp }}/hydra-windows-ui-*.png
+          if-no-files-found: warn

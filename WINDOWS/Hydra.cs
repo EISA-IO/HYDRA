@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -38,6 +39,7 @@ class Hydra : Form
     static readonly string SessDir     = Path.Combine(StateDir, "sessions");
     static readonly object[] ClaudeModelChoices = { "Default", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5" };
     static readonly object[] ChatGptModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark" };
+    static bool screenshotMode;
 
     // palette — dark liquid-glass
     static readonly Color Bg        = Color.FromArgb(22, 22, 25);
@@ -63,7 +65,9 @@ class Hydra : Form
     string claudeLaunchModel = "Default", codexLaunchModel = "Default", activeModelAgent = "Claude";
     Button launchBtn;   // the "+ New" terminal button; shows the active model + compression mix
     ToolTip tabTip;
-    ComboBox recentCombo, termAgentCombo;
+    ComboBox termAgentCombo;
+    Button recentButton;
+    ContextMenuStrip recentMenu;
     ListView skillsList, glossaryList;
     List<GEntry> glossary;
 
@@ -130,9 +134,15 @@ class Hydra : Form
         Application.SetCompatibleTextRenderingDefault(false);
         try
         {
+            int screenshot = Array.IndexOf(args, "--screenshot");
+            screenshotMode = screenshot >= 0 && screenshot + 1 < args.Length;
+            int screenshotTab = 0;
+            int tabArg = Array.IndexOf(args, "--tab");
+            if (tabArg >= 0 && tabArg + 1 < args.Length) int.TryParse(args[tabArg + 1], out screenshotTab);
             var mgr = new Hydra();
             if (Array.IndexOf(args, "--demo") >= 0) mgr.EnableDemo();
             if (Array.IndexOf(args, "--demolaunch") >= 0) mgr.EnableDemoLaunch();
+            if (screenshotMode) mgr.EnableScreenshot(args[screenshot + 1], screenshotTab);
             Application.Run(mgr);
         }
         catch (Exception ex)
@@ -145,6 +155,47 @@ class Hydra : Form
     // Self-test for the big "Launch Claude" button: sit on the Launch tab, press it,
     // and prove the resulting session embeds as a tab INSIDE the manager (not external).
     public void EnableDemoLaunch() { Shown += (s, e) => RunLaunchDemo(); }
+
+    // Native Windows render contract used by CI. It captures the actual WinForms
+    // control tree after first layout, then exits without requiring user input.
+    public void EnableScreenshot(string path, int tab)
+    {
+        Shown += (s, e) => {
+            SelectNav(Math.Max(0, Math.Min(4, tab)));
+            var timer = new System.Windows.Forms.Timer { Interval = 750 };
+            timer.Tick += (a, b) => {
+                timer.Stop();
+                try
+                {
+                    Refresh();
+                    Application.DoEvents();
+                    string directory = Path.GetDirectoryName(Path.GetFullPath(path));
+                    if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+                    using (var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb))
+                    {
+                        using (var graphics = Graphics.FromImage(bitmap))
+                        {
+                            IntPtr hdc = graphics.GetHdc();
+                            try
+                            {
+                                if (!PrintWindow(Handle, hdc, 2))
+                                    throw new InvalidOperationException("PrintWindow could not capture the composed Hydra window.");
+                            }
+                            finally { graphics.ReleaseHdc(hdc); }
+                        }
+                        bitmap.Save(path, ImageFormat.Png);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Environment.ExitCode = 1;
+                    try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
+                }
+                Environment.Exit(Environment.ExitCode);
+            };
+            timer.Start();
+        };
+    }
 
     void RunLaunchDemo()
     {
@@ -246,8 +297,11 @@ class Hydra : Form
         RenderGlossary("");
         InitAlerts();
         InitOllama();
-        EnsureDefaultCompression(firstRun);
-        ProvisionNativeToolchain();   // make claude/rtk/caveman native — no manual download
+        if (!screenshotMode)
+        {
+            EnsureDefaultCompression(firstRun);
+            ProvisionNativeToolchain();   // make claude/rtk/caveman native — no manual download
+        }
         FormClosing += (s, e) => Shutdown();
     }
 
@@ -1490,22 +1544,22 @@ class Hydra : Form
 
     void BuildSidebar(Panel host)
     {
-        botLogo = new PictureBox { Location = new Point(14, 22), Size = new Size(30, 30),
+        botLogo = new PictureBox { Location = new Point(14, 18), Size = new Size(30, 30),
             SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent, Image = AppImage() };
         RoundRegion(botLogo, 7);
         host.Controls.Add(botLogo);
-        headerDot = new Panel { Location = new Point(38, 45), Size = new Size(7, 7), BackColor = Accent };
+        headerDot = new Panel { Location = new Point(38, 41), Size = new Size(7, 7), BackColor = Accent };
         RoundRegion(headerDot, 4);
         host.Controls.Add(headerDot);
         headerDot.BringToFront();
 
-        var hTitle = new Label { Text = "Hydra", AutoSize = true, Location = new Point(54, 21),
+        var hTitle = new Label { Text = "Hydra", AutoSize = true, Location = new Point(54, 17),
             Font = new Font("Segoe UI Semibold", 10.5f, FontStyle.Bold), ForeColor = Color.White };
         host.Controls.Add(hTitle);
         var hVer = new Label { Text = "v1", AutoSize = true, UseMnemonic = false,
-            Location = new Point(103, 24), Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold), ForeColor = Accent };
+            Location = new Point(103, 20), Font = new Font("Segoe UI Semibold", 8f, FontStyle.Bold), ForeColor = Accent };
         host.Controls.Add(hVer);
-        host.Controls.Add(new Label { Text = "By Ahmed Al-Eissa", AutoSize = true, Location = new Point(55, 40),
+        host.Controls.Add(new Label { Text = "By Ahmed Al-Eissa", AutoSize = true, Location = new Point(55, 36),
             ForeColor = TextFaint, Font = new Font("Segoe UI", 7.5f, FontStyle.Italic) });
 
         string[] titles = { "Workspace", "Settings", "SaaS", "Skills", "Glossary" };
@@ -1569,15 +1623,13 @@ class Hydra : Form
         BuildTitleBar(TOP);
 
         // Persistent Mac-style sidebar: brand, vertical navigation, Ollama, and status footer.
-        sidebar = new Panel { Location = new Point(0, 0), Size = new Size(SIDEBAR, ClientSize.Height),
+        sidebar = new Panel { Location = new Point(0, TOP), Size = new Size(SIDEBAR, ClientSize.Height - TOP),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left, BackColor = TitleBg };
         BuildSidebar(sidebar);
         Controls.Add(sidebar);
-        sidebar.BringToFront();
-        var sideDivider = new Panel { Location = new Point(SIDEBAR - 1, 0), Size = new Size(1, ClientSize.Height),
+        var sideDivider = new Panel { Location = new Point(SIDEBAR - 1, TOP), Size = new Size(1, ClientSize.Height - TOP),
             Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left, BackColor = Color.FromArgb(35, 35, 39) };
         Controls.Add(sideDivider);
-        sideDivider.BringToFront();
 
         // Main content uses the same flat charcoal canvas as the Mac app.
         var content = new Panel { Location = new Point(SIDEBAR, TOP),
@@ -1639,7 +1691,7 @@ class Hydra : Form
             else if (c is ComboBox)
             {
                 var cb = (ComboBox)c;
-                cb.FlatStyle = FlatStyle.Flat; cb.BackColor = Field; cb.ForeColor = Color.White;
+                StyleDarkCombo(cb);
             }
             else if (c is ListBox)
             {
@@ -1653,6 +1705,25 @@ class Hydra : Form
             }
             if (c.HasChildren) Modernize(c);
         }
+    }
+
+    void StyleDarkCombo(ComboBox cb)
+    {
+        cb.FlatStyle = FlatStyle.Flat;
+        cb.BackColor = Field;
+        cb.ForeColor = Color.White;
+        if (cb.DrawMode == DrawMode.OwnerDrawFixed) return;
+        cb.DrawMode = DrawMode.OwnerDrawFixed;
+        cb.ItemHeight = 22;
+        cb.DrawItem += (s, e) => {
+            Color fill = (e.State & DrawItemState.Selected) != 0 ? FieldHi : Field;
+            using (var brush = new SolidBrush(fill)) e.Graphics.FillRectangle(brush, e.Bounds);
+            string text = e.Index >= 0 && e.Index < cb.Items.Count ? cb.Items[e.Index].ToString() : cb.Text;
+            TextRenderer.DrawText(e.Graphics, text ?? "", cb.Font,
+                new Rectangle(e.Bounds.X + 6, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 8), e.Bounds.Height),
+                Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            if ((e.State & DrawItemState.Focus) != 0) e.DrawFocusRectangle();
+        };
     }
 
     Label Caption(string t, int x, int y) { return new Label { Text = t, AutoSize = true, Location = new Point(x, y), ForeColor = TextDim }; }
@@ -1669,18 +1740,6 @@ class Hydra : Form
         Controls.Add(titleBar);
         titleBar.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) DragTitleBar(); };
         titleBar.MouseDoubleClick += (s, e) => { if (e.Button == MouseButtons.Left) ToggleMaxRestore(); };
-
-        var ico = new PictureBox { Location = new Point(9, (h - 20) / 2), Size = new Size(20, 20),
-            SizeMode = PictureBoxSizeMode.Zoom, BackColor = Color.Transparent, Image = AppImage() };
-        ico.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) DragTitleBar(); };
-        ico.MouseDoubleClick += (s, e) => ToggleMaxRestore();
-        titleBar.Controls.Add(ico);
-
-        var cap = new Label { Text = "Hydra", AutoSize = true, ForeColor = TextDim,
-            Location = new Point(37, (h - 15) / 2), Font = new Font("Segoe UI", 9f) };
-        cap.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) DragTitleBar(); };
-        cap.MouseDoubleClick += (s, e) => ToggleMaxRestore();
-        titleBar.Controls.Add(cap);
 
         btnMin   = CaptionButton("–", h, false);   // en dash
         btnMax   = CaptionButton("□", h, false);   // square
@@ -1773,7 +1832,7 @@ class Hydra : Form
         var acap = RowCap("Agent"); acap.Margin = new Padding(0, 0, 6, 0);
         var mcap = RowCap("Claude / ChatGPT model"); mcap.Margin = new Padding(0, 0, 6, 0);
         var pcap = RowCap("Permissions (Codex: YOLO)"); pcap.Margin = new Padding(6, 0, 0, 0);
-        agentCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
+        agentCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 6, 1) };
         agentCombo.Items.AddRange(new object[] { "Claude", "Codex" });
         agentCombo.SelectedIndex = 0;
         agentCombo.SelectedIndexChanged += (s, e) => {
@@ -1782,7 +1841,7 @@ class Hydra : Form
             if (termAgentCombo != null && termAgentCombo.SelectedItem != agentCombo.SelectedItem) termAgentCombo.SelectedItem = agentCombo.SelectedItem;
             UpdateLaunchText(); if (!loadingSettings) SaveSettings();
         };
-        modelCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
+        modelCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 6, 1) };
         modelCombo.Items.AddRange(ClaudeModelChoices);
         modelCombo.Text = "Default";
         modelCombo.TextChanged += (s, e) => {
@@ -1790,7 +1849,7 @@ class Hydra : Form
             UpdateLaunchText();
             if (!loadingSettings && !refreshingModelChoices) SaveSettings();
         };
-        permCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(6, 1, 0, 1) };
+        permCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(6, 1, 0, 1) };
         permCombo.Items.AddRange(new object[] { "Bypass – skip all prompts", "Plan mode (read-only)", "Accept edits automatically", "Ask for each action" });
         permCombo.SelectedIndex = 0;
         mp.Controls.Add(acap, 0, 0); mp.Controls.Add(mcap, 1, 0); mp.Controls.Add(pcap, 2, 0);
@@ -2528,11 +2587,19 @@ try {
 
     void RefreshRecent()
     {
-        if (recentCombo == null) return;
-        string cur = recentCombo.Text;
-        recentCombo.Items.Clear();
-        foreach (var r in GetRecent()) recentCombo.Items.Add(r);
-        recentCombo.Text = cur;
+        if (recentButton == null || recentMenu == null) return;
+        recentMenu.Items.Clear();
+        foreach (var path in GetRecent())
+        {
+            string recentPath = path;
+            string project = path;
+            try { project = new DirectoryInfo(path).Name; } catch { }
+            var item = new ToolStripMenuItem(project + "  —  " + path) { ForeColor = Color.White, BackColor = Field };
+            item.Click += (s, e) => { if (termPathBox != null) termPathBox.Text = recentPath; };
+            recentMenu.Items.Add(item);
+        }
+        recentButton.Enabled = recentMenu.Items.Count > 0;
+        recentButton.Text = recentMenu.Items.Count > 0 ? "Recent ▾" : "Recent";
     }
     void UpdateProxyStatus()
     {
@@ -2600,6 +2667,7 @@ try {
 
     // ================= Terminals + realtime alerts =================
     [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+    [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr hwnd, IntPtr hdcBlt, uint flags);
     [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int nIndex);
     [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
     [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
@@ -2693,6 +2761,58 @@ try {
         public bool CHeadroom, CRtk, CCaveman;
     }
 
+    class DarkComboBox : ComboBox
+    {
+        const int WM_PAINT = 0x000F, WM_NCPAINT = 0x0085, WM_PRINT = 0x0317, WM_PRINTCLIENT = 0x0318;
+
+        public DarkComboBox()
+        {
+            FlatStyle = FlatStyle.Flat;
+            BackColor = Field;
+            ForeColor = Color.White;
+            DrawMode = DrawMode.OwnerDrawFixed;
+            ItemHeight = 22;
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            Color fill = (e.State & DrawItemState.Selected) != 0 ? FieldHi : Field;
+            using (var brush = new SolidBrush(fill)) e.Graphics.FillRectangle(brush, e.Bounds);
+            string text = e.Index >= 0 && e.Index < Items.Count ? Items[e.Index].ToString() : Text;
+            TextRenderer.DrawText(e.Graphics, text ?? "", Font,
+                new Rectangle(e.Bounds.X + 6, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 8), e.Bounds.Height),
+                Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            if ((e.State & DrawItemState.Focus) != 0) e.DrawFocusRectangle();
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg != WM_PAINT && m.Msg != WM_NCPAINT && m.Msg != WM_PRINT && m.Msg != WM_PRINTCLIENT) return;
+            if ((m.Msg == WM_PRINT || m.Msg == WM_PRINTCLIENT) && m.WParam != IntPtr.Zero)
+            {
+                using (var graphics = Graphics.FromHdc(m.WParam)) DrawDarkArrow(graphics);
+            }
+            else
+            {
+                using (var graphics = CreateGraphics()) DrawDarkArrow(graphics);
+            }
+        }
+
+        void DrawDarkArrow(Graphics graphics)
+        {
+            int arrowWidth = 19;
+            var arrow = new Rectangle(Math.Max(0, ClientSize.Width - arrowWidth), 1,
+                Math.Min(arrowWidth - 1, ClientSize.Width), Math.Max(0, ClientSize.Height - 2));
+            using (var brush = new SolidBrush(Field)) graphics.FillRectangle(brush, arrow);
+            int cx = arrow.Left + arrow.Width / 2, cy = arrow.Top + arrow.Height / 2;
+            using (var brush = new SolidBrush(TextDim))
+                graphics.FillPolygon(brush, new[] { new Point(cx - 3, cy - 1), new Point(cx + 3, cy - 1), new Point(cx, cy + 3) });
+            using (var pen = new Pen(Color.FromArgb(78, 78, 88)))
+                graphics.DrawRectangle(pen, 0, 0, Math.Max(0, ClientSize.Width - 1), Math.Max(0, ClientSize.Height - 1));
+        }
+    }
+
     // Flicker-free, fully owner-drawn button (used for the rich terminal tabs).
     class DrawButton : Button
     {
@@ -2738,13 +2858,39 @@ try {
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 66f));  // Pop out
         root.Controls.Add(bar, 0, 0);
 
-        var agentPick = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList,
-            FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 6, 8, 6) };
+        // Mac-style segmented agent picker; keep an invisible ComboBox as the existing
+        // settings synchronization boundary so launch behavior stays unchanged.
+        var agentPick = new ComboBox { Visible = false, DropDownStyle = ComboBoxStyle.DropDownList };
         agentPick.Items.AddRange(new object[] { "Claude", "Codex" });
         agentPick.SelectedItem = agentCombo != null ? agentCombo.SelectedItem : "Claude";
         termAgentCombo = agentPick;
-        agentPick.SelectedIndexChanged += (s, e) => { if (agentCombo != null && agentCombo.SelectedItem != agentPick.SelectedItem) agentCombo.SelectedItem = agentPick.SelectedItem; };
-        bar.Controls.Add(agentPick, 0, 0);
+        var segment = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 8, 6), BackColor = Field };
+        RoundRegion(segment, 7);
+        var claudeSegment = new Button { Text = "Claude", FlatStyle = FlatStyle.Flat, Location = new Point(0, 0),
+            Size = new Size(52, 28), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand, TabStop = true };
+        var codexSegment = new Button { Text = "Codex", FlatStyle = FlatStyle.Flat, Location = new Point(52, 0),
+            Size = new Size(52, 28), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand, TabStop = true };
+        claudeSegment.FlatAppearance.BorderSize = 0;
+        codexSegment.FlatAppearance.BorderSize = 0;
+        Action syncSegments = () => {
+            bool claude = (agentPick.SelectedItem ?? "Claude").ToString() != "Codex";
+            claudeSegment.BackColor = claude ? FieldHi : Field;
+            codexSegment.BackColor = claude ? Field : FieldHi;
+            claudeSegment.ForeColor = claude ? Color.White : TextDim;
+            codexSegment.ForeColor = claude ? TextDim : Color.White;
+            claudeSegment.Font = new Font("Segoe UI", 8f, claude ? FontStyle.Bold : FontStyle.Regular);
+            codexSegment.Font = new Font("Segoe UI", 8f, claude ? FontStyle.Regular : FontStyle.Bold);
+        };
+        claudeSegment.Click += (s, e) => agentPick.SelectedItem = "Claude";
+        codexSegment.Click += (s, e) => agentPick.SelectedItem = "Codex";
+        agentPick.SelectedIndexChanged += (s, e) => {
+            syncSegments();
+            if (agentCombo != null && agentCombo.SelectedItem != agentPick.SelectedItem) agentCombo.SelectedItem = agentPick.SelectedItem;
+        };
+        segment.Controls.Add(claudeSegment);
+        segment.Controls.Add(codexSegment);
+        syncSegments();
+        bar.Controls.Add(segment, 0, 0);
 
         var newBtn = AccentBtn("+ New");
         newBtn.Dock = DockStyle.Fill; newBtn.Margin = new Padding(0, 4, 8, 4);
@@ -2759,14 +2905,18 @@ try {
         bar.Controls.Add(termPathBox, 2, 0);
         pathBox = termPathBox;   // single source of truth for the launch folder
 
-        // Recent-folders quick-pick: the ONLY leftover launch control from the old left panel,
-        // now a compact dropdown so the terminals get essentially all the space.
-        recentCombo = new ComboBox { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 8, 6),
-            DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Field, ForeColor = Color.White };
-        recentCombo.SelectedIndexChanged += (s, e) => { if (recentCombo.SelectedItem != null) termPathBox.Text = recentCombo.SelectedItem.ToString(); };
+        // Match the Mac clock menu instead of using native ComboBox chrome, which
+        // renders a bright white arrow surface under Windows visual styles.
+        recentMenu = new ContextMenuStrip { BackColor = Field, ForeColor = Color.White, ShowImageMargin = false };
+        recentButton = GhostBtn("Recent");
+        recentButton.Dock = DockStyle.Fill;
+        recentButton.Margin = new Padding(0, 4, 8, 4);
+        recentButton.Click += (s, e) => {
+            if (recentMenu.Items.Count > 0) recentMenu.Show(recentButton, new Point(0, recentButton.Height));
+        };
         if (tabTip == null) tabTip = new ToolTip { ShowAlways = true, InitialDelay = 250 };
-        tabTip.SetToolTip(recentCombo, "Recent project folders");
-        bar.Controls.Add(recentCombo, 3, 0);
+        tabTip.SetToolTip(recentButton, "Recent project folders");
+        bar.Controls.Add(recentButton, 3, 0);
 
         var browseBtn = GhostBtn("Browse…");
         browseBtn.Dock = DockStyle.Fill; browseBtn.Margin = new Padding(0, 4, 8, 4);
@@ -3043,6 +3193,7 @@ try {
         sess.Status = TermReady; sess.Color = Green;
         sessions.Add(sess);
         SaveRecent(folder);
+        RefreshRecent();
         selectedTerm = sess;          // focus the freshly opened tab
         RefreshTermList();
         ShowSelectedTerminal();
@@ -3411,8 +3562,7 @@ try {
             root.Controls.Add(c);
         };
         Func<object[], int, ComboBox> mkCombo = (items, idx) => {
-            var c = new ComboBox { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 8, 2), DropDownStyle = ComboBoxStyle.DropDownList,
-                FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White };
+            var c = new DarkComboBox { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 8, 2), DropDownStyle = ComboBoxStyle.DropDownList };
             c.Items.AddRange(items);
             if (items.Length > 0) c.SelectedIndex = Math.Min(Math.Max(idx, 0), items.Length - 1);
             return c;
