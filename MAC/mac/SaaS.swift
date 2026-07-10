@@ -23,6 +23,22 @@ enum SaaSPhase: String, CaseIterable, Identifiable {
     }
 }
 
+enum SaaSBillingDefaults {
+    static let version = "1"
+    static let provider = "Lemon Squeezy"
+
+    static func providers(from config: [String: String]) -> (payment: String, subscription: String) {
+        guard config["billingDefaultsVersion"] == version else {
+            return (provider, provider)
+        }
+        func value(_ key: String) -> String {
+            guard let saved = config[key], !saved.isEmpty else { return provider }
+            return saved
+        }
+        return (value("pay"), value("subProvider"))
+    }
+}
+
 final class SaaSModel: ObservableObject {
     // ---- shared ----
     @Published var phase: SaaSPhase = .vision
@@ -36,7 +52,7 @@ final class SaaSModel: ObservableObject {
     @Published var pitch = ""
     @Published var features = ""
     @Published var auth = "Email + Google + GitHub"
-    @Published var pay = "Lemon Squeezy"
+    @Published var pay = SaaSBillingDefaults.provider
     let authOptions = ["Email + password", "Google", "GitHub", "Email + Google + GitHub",
                        "Firebase Auth (email + Google + Apple)", "Supabase Auth (email + social)", "Clerk (drop-in auth UI)"]
     let payOptions = ["Lemon Squeezy", "Stripe", "Moyasar (KSA)", "Tap Payments (KSA)", "Polar.sh", "None (add later)"]
@@ -64,7 +80,7 @@ final class SaaSModel: ObservableObject {
     let regionOptions = ["us-central1", "us-east1", "europe-west1", "me-central2", "asia-south1"]
 
     // ---- subscriptions ----
-    @Published var subProvider = "Lemon Squeezy"
+    @Published var subProvider = SaaSBillingDefaults.provider
     @Published var tiers = "Free — 0 SAR\nPro — 69 SAR/mo\nTeam — 199 SAR/mo"
     @Published var trialDays = "14"
     @Published var emailProvider = "Resend"
@@ -108,6 +124,7 @@ final class SaaSModel: ObservableObject {
 
     func saveConfig() {
         let d: [String: String] = [
+            "billingDefaultsVersion": SaaSBillingDefaults.version,
             "name": name, "parent": parent, "buildAgent": buildAgent, "buildModel": buildModel,
             "pitch": pitch, "features": features, "auth": auth, "pay": pay, "aiProvider": aiProvider,
             "target": target, "backend": backend, "region": region, "publicDir": publicDir,
@@ -124,13 +141,14 @@ final class SaaSModel: ObservableObject {
         guard let data = FileManager.default.contents(atPath: configPath),
               let d = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else { return }
         func get(_ k: String, _ cur: String) -> String { (d[k]?.isEmpty == false) ? d[k]! : cur }
+        let billing = SaaSBillingDefaults.providers(from: d)
         name = get("name", name); parent = get("parent", parent); buildAgent = get("buildAgent", buildAgent); buildModel = get("buildModel", buildModel)
         pitch = d["pitch"] ?? pitch; features = d["features"] ?? features
-        auth = get("auth", auth); pay = get("pay", pay); aiProvider = get("aiProvider", aiProvider)
+        auth = get("auth", auth); pay = billing.payment; aiProvider = get("aiProvider", aiProvider)
         target = get("target", target); backend = get("backend", backend); region = get("region", region)
         publicDir = get("publicDir", publicDir); gcpProject = d["gcpProject"] ?? gcpProject
         serviceName = get("serviceName", serviceName); repoVisibility = get("repoVisibility", repoVisibility)
-        subProvider = get("subProvider", subProvider); tiers = get("tiers", tiers); trialDays = get("trialDays", trialDays)
+        subProvider = billing.subscription; tiers = get("tiers", tiers); trialDays = get("trialDays", trialDays)
         emailProvider = get("emailProvider", emailProvider); fromEmail = get("fromEmail", fromEmail)
         preset = get("preset", preset)
     }
