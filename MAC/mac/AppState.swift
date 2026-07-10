@@ -63,6 +63,12 @@ final class AppState: ObservableObject {
     @Published var setupLog = "Ready. Use the buttons above to install or update the Claude toolchain.\n"
     @Published var setupBusy = false
 
+    // Ollama models (Settings → Ollama models; runtime is built into Hydra)
+    @Published var ollamaTag = ""
+    @Published var ollamaCtxText = String(OllamaService.contextLength())
+    @Published var ollamaMenuTags: [String] = []
+    @Published var ollamaModelsStatus = ""
+
     // Glossary
     let glossary: [GlossaryEntry] = Glossary.all
 
@@ -255,6 +261,7 @@ final class AppState: ObservableObject {
         rtk = rtkInstalled
         caveman = cavemanInstalled
         updateStatusLine()
+        refreshOllamaModels()
     }
 
     static func isRtkInstalled() -> Bool {
@@ -302,16 +309,18 @@ final class AppState: ObservableObject {
 
     /// True once the core toolchain is fully present — used to hide "Install everything"
     /// and let the Setup tab focus on keeping things up to date. Headroom is optional.
+    var ollamaBuiltIn: Bool { FileManager.default.isExecutableFile(atPath: Paths.ollamaExe) }
+
     var allCoreInstalled: Bool {
         let sh = Shell.shared
-        return sh.onPath("claude") && sh.onPath("codex") && sh.onPath("node") && rtkInstalled && cavemanInstalled && videoInstalled && agentSkillsInstalled
+        return sh.onPath("claude") && sh.onPath("codex") && sh.onPath("node") && rtkInstalled && cavemanInstalled && videoInstalled && agentSkillsInstalled && ollamaBuiltIn
     }
 
     func updateStatusLine() {
         let sh = Shell.shared
         func mark(_ ok: Bool) -> String { ok ? "OK" : "—" }
         let node = sh.onPath("node")
-        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Video \(mark(videoInstalled))   AgentSkills \(mark(agentSkillsInstalled))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
+        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Video \(mark(videoInstalled))   AgentSkills \(mark(agentSkillsInstalled))   Ollama \(mark(ollamaBuiltIn))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
     }
 
     func countSkills() -> Int {

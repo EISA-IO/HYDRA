@@ -169,6 +169,40 @@ extension AppState {
         }
     }
 
+    // ---- Ollama: BUILT INTO Hydra ----
+    // The portable runtime (single `ollama` binary, no installer, no login item) is
+    // unpacked into ~/.claude-manager/ollama and models live in there too. Removing
+    // that folder removes every trace.
+    func ollamaInstallScript() -> String {
+        """
+        DIR="$HOME/.claude-manager/ollama"
+        if [ -x "$DIR/ollama" ]; then echo "Ollama runtime already built into Hydra."; exit 0; fi
+        mkdir -p "$DIR/models"
+        echo "Downloading the portable Ollama runtime (one time)…"
+        TMP=$(mktemp -d)
+        TGZ="$TMP/ollama-darwin.tgz"
+        curl -fsSL "https://ollama.com/download/ollama-darwin.tgz" -o "$TGZ" || { echo "ERR Ollama runtime download failed (network?)."; exit 1; }
+        tar -xzf "$TGZ" -C "$DIR" || { echo "ERR could not unpack the runtime."; exit 1; }
+        rm -rf "$TMP"
+        chmod +x "$DIR/ollama" 2>/dev/null || true
+        if [ -x "$DIR/ollama" ]; then
+          echo "OK Ollama built into Hydra: $DIR (models live in $DIR/models)."
+        else
+          echo "ERR runtime binary not found after unpack."
+        fi
+        """
+    }
+
+    func installOllama() {
+        if FileManager.default.isExecutableFile(atPath: Paths.ollamaExe) {
+            log("Ollama runtime already built into Hydra."); return
+        }
+        runSteps("Building Ollama into Hydra (portable — nothing installed system-wide)",
+                 [("Ollama runtime", ollamaInstallScript())]) {
+            self.refreshOllamaModels()
+        }
+    }
+
     // ---- Headroom (optional) ----
     func installHeadroom() {
         if Shell.shared.onPath("headroom") { log("Headroom already installed (optional)."); return }
@@ -249,15 +283,18 @@ extension AppState {
     }
 
     // ---- one-shot: install everything ----
+    // A missing-only pass: each script re-checks and skips what's already present,
+    // so it's safe (and fast) to run repeatedly.
     func installEverything() {
         let steps: [(String, String)] = [
             ("Node.js", nodeEnsureScript()),
-            ("Claude CLI", claudeInstallCmd()),
-            ("Codex CLI", codexInstallCmd()),
+            ("Claude CLI", "command -v claude >/dev/null 2>&1 && echo 'Claude CLI already installed — skipping.' || { " + claudeInstallCmd() + "; }"),
+            ("Codex CLI", "command -v codex >/dev/null 2>&1 && echo 'Codex CLI already installed — skipping.' || { " + codexInstallCmd() + "; }"),
             ("RTK", rtkFullScript()),
-            ("Caveman", cavemanCmd() + " || echo '(Caveman needs Node.js — install Node then retry)'")
+            ("Caveman", cavemanCmd() + " || echo '(Caveman needs Node.js — install Node then retry)'"),
+            ("Ollama (built-in)", ollamaInstallScript())
         ]
-        runSteps("Installing everything (Node · Claude CLI · RTK · Caveman · Claude Video · Agent Skills · skills)", steps) {
+        runSteps("Installing everything (Node · Claude CLI · RTK · Caveman · Claude Video · Agent Skills · skills · Ollama)", steps) {
             // bundled skills, quietly (no folder prompt inside the batch flow)
             if let src = self.findSkillsSource() {
                 DispatchQueue.global(qos: .userInitiated).async { self.doInstallSkills(from: src) }
@@ -272,6 +309,7 @@ extension AppState {
             self.installAgentSkillsIfPossible()
             self.agentSkillsInstalled = Self.isAgentSkillsInstalled()
             self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
+            self.refreshOllamaModels()
         }
     }
 

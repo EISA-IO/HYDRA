@@ -1,0 +1,25 @@
+name: Mac build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "MAC/**"
+      - ".github/workflows/mac-build.yml"
+  push:
+    branches: [main]
+    paths:
+      - "MAC/**"
+      - ".github/workflows/mac-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build Hydra (SwiftPM)
+        run: swift build
+        working-directory: MAC

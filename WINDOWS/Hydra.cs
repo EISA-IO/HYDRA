@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -24,6 +25,31 @@ class Hydra : Form
     static readonly string HomeDir     = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     static readonly string StateDir    = Path.Combine(HomeDir, ".claude-manager");
     static readonly string ManagedBin  = Path.Combine(StateDir, "bin");   // native toolchain the app provisions (on PATH)
+    // Ollama is built into Hydra: a portable runtime (no installer, no system service)
+    // living in Hydra's own state dir, with models kept alongside it. Hydra owns the
+    // server process lifecycle — nothing external is installed or left running.
+    static readonly string OllamaDir       = Path.Combine(StateDir, "ollama");
+    static readonly string OllamaModelsDir = Path.Combine(StateDir, "ollama", "models");
+    static readonly string OllamaCtxFile   = Path.Combine(StateDir, "ollama", "context_size.cfg");
+    static readonly string OllamaRecFile   = Path.Combine(StateDir, "ollama", "recommended_models.txt");
+    static string OllamaEmbeddedExe { get { return Path.Combine(OllamaDir, "ollama.exe"); } }
+
+    // Context window the built-in server starts with (persisted like the classic
+    // OLLAMA MANAGER's context_size.cfg; changing it restarts the owned server).
+    static int OllamaCtx()
+    {
+        try
+        {
+            int v;
+            if (File.Exists(OllamaCtxFile) && int.TryParse(File.ReadAllText(OllamaCtxFile).Trim(), out v) && v > 0) return v;
+        }
+        catch { }
+        return 8192;
+    }
+    static void SaveOllamaCtx(int v)
+    {
+        try { Directory.CreateDirectory(OllamaDir); File.WriteAllText(OllamaCtxFile, v.ToString()); } catch { }
+    }
     static readonly string RecentFile  = Path.Combine(StateDir, "recent.txt");
     static readonly string SettingsFile= Path.Combine(StateDir, "settings.txt");
     static readonly string SkillsDir   = Path.Combine(HomeDir, ".claude", "skills");
@@ -101,6 +127,12 @@ class Hydra : Form
     Process ollamaProcess;
     Button ollamaButton, ollamaTerminalButton;
     Label ollamaStatus;
+    ComboBox ollamaModelCombo;          // Ollama tab: tag picker (editable)
+    ComboBox ollamaCtxCombo;            // Ollama tab: context-length picker
+    Label ollamaModelsStatus;
+    Label ollamaRuntimeStatus;          // Ollama tab: runtime/server state line
+    Button ollamaBuildBtn;              // Ollama tab: build-into-Hydra action
+    TextBox ollamaOut;                  // Ollama tab: activity log (mirror of setup log)
     System.Windows.Forms.Timer ollamaTimer;
     bool ollamaProbePending, ollamaStartPending;
 
@@ -161,7 +193,7 @@ class Hydra : Form
     public void EnableScreenshot(string path, int tab)
     {
         Shown += (s, e) => {
-            SelectNav(Math.Max(0, Math.Min(4, tab)));
+            SelectNav(Math.Max(0, Math.Min(5, tab)));
             var timer = new System.Windows.Forms.Timer { Interval = 750 };
             timer.Tick += (a, b) => {
                 timer.Stop();
@@ -364,29 +396,34 @@ class Hydra : Form
         try { owned = ollamaProcess != null && !ollamaProcess.HasExited; }
         catch { ollamaProcess = null; }
 
+        // Short, sidebar-width-safe status strings — the section header already says "OLLAMA".
+        // The status card is the single source of truth; the Start/Stop button only shows
+        // when there's an action to take (an external server has nothing to press).
         if (owned)
         {
+            ollamaButton.Visible = true;
             ollamaButton.Text = "■   Stop Ollama";
             ollamaButton.Enabled = true;
-            ollamaStatus.Text = reachable ? "Ollama · local server running" : "Ollama · starting on 127.0.0.1:" + OllamaPort;
+            ollamaStatus.Text = reachable ? "Server running" : "Starting…";
             ollamaStatus.ForeColor = reachable ? Green : Yellow;
             if (sidebarOllamaDot != null) sidebarOllamaDot.BackColor = reachable ? Green : Yellow;
         }
         else if (reachable)
         {
             ollamaProcess = null;
-            ollamaButton.Text = "●   Ollama Running";
-            ollamaButton.Enabled = false;
-            ollamaStatus.Text = "Ollama · managed outside Hydra";
+            ollamaButton.Visible = false;
+            ollamaStatus.Text = "Running (external)";
             ollamaStatus.ForeColor = Green;
             if (sidebarOllamaDot != null) sidebarOllamaDot.BackColor = Green;
         }
         else
         {
             ollamaProcess = null;
+            ollamaButton.Visible = true;
             ollamaButton.Text = "▶   Start Ollama";
             ollamaButton.Enabled = true;
-            ollamaStatus.Text = installed ? "Ollama · off" : "Ollama · not installed";
+            ollamaStatus.Text = !installed ? "Not built in yet"
+                : (File.Exists(OllamaEmbeddedExe) ? "Built-in · off" : "Installed · off");
             ollamaStatus.ForeColor = installed ? TextFaint : Yellow;
             if (sidebarOllamaDot != null) sidebarOllamaDot.BackColor = installed ? TextFaint : Yellow;
         }
@@ -411,7 +448,7 @@ class Hydra : Form
                     if (reachable) { ApplyOllamaState(true, executable != null); return; }
                     if (executable == null)
                     {
-                        MessageBox.Show("Install Ollama from ollama.com, then try again. Hydra never installs it silently.",
+                        MessageBox.Show("Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide.",
                             "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         ApplyOllamaState(false, false);
                         return;
@@ -434,6 +471,21 @@ class Hydra : Form
                 WorkingDirectory = HomeDir
             };
             psi.EnvironmentVariables["OLLAMA_HOST"] = "127.0.0.1:" + OllamaPort;
+            // Open to every local app: the API stays localhost-bound (nothing from the
+            // network can reach it) but any app or web origin on THIS machine may call it.
+            psi.EnvironmentVariables["OLLAMA_ORIGINS"] = "*";
+            // Tuned like the classic OLLAMA MANAGER: persisted context window, warm
+            // keep-alive, flash attention, single queue, quantized KV cache.
+            psi.EnvironmentVariables["OLLAMA_NUM_CTX"] = OllamaCtx().ToString();
+            psi.EnvironmentVariables["OLLAMA_KEEP_ALIVE"] = "30m";
+            psi.EnvironmentVariables["OLLAMA_FLASH_ATTENTION"] = "1";
+            psi.EnvironmentVariables["OLLAMA_NUM_PARALLEL"] = "1";
+            psi.EnvironmentVariables["OLLAMA_KV_CACHE_TYPE"] = "q8_0";
+            if (IsUnder(executable, OllamaDir))   // built-in runtime keeps its models inside Hydra's dir too
+            {
+                try { Directory.CreateDirectory(OllamaModelsDir); } catch { }
+                psi.EnvironmentVariables["OLLAMA_MODELS"] = OllamaModelsDir;
+            }
             Process started = Process.Start(psi);
             if (started == null) throw new InvalidOperationException("Ollama did not create a process.");
             ollamaProcess = started;
@@ -471,12 +523,40 @@ class Hydra : Form
         catch { }
     }
 
+    // Sidebar "Ollama Chat": open a chat with the picked model (Settings combo), or the
+    // first downloaded one. Boots the built-in server first so the chat just works.
+    void OpenOllamaChat()
+    {
+        string pick = ollamaModelCombo != null ? SelectedOllamaTag(ollamaModelCombo.Text) : "";
+        ThreadPool.QueueUserWorkItem(_ => {
+            string tag = pick;
+            if (tag.Length == 0)
+            {
+                var installed = InstalledOllamaModels();
+                if (installed.Count > 0) tag = installed[0];
+            }
+            try
+            {
+                BeginInvoke((Action)(() => {
+                    if (tag.Length == 0)
+                    {
+                        MessageBox.Show("No local models yet. Download one first in Settings → Ollama models (e.g. ornith:9b).",
+                            "Ollama Chat", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    ChatOllamaModel(tag);   // shows its own message when the runtime isn't built in yet
+                }));
+            }
+            catch { }
+        });
+    }
+
     void OpenOllamaTerminal()
     {
         string executable = FindOllamaExecutable();
         if (executable == null)
         {
-            MessageBox.Show("Install Ollama from ollama.com, then try again. Hydra never installs it silently.",
+            MessageBox.Show("Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide.",
                 "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
@@ -484,9 +564,18 @@ class Hydra : Form
         bool running = TestPort(OllamaPort);
         string id = Guid.NewGuid().ToString("N").Substring(0, 12);
         string task = running ? "Manage local models" : "Serve local models";
+        string env = "set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\""
+            + " && set \"OLLAMA_ORIGINS=*\""
+            + " && set \"OLLAMA_NUM_CTX=" + OllamaCtx() + "\" && set \"OLLAMA_KEEP_ALIVE=30m\""
+            + " && set \"OLLAMA_FLASH_ATTENTION=1\" && set \"OLLAMA_NUM_PARALLEL=1\" && set \"OLLAMA_KV_CACHE_TYPE=q8_0\"";
+        if (IsUnder(executable, OllamaDir))
+        {
+            try { Directory.CreateDirectory(OllamaModelsDir); } catch { }
+            env += " && set \"OLLAMA_MODELS=" + OllamaModelsDir + "\"";
+        }
         string command = running
             ? CmdQ(executable) + " ps"
-            : "set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\" && " + CmdQ(executable) + " serve";
+            : env + " && " + CmdQ(executable) + " serve";
         var sess = new TermSession {
             Id = id, Folder = HomeDir, Agent = "Ollama", Model = "Local server",
             Task = task, Name = TabHint(task, HomeDir), Status = running ? TermReady : TermWorking,
@@ -516,7 +605,7 @@ class Hydra : Form
         if ((keyData & (Keys.Control | Keys.Alt)) == Keys.Control)
         {
             Keys k = keyData & Keys.KeyCode;
-            if (k >= Keys.D1 && k <= Keys.D5) { SelectNav((int)(k - Keys.D1)); return true; }
+            if (k >= Keys.D1 && k <= Keys.D6) { SelectNav((int)(k - Keys.D1)); return true; }
             if (k == Keys.T) { SelectNav(0); NewTerminal(termPathBox != null ? termPathBox.Text : null); return true; }
             if (k == Keys.W) { CloseSelectedTerminal(); return true; }
         }
@@ -566,6 +655,8 @@ class Hydra : Form
     }
     static string FindOllamaExecutable()
     {
+        // Hydra's built-in runtime wins; PATH/system copies are only a compatibility fallback.
+        if (File.Exists(OllamaEmbeddedExe)) return OllamaEmbeddedExe;
         string path = Environment.GetEnvironmentVariable("PATH") ?? "";
         foreach (var dir in path.Split(';'))
         {
@@ -645,8 +736,14 @@ class Hydra : Form
         apply(null, null);
     }
     // rounded button + smooth animated hover fade
+    // Idempotent: re-Hoverizing a button (e.g. DetectStatus restyling the Update button)
+    // first tears down the previous animation timer + handlers. Without this, each call
+    // stacked another timer fighting over BackColor with old colors — visible flicker.
+    readonly Dictionary<Button, Action> hoverizeCleanup = new Dictionary<Button, Action>();
     void Hoverize(Button b, Color normal, Color hover)
     {
+        Action undo;
+        if (hoverizeCleanup.TryGetValue(b, out undo)) { undo(); hoverizeCleanup.Remove(b); }
         b.FlatStyle = FlatStyle.Flat;
         b.FlatAppearance.BorderSize = 0;
         b.FlatAppearance.MouseOverBackColor = hover;
@@ -663,8 +760,15 @@ class Hydra : Form
             if (NearColor(next, target)) { b.BackColor = target; timer.Stop(); }
             else b.BackColor = next;
         };
-        b.MouseEnter += (s, e) => { over = true; timer.Start(); };
-        b.MouseLeave += (s, e) => { over = false; timer.Start(); };
+        EventHandler enter = (s, e) => { over = true; timer.Start(); };
+        EventHandler leave = (s, e) => { over = false; timer.Start(); };
+        b.MouseEnter += enter;
+        b.MouseLeave += leave;
+        hoverizeCleanup[b] = () => {
+            try { timer.Stop(); timer.Dispose(); } catch { }
+            b.MouseEnter -= enter;
+            b.MouseLeave -= leave;
+        };
     }
 
     // ---------- button factories (one look, defined once) ----------
@@ -1506,10 +1610,29 @@ class Hydra : Form
         return null;
     }
 
+    // Sidebar "LOCAL LLM" section: header, status card, and two uniform actions.
+    // Status strings are kept short so nothing ellipsizes at the 190px sidebar width.
     void BuildOllamaControls(Panel host, int top)
     {
+        host.Controls.Add(new Label {
+            Text = "LOCAL LLM · OLLAMA", AutoSize = false, Location = new Point(16, top), Size = new Size(166, 14),
+            ForeColor = TextFaint, Font = new Font("Segoe UI Semibold", 7.5f, FontStyle.Bold)
+        });
+
+        var statusCard = new Panel { Location = new Point(8, top + 20), Size = new Size(174, 32), BackColor = Color.FromArgb(22, 22, 26) };
+        RoundRegion(statusCard, 8);
+        host.Controls.Add(statusCard);
+        sidebarOllamaDot = new Panel { Location = new Point(12, 12), Size = new Size(8, 8), BackColor = TextFaint };
+        RoundRegion(sidebarOllamaDot, 4);
+        statusCard.Controls.Add(sidebarOllamaDot);
+        ollamaStatus = new Label {
+            Text = "Not built in yet", AutoEllipsis = false, Location = new Point(28, 0), Size = new Size(142, 32),
+            ForeColor = TextFaint, Font = new Font("Segoe UI", 8.25f), TextAlign = ContentAlignment.MiddleLeft
+        };
+        statusCard.Controls.Add(ollamaStatus);
+
         ollamaButton = new Button {
-            Text = "▶   Start Ollama", Location = new Point(8, top), Size = new Size(174, 36),
+            Text = "▶   Start Ollama", Location = new Point(8, top + 58), Size = new Size(174, 32),
             FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(25, 25, 29), ForeColor = TextDim,
             TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0),
             Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold), Cursor = Cursors.Hand, TabStop = true
@@ -1521,24 +1644,17 @@ class Hydra : Form
         ollamaButton.Click += (s, e) => ToggleOllama();
         host.Controls.Add(ollamaButton);
 
-        sidebarOllamaDot = new Panel { Location = new Point(20, top + 44), Size = new Size(6, 6), BackColor = TextFaint };
-        RoundRegion(sidebarOllamaDot, 3);
-        host.Controls.Add(sidebarOllamaDot);
-        ollamaStatus = new Label {
-            Text = "Ollama · off", AutoEllipsis = true, Location = new Point(32, top + 39), Size = new Size(146, 17),
-            ForeColor = TextFaint, Font = new Font("Segoe UI", 8f), TextAlign = ContentAlignment.MiddleLeft
-        };
-        host.Controls.Add(ollamaStatus);
-
         ollamaTerminalButton = new Button {
-            Text = ">_  Open Ollama Terminal", Location = new Point(14, top + 60), Size = new Size(164, 25),
-            FlatStyle = FlatStyle.Flat, BackColor = TitleBg, ForeColor = TextFaint,
-            TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 8f), Cursor = Cursors.Hand, TabStop = true
+            Text = "💬   Ollama Chat", Location = new Point(8, top + 94), Size = new Size(174, 32),
+            FlatStyle = FlatStyle.Flat, BackColor = Color.FromArgb(25, 25, 29), ForeColor = TextDim,
+            TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(10, 0, 0, 0),
+            Font = new Font("Segoe UI", 9f), Cursor = Cursors.Hand, TabStop = true
         };
         ollamaTerminalButton.FlatAppearance.BorderSize = 0;
         ollamaTerminalButton.FlatAppearance.MouseOverBackColor = Field;
         ollamaTerminalButton.FlatAppearance.MouseDownBackColor = FieldHi;
-        ollamaTerminalButton.Click += (s, e) => OpenOllamaTerminal();
+        RoundRegion(ollamaTerminalButton, 8);
+        ollamaTerminalButton.Click += (s, e) => OpenOllamaChat();
         host.Controls.Add(ollamaTerminalButton);
     }
 
@@ -1562,8 +1678,8 @@ class Hydra : Form
         host.Controls.Add(new Label { Text = "By Ahmed Al-Eissa", AutoSize = true, Location = new Point(55, 36),
             ForeColor = TextFaint, Font = new Font("Segoe UI", 7.5f, FontStyle.Italic) });
 
-        string[] titles = { "Workspace", "Settings", "SaaS", "Skills", "Glossary" };
-        string[] icons = { ">_", "≡", "◇", "✦", "▤" };
+        string[] titles = { "Workspace", "Settings", "SaaS", "Skills", "Glossary", "Ollama" };
+        string[] icons = { ">_", "≡", "◇", "✦", "▤", "◎" };
         int navTop = 88;
         for (int i = 0; i < titles.Length; i++)
         {
@@ -1643,12 +1759,14 @@ class Hydra : Form
         var pSaas     = NewContentPanel(content);
         var pSkills   = NewContentPanel(content);
         var pGloss    = NewContentPanel(content);
+        var pOllama   = NewContentPanel(content);
 
         BuildWorkspaceTab(pWork);
         BuildSettingsTab(pSettings);
         BuildSaasTab(pSaas);
         BuildSkillsTab(pSkills);
         BuildGlossaryTab(pGloss);
+        BuildOllamaTab(pOllama);
 
         Modernize(content);
         SelectNav(0);
@@ -1676,6 +1794,7 @@ class Hydra : Form
         }
         for (int i = 0; i < contentPanels.Count; i++)
             contentPanels[i].Visible = i == sel;
+        if (sel == 5) { UpdateOllamaTab(); RefreshOllamaModels(); }   // fresh state whenever the Ollama tab opens
     }
 
     // walk the content tree and modernize input controls to the flat field look
@@ -1903,14 +2022,14 @@ class Hydra : Form
         setupStatus = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Consolas", 9f) };
         row(setupStatus, 20);
 
-        var allBtn = new Button { Text = "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + Video + Agent Skills + skills)", Dock = DockStyle.Fill,
+        var allBtn = new Button { Text = "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + Video + Agent Skills + skills + Ollama)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.Black, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
         Hoverize(allBtn, Accent, AccentHi);
         allBtn.Click += (s, e) => SetupRun(InstallEverything);
         setupAllBtn = allBtn;
         row(allBtn, 40);
 
-        setupAllCap = RowCap("Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest Claude/Codex CLI + tools.");
+        setupAllCap = RowCap("Re-checks every package on each click and installs only what's missing — safe to run any time.");
         row(setupAllCap, 18);
 
         var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video · Agent Skills)", Dock = DockStyle.Fill,
@@ -1936,6 +2055,7 @@ class Hydra : Form
         mk("Caveman", Panel2, FieldHi, (s, e) => SetupRun(InstallCaveman));
         mk("Claude Video", Panel2, FieldHi, (s, e) => SetupRun(InstallClaudeVideoIfPossible));
         mk("Agent Skills", Panel2, FieldHi, (s, e) => SetupRun(InstallAgentSkillsIfPossible));
+        mk("Ollama tab →", Panel2, FieldHi, (s, e) => SelectNav(5));
         mk("Headroom", Panel2, FieldHi, (s, e) => SetupRun(InstallHeadroom));
         mk("Skills", Panel2, FieldHi, (s, e) => InstallSkillsClicked());
         mk("Open .claude", Panel2, FieldHi, (s, e) => { try { string d = Path.Combine(HomeDir, ".claude"); Directory.CreateDirectory(d); Process.Start(d); } catch { } });
@@ -2001,6 +2121,131 @@ class Hydra : Form
         glossaryList.Columns.Add("Command / Key", 240);
         glossaryList.Columns.Add("What it does", 410);
         tab.Controls.Add(glossaryList);
+    }
+
+    // ================= Ollama tab: the local-LLM home (runtime · models · tuning) =================
+    void BuildOllamaTab(Control tab)
+    {
+        var root = new TableLayoutPanel {
+            Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 1,
+            AutoScroll = true, Padding = new Padding(22, 16, 22, 18) };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        tab.Controls.Add(root);
+
+        Action<Control, int> row = (c, h) => {
+            c.Margin = new Padding(0, 2, 0, 2);
+            if (h > 0) { c.Dock = DockStyle.Fill; root.RowStyles.Add(new RowStyle(SizeType.Absolute, h)); }
+            root.Controls.Add(c);
+        };
+
+        row(PageHeader("Ollama", "Local LLM built into Hydra — runtime, models, and tuning. Nothing is installed system-wide."), 52);
+
+        // ---- runtime ----
+        row(SectionCap("Runtime"), 26);
+        ollamaRuntimeStatus = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Consolas", 9f) };
+        row(ollamaRuntimeStatus, 20);
+
+        var rtRow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = true };
+        ollamaBuildBtn = new Button { Text = "Build runtime into Hydra", AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.Black,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold), Margin = new Padding(0, 2, 8, 2) };
+        Hoverize(ollamaBuildBtn, Accent, AccentHi);
+        ollamaBuildBtn.Click += (s, e) => SetupRun(() => { InstallOllama(); try { BeginInvoke((Action)UpdateOllamaTab); } catch { } });
+        rtRow.Controls.Add(ollamaBuildBtn);
+        var rtFolder = new Button { Text = "Open folder", AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Margin = new Padding(0, 2, 8, 2) };
+        Hoverize(rtFolder, Panel2, FieldHi);
+        rtFolder.Click += (s, e) => { try { Directory.CreateDirectory(OllamaDir); Process.Start(OllamaDir); } catch { } };
+        rtRow.Controls.Add(rtFolder);
+        var rtEdit = new Button { Text = "Edit recommended list", AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Margin = new Padding(0, 2, 8, 2) };
+        Hoverize(rtEdit, Panel2, FieldHi);
+        rtEdit.Click += (s, e) => {
+            try { RecommendedOllamaModels(); Process.Start("notepad.exe", "\"" + OllamaRecFile + "\""); } catch { }
+        };
+        rtRow.Controls.Add(rtEdit);
+        row(rtRow, 40);
+        row(RowCap("Everything lives in ~\\.claude-manager\\ollama — delete that folder, every trace is gone. Local apps connect via 127.0.0.1:" + OllamaPort + "."), 18);
+
+        // ---- models ----
+        row(SectionCap("Models"), 26);
+        row(RowCap("Pick a model tag (or type any tag from ollama.com/library), then Download runs `ollama pull`. ✓ = already downloaded."), 18);
+
+        var omRow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = true };
+        ollamaModelCombo = new ComboBox { Width = 280, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat,
+            BackColor = Panel2, ForeColor = Color.White, Font = new Font("Segoe UI", 9.5f), Margin = new Padding(0, 3, 8, 3) };
+        omRow.Controls.Add(ollamaModelCombo);
+        var omPull = new Button { Text = "⭳  Download", AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.Black,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold), Margin = new Padding(0, 2, 8, 2) };
+        Hoverize(omPull, Accent, AccentHi);
+        omPull.Click += (s, e) => {
+            string tag = SelectedOllamaTag(ollamaModelCombo.Text);
+            if (tag.Length == 0) { SetupLog("Pick or type an Ollama model tag first (e.g. ornith:9b)."); return; }
+            SetupRun(() => PullOllamaModel(tag));
+        };
+        omRow.Controls.Add(omPull);
+        var omChat = new Button { Text = "💬  Chat", AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.White,
+            Font = new Font("Segoe UI", 9f, FontStyle.Bold), Margin = new Padding(0, 2, 8, 2) };
+        Hoverize(omChat, Color.FromArgb(70, 120, 85), Color.FromArgb(84, 140, 100));
+        omChat.Click += (s, e) => {
+            string tag = SelectedOllamaTag(ollamaModelCombo.Text);
+            if (tag.Length == 0) { SetupLog("Pick a downloaded model to chat with."); return; }
+            ChatOllamaModel(tag);
+        };
+        omRow.Controls.Add(omChat);
+        var omDelete = new Button { Text = "Delete", AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Margin = new Padding(0, 2, 8, 2) };
+        Hoverize(omDelete, Color.FromArgb(120, 60, 60), Color.FromArgb(150, 70, 70));
+        omDelete.Click += (s, e) => {
+            string tag = SelectedOllamaTag(ollamaModelCombo.Text);
+            if (tag.Length == 0) { SetupLog("Pick a downloaded model to delete."); return; }
+            if (MessageBox.Show("Delete model " + tag + " from disk?", "Ollama", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            SetupRun(() => DeleteOllamaModel(tag));
+        };
+        omRow.Controls.Add(omDelete);
+        var omRefresh = new Button { Text = "Refresh list", AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Margin = new Padding(0, 2, 8, 2) };
+        Hoverize(omRefresh, Panel2, FieldHi);
+        omRefresh.Click += (s, e) => { RefreshOllamaModels(); UpdateOllamaTab(); };
+        omRow.Controls.Add(omRefresh);
+        row(omRow, 40);
+
+        ollamaModelsStatus = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Segoe UI", 8.5f) };
+        row(ollamaModelsStatus, 20);
+
+        // ---- tuning ----
+        row(SectionCap("Tuning"), 26);
+        var ctxRow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = true };
+        ctxRow.Controls.Add(new Label { Text = "Context length", AutoSize = true, ForeColor = TextDim, Margin = new Padding(0, 8, 8, 0) });
+        ollamaCtxCombo = new ComboBox { Width = 120, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat,
+            BackColor = Panel2, ForeColor = Color.White, Font = new Font("Segoe UI", 9.5f), Margin = new Padding(0, 3, 8, 3) };
+        ollamaCtxCombo.Items.AddRange(new object[] { "4096", "8192", "16384", "32768", "65536", "131072", "262144" });
+        ollamaCtxCombo.Text = OllamaCtx().ToString();
+        ctxRow.Controls.Add(ollamaCtxCombo);
+        var ctxApply = new Button { Text = "Apply", AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Margin = new Padding(0, 2, 8, 2) };
+        Hoverize(ctxApply, Panel2, FieldHi);
+        ctxApply.Click += (s, e) => ApplyOllamaCtx(ollamaCtxCombo.Text);
+        ctxRow.Controls.Add(ctxApply);
+        ctxRow.Controls.Add(new Label { Text = "always on: keep-alive 30m · flash attention · q8_0 KV cache · any-origin local API", AutoSize = true,
+            ForeColor = TextFaint, Font = new Font("Segoe UI", 8f), Margin = new Padding(0, 9, 0, 0) });
+        row(ctxRow, 38);
+
+        // ---- activity ----
+        row(SectionCap("Activity"), 26);
+        ollamaOut = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false,
+            BackColor = Color.FromArgb(18, 18, 20), ForeColor = Color.FromArgb(210, 210, 215),
+            BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f),
+            Text = "Ollama actions (downloads, deletes, server) log here." };
+        row(ollamaOut, 190);
+
+        UpdateOllamaTab();
+        RefreshOllamaModels();
+    }
+
+    void UpdateOllamaTab()
+    {
+        if (ollamaRuntimeStatus == null) return;
+        bool builtIn = File.Exists(OllamaEmbeddedExe);
+        bool up = TestPort(OllamaPort);
+        ollamaRuntimeStatus.Text = "Runtime " + Mark(builtIn) + "   Server " + (up ? "UP on 127.0.0.1:" + OllamaPort : "off")
+            + "   Context " + OllamaCtx() + "   Models " + OllamaModelsGb() + " GB";
+        if (ollamaBuildBtn != null)
+            ollamaBuildBtn.Text = builtIn ? "✓ Runtime built-in — re-check" : "Build runtime into Hydra";
     }
 
     // ================= Setup / bootstrap helpers (UI now lives in the Settings tab) =================
@@ -2112,7 +2357,7 @@ try {
     // is pointless, so we hide it and let the Setup tab focus on the Update button.
     bool AllCoreInstalled()
     {
-        return HasClaude() && HasCodex() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled() && VideoInstalled() && AgentSkillsInstalled();
+        return HasClaude() && HasCodex() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled() && VideoInstalled() && AgentSkillsInstalled() && File.Exists(OllamaEmbeddedExe);
     }
 
     void DetectStatus()
@@ -2120,16 +2365,23 @@ try {
         if (setupStatus == null) return;
         bool node = OnPath("node.exe") || OnPath("node");
         setupStatus.Text = "Claude " + Mark(HasClaude()) + "   Codex " + Mark(HasCodex()) + "   Node " + Mark(node) + "   RTK " + Mark(HasRtk() && RtkInstalled())
-            + "   Caveman " + Mark(CavemanInstalled()) + "   Video " + Mark(VideoInstalled()) + "   AgentSkills " + Mark(AgentSkillsInstalled()) + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom"))
-            + "   Skills " + CountSkills();
+            + "   Caveman " + Mark(CavemanInstalled()) + "   Video " + Mark(VideoInstalled()) + "   AgentSkills " + Mark(AgentSkillsInstalled()) + "   Ollama " + Mark(File.Exists(OllamaEmbeddedExe))
+            + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom")) + "   Skills " + CountSkills();
 
-        // Focus the tab: once everything's installed, drop "Install everything" and promote Update.
+        // Once everything's installed the button stays (it re-checks on every click);
+        // it just says so, and Update gets promoted to the accent style. Restyle ONLY
+        // when the state actually flips — repeated restyling caused visible flicker.
         bool all = AllCoreInstalled();
-        if (setupAllBtn != null) setupAllBtn.Visible = !all;
+        if (lastAllInstalledStyle == all) return;
+        lastAllInstalledStyle = all;
+        if (setupAllBtn != null)
+            setupAllBtn.Text = all
+                ? "Install everything   ✓ all packages present — click to re-check"
+                : "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + Video + Agent Skills + skills + Ollama)";
         if (setupAllCap != null)
             setupAllCap.Text = all
                 ? "Your toolchain is complete — just keep it fresh with \"Update core packages\" below."
-                : "Fresh machine? \"Install everything\" auto-installs Node.js LTS first, then the latest Claude/Codex CLI + tools.";
+                : "Re-checks every package on each click and installs only what's missing — safe to run any time.";
         if (setupUpdBtn != null)
         {
             setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video · Agent Skills)   ✓ everything installed"
@@ -2140,6 +2392,7 @@ try {
             setupUpdBtn.ForeColor = all ? Color.Black : Color.White;
         }
     }
+    bool? lastAllInstalledStyle;
 
     void SetupLog(string line)
     {
@@ -2148,6 +2401,8 @@ try {
             if (setupOut == null) return;
             if (setupOut.InvokeRequired) { setupOut.BeginInvoke((Action)(() => SetupLog(line))); return; }
             setupOut.AppendText("\r\n" + line);
+            // mirror into the Ollama tab's activity pane so its actions stay visible there
+            if (ollamaOut != null) ollamaOut.AppendText("\r\n" + line);
         }
         catch { }
     }
@@ -2280,6 +2535,311 @@ try {
         }
         SetupLog(ok ? "OK  Headroom installed. It's OPTIONAL — enable it per-launch on the Launch tab."
                     : "Could not install Headroom. Install Python 3.10+ (or pipx/uv), then retry.");
+    }
+
+    // Ollama is BUILT INTO Hydra: the portable runtime zip (no installer, no system
+    // service, no tray app) is unpacked into ~/.claude-manager/ollama and models live
+    // in there too. Removing that folder removes every trace.
+    void InstallOllama()
+    {
+        if (File.Exists(OllamaEmbeddedExe)) { SetupLog("Ollama runtime already built into Hydra."); return; }
+        SetupLog("Building the Ollama runtime into Hydra (portable — nothing is installed system-wide)…");
+        RunPowerShellScript(OllamaPortableScript());
+        bool ok = File.Exists(OllamaEmbeddedExe);
+        SetupLog(ok ? "OK  Ollama built into Hydra: " + OllamaDir + " (models will live in " + OllamaModelsDir + ")."
+                    : "Could not download the Ollama runtime — check the log above (network?) and retry.");
+        try { BeginInvoke((Action)QueueOllamaRefresh); } catch { }
+    }
+
+    static string OllamaPortableScript()
+    {
+        return "$ErrorActionPreference='Stop'\r\n" +
+"try {\r\n" +
+"  $dir = '" + OllamaDir + "'\r\n" +
+"  New-Item -ItemType Directory -Force -Path $dir | Out-Null\r\n" +
+"  New-Item -ItemType Directory -Force -Path (Join-Path $dir 'models') | Out-Null\r\n" +
+"  $zip = Join-Path $env:TEMP 'ollama-windows-amd64.zip'\r\n" +
+"  Write-Host 'Downloading the portable Ollama runtime (~1 GB, one time)…'\r\n" +
+"  Invoke-WebRequest 'https://ollama.com/download/ollama-windows-amd64.zip' -OutFile $zip -UseBasicParsing\r\n" +
+"  Write-Host 'Unpacking into Hydra…'\r\n" +
+"  Expand-Archive $zip -DestinationPath $dir -Force\r\n" +
+"  Remove-Item $zip -Force -ErrorAction SilentlyContinue\r\n" +
+"  Write-Host 'OK  portable runtime unpacked.'\r\n" +
+"} catch { Write-Host ('ERR Ollama runtime download failed: ' + $_.Exception.Message) }";
+    }
+
+    // ---- Ollama model library (Settings → "Ollama models") ----
+    // Recommended pull-able tags shown alongside whatever is already downloaded.
+    // Sourced from a user-editable recommended_models.txt (GROUP|tag per line, LOW/HIGH
+    // VRAM groups like the classic OLLAMA MANAGER); seeded with the ornith defaults.
+    static List<KeyValuePair<string, string>> RecommendedOllamaModels()
+    {
+        var list = new List<KeyValuePair<string, string>>();
+        try
+        {
+            if (!File.Exists(OllamaRecFile))
+            {
+                Directory.CreateDirectory(OllamaDir);
+                File.WriteAllText(OllamaRecFile, "LOW|ornith:9b\r\nHIGH|ornith:35b\r\n");
+            }
+            foreach (var raw in File.ReadAllLines(OllamaRecFile))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                int bar = line.IndexOf('|');
+                if (bar > 0) list.Add(new KeyValuePair<string, string>(line.Substring(0, bar).Trim().ToUpperInvariant(), line.Substring(bar + 1).Trim()));
+                else list.Add(new KeyValuePair<string, string>("", line));
+            }
+        }
+        catch { }
+        if (list.Count == 0)
+        {
+            list.Add(new KeyValuePair<string, string>("LOW", "ornith:9b"));
+            list.Add(new KeyValuePair<string, string>("HIGH", "ornith:35b"));
+        }
+        return list;
+    }
+
+    // Disk footprint of the built-in model store (plus any legacy ~/.ollama store).
+    static double OllamaModelsGb()
+    {
+        long total = 0;
+        string[] blobRoots = { Path.Combine(OllamaModelsDir, "blobs"), Path.Combine(HomeDir, ".ollama", "models", "blobs") };
+        foreach (var root in blobRoots)
+            try
+            {
+                if (Directory.Exists(root))
+                    foreach (var f in Directory.GetFiles(root)) total += new FileInfo(f).Length;
+            }
+            catch { }
+        return Math.Round(total / 1073741824.0, 2);
+    }
+
+    // Locally downloaded models: ask the server when it's up (authoritative, includes
+    // custom OLLAMA_MODELS dirs), else scan ~/.ollama/models/manifests so the list
+    // still works with the server off.
+    static List<string> InstalledOllamaModels()
+    {
+        var list = new List<string>();
+        if (TestPort(OllamaPort))
+        {
+            try
+            {
+                var req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + OllamaPort + "/api/tags");
+                req.Timeout = 1500;
+                using (var resp = req.GetResponse())
+                using (var rd = new StreamReader(resp.GetResponseStream()))
+                {
+                    string json = rd.ReadToEnd();
+                    foreach (Match m in Regex.Matches(json, "\"name\"\\s*:\\s*\"([^\"]+)\""))
+                        if (!list.Contains(m.Groups[1].Value)) list.Add(m.Groups[1].Value);
+                }
+                return list;
+            }
+            catch { }
+        }
+        string[] manifestRoots = {
+            Path.Combine(OllamaModelsDir, "manifests"),                       // Hydra's built-in runtime
+            Path.Combine(HomeDir, ".ollama", "models", "manifests")           // legacy system installs
+        };
+        foreach (var manifests in manifestRoots)
+        try
+        {
+            if (Directory.Exists(manifests))
+                foreach (var registry in Directory.GetDirectories(manifests))         // registry.ollama.ai
+                foreach (var ns in Directory.GetDirectories(registry))                // library
+                foreach (var model in Directory.GetDirectories(ns))                   // llama3.2
+                foreach (var tagFile in Directory.GetFiles(model))                    // 1b / latest
+                {
+                    string tag = Path.GetFileName(tagFile);
+                    string name = Path.GetFileName(model) + (tag == "latest" ? ":latest" : ":" + tag);
+                    if (!list.Contains(name)) list.Add(name);
+                }
+        }
+        catch { }
+        return list;
+    }
+
+    // Rebuild the picker: downloaded models first (✓-marked), then the popular catalog.
+    void RefreshOllamaModels()
+    {
+        if (ollamaModelCombo == null) return;
+        ThreadPool.QueueUserWorkItem(_ => {
+            var installed = InstalledOllamaModels();
+            var recommended = RecommendedOllamaModels();
+            double gb = OllamaModelsGb();
+            bool serverUp = TestPort(OllamaPort);
+            try
+            {
+                BeginInvoke((Action)(() => {
+                    if (ollamaModelCombo == null || IsDisposed) return;
+                    string typed = ollamaModelCombo.Text;
+                    ollamaModelCombo.Items.Clear();
+                    foreach (var m in installed) ollamaModelCombo.Items.Add("✓ " + m);
+                    foreach (var rec in recommended)
+                    {
+                        string t = rec.Value;
+                        bool have = false;
+                        foreach (var m in installed)
+                            if (m == t || m == t + ":latest" || (t.IndexOf(':') < 0 && m.StartsWith(t + ":"))) { have = true; break; }
+                        if (!have) ollamaModelCombo.Items.Add(rec.Key.Length > 0 ? t + "   (" + rec.Key + " VRAM)" : t);
+                    }
+                    ollamaModelCombo.Text = typed;
+                    if (ollamaModelsStatus != null)
+                    {
+                        ollamaModelsStatus.Text = installed.Count > 0
+                            ? "✓ " + installed.Count + " model" + (installed.Count == 1 ? "" : "s") + " downloaded · " + gb + " GB on disk" + (serverUp ? "" : " (server off — list from disk)")
+                            : (FindOllamaExecutable() == null ? "Ollama isn't built in yet — the Download button builds it into Hydra first."
+                                                              : "No models downloaded yet — pick a tag and click Download.");
+                        ollamaModelsStatus.ForeColor = installed.Count > 0 ? Green : TextDim;
+                    }
+                }));
+            }
+            catch { }
+        });
+    }
+
+    // Combo text → clean tag ("✓ name" and "name   (LOW VRAM)" both → "name").
+    static string SelectedOllamaTag(string text)
+    {
+        string tag = (text ?? "").Trim();
+        if (tag.StartsWith("✓")) tag = tag.TrimStart('✓').Trim();
+        int sp = tag.IndexOf(' ');
+        if (sp > 0) tag = tag.Substring(0, sp);
+        return tag;
+    }
+
+    // Boot the built-in server (if it isn't up) and wait for the port. Shared by
+    // pull / delete / chat so every model action works from a cold start.
+    bool EnsureOllamaServer(out string exe)
+    {
+        exe = FindOllamaExecutable();
+        if (exe == null)
+        {
+            InstallOllama();
+            exe = FindOllamaExecutable();
+            if (exe == null) return false;   // InstallOllama already logged the failure
+        }
+        if (TestPort(OllamaPort)) return true;
+        SetupLog("Starting the built-in Ollama server…");
+        string exeCopy = exe;
+        try
+        {
+            BeginInvoke((Action)(() => {
+                bool owned = false;
+                try { owned = ollamaProcess != null && !ollamaProcess.HasExited; } catch { }
+                if (!owned) StartOwnedOllama(exeCopy);
+            }));
+        }
+        catch { }
+        for (int i = 0; i < 40 && !TestPort(OllamaPort); i++) Thread.Sleep(250);
+        if (!TestPort(OllamaPort))
+        {
+            SetupLog("The Ollama server did not come up — click \"Start Ollama\" in the sidebar, then retry.");
+            return false;
+        }
+        return true;
+    }
+
+    // `ollama rm <tag>` — mirrors the classic manager's delete flow.
+    void DeleteOllamaModel(string tag)
+    {
+        SetupLog("");
+        SetupLog("===== Ollama: delete model " + tag + " =====");
+        string exe;
+        if (!EnsureOllamaServer(out exe)) return;
+        int rc = RunLoggedCmd("set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\" && " + CmdQ(exe) + " rm " + tag);
+        SetupLog(rc == 0 ? "OK  " + tag + " deleted." : "ollama rm returned exit " + rc + ".");
+        try { BeginInvoke((Action)RefreshOllamaModels); } catch { }
+    }
+
+    // Open an embedded chat terminal running the model (the classic "Launch a Model").
+    void ChatOllamaModel(string tag)
+    {
+        string exe = FindOllamaExecutable();
+        if (exe == null)
+        {
+            MessageBox.Show("Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) first.",
+                "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        string env = "set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\""
+            + " && set \"OLLAMA_ORIGINS=*\""
+            + " && set \"OLLAMA_NUM_CTX=" + OllamaCtx() + "\" && set \"OLLAMA_KEEP_ALIVE=30m\""
+            + " && set \"OLLAMA_FLASH_ATTENTION=1\" && set \"OLLAMA_NUM_PARALLEL=1\" && set \"OLLAMA_KV_CACHE_TYPE=q8_0\"";
+        if (IsUnder(exe, OllamaDir))
+        {
+            try { Directory.CreateDirectory(OllamaModelsDir); } catch { }
+            env += " && set \"OLLAMA_MODELS=" + OllamaModelsDir + "\"";
+        }
+        // Boot the built-in server first so the chat just works; the terminal itself
+        // waits for the port before starting the model (curl ships with Windows 10+).
+        if (!TestPort(OllamaPort))
+        {
+            bool owned = false;
+            try { owned = ollamaProcess != null && !ollamaProcess.HasExited; } catch { }
+            if (!owned) StartOwnedOllama(exe);
+        }
+        string flags = tag.IndexOf("qwen3.5", StringComparison.OrdinalIgnoreCase) >= 0 ? " --think=false" : "";
+        string wait = "curl -s --retry 30 --retry-delay 1 --retry-all-errors -m 2 http://127.0.0.1:" + OllamaPort + "/api/version >nul 2>&1";
+        string command = env + " && echo Loading " + tag + "... && " + wait + " && " + CmdQ(exe) + " run " + tag + flags;
+        string id = Guid.NewGuid().ToString("N").Substring(0, 12);
+        var sess = new TermSession {
+            Id = id, Folder = HomeDir, Agent = "Ollama", Model = tag,
+            Task = "Chat with " + tag, Name = TabHint("Chat " + tag, HomeDir), Status = TermReady, Color = Green
+        };
+        try
+        {
+            var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title Ollama " + id + " & " + command)
+                { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = HomeDir };
+            sess.Proc = Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Could not open the model chat terminal:\n" + ex.Message, "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        sessions.Add(sess);
+        selectedTerm = sess;
+        SelectNav(0);
+        RefreshTermList();
+        ShowSelectedTerminal();
+    }
+
+    // Persist a new context window; restart the owned server so it takes effect.
+    void ApplyOllamaCtx(string text)
+    {
+        int v; string t = (text ?? "").Trim();
+        if (!int.TryParse(t, out v) || v <= 0) { SetupLog("Context length must be a positive whole number (e.g. 8192)."); return; }
+        SaveOllamaCtx(v);
+        SetupLog("Ollama context length set to " + v + ".");
+        bool owned = false;
+        try { owned = ollamaProcess != null && !ollamaProcess.HasExited; } catch { }
+        if (owned)
+        {
+            SetupLog("Restarting the built-in Ollama server with the new context…");
+            StopOwnedOllama();
+            string exe = FindOllamaExecutable();
+            SetupRun(() => {
+                for (int i = 0; i < 20 && TestPort(OllamaPort); i++) Thread.Sleep(250);
+                if (exe != null) { try { BeginInvoke((Action)(() => StartOwnedOllama(exe))); } catch { } }
+            });
+        }
+        else if (TestPort(OllamaPort))
+            SetupLog("Note: the running server is managed outside Hydra — restart it yourself to apply the new context.");
+    }
+
+    // `ollama pull <tag>` streamed into the setup log. Installs Ollama and boots the
+    // server first when needed, so the button works from a completely blank machine.
+    void PullOllamaModel(string tag)
+    {
+        SetupLog("");
+        SetupLog("===== Ollama: download model " + tag + " =====");
+        string exe;
+        if (!EnsureOllamaServer(out exe)) return;
+        int rc = RunLoggedCmd("set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\" && " + CmdQ(exe) + " pull " + tag);
+        SetupLog(rc == 0 ? "OK  Model " + tag + " downloaded and ready." : "ollama pull returned exit " + rc + ".");
+        try { BeginInvoke((Action)RefreshOllamaModels); } catch { }
     }
 
     // ---- native toolchain: ship binaries so the user downloads nothing ----
@@ -2522,24 +3082,46 @@ try {
         try { BeginInvoke((Action)LoadSkills); } catch { }
     }
 
+    // "Install everything" is a missing-only pass: it re-checks each package every click
+    // and installs just what isn't there yet, so it's safe (and fast) to run repeatedly.
     void InstallEverything()
     {
         SetupLog("");
-        SetupLog("===== Installing everything (Node + Claude CLI + Codex CLI + RTK + Caveman + Claude Video + Agent Skills + skills) =====");
-        if (!EnsureNode())
+        SetupLog("===== Install everything (Node + Claude/Codex CLI + RTK + Caveman + Video + Agent Skills + skills + Ollama) =====");
+        SetupLog("Checking what's already installed — only missing packages get installed.");
+        RefreshPathFromRegistry();
+
+        if (HasNpm()) SetupLog("OK  Node.js/npm already installed — skipping.");
+        else if (!EnsureNode())
         {
             SetupLog("Node.js is required and could not be installed automatically. Fix that, then click Install everything again.");
             return;
         }
-        InstallClaudeCli();
-        InstallCodexCli();
-        InstallRtk();
-        InstallCaveman();
-        InstallClaudeVideoIfPossible();
-        InstallAgentSkillsIfPossible();
+
+        if (HasClaude()) SetupLog("OK  Claude CLI already installed — skipping.");
+        else InstallClaudeCli();
+
+        if (HasCodex()) SetupLog("OK  Codex CLI already installed — skipping.");
+        else InstallCodexCli();
+
+        if (HasRtk() && RtkInstalled()) SetupLog("OK  RTK already installed — skipping.");
+        else InstallRtk();
+
+        InstallCaveman();   // no-ops with "already installed" when present
+
+        if (VideoInstalled()) SetupLog("OK  Claude Video already installed — skipping.");
+        else InstallClaudeVideoIfPossible();
+
+        if (AgentSkillsInstalled()) SetupLog("OK  Agent Skills already installed — skipping.");
+        else InstallAgentSkillsIfPossible();
+
         string src = FindSkillsSource();
         if (src != null) DoInstallSkills(src);
         else SetupLog("No bundled skills found next to the app — use the Skills button to pick a folder.");
+
+        if (File.Exists(OllamaEmbeddedExe)) SetupLog("OK  Ollama runtime already built into Hydra — skipping.");
+        else InstallOllama();
+
         SetupLog("===== Done. Restart any open Claude/Codex sessions to pick up new tools/skills. =====");
     }
 
@@ -2941,6 +3523,7 @@ try {
             Dock = DockStyle.Fill, Margin = new Padding(0, 4, 0, 4),
             FlowDirection = FlowDirection.LeftToRight, WrapContents = false, AutoScroll = true,
             BackColor = Color.Transparent, Padding = new Padding(0), Visible = false };
+        termTabs.Resize += (s, e) => UpdateTermTabsScroll();   // re-check overflow on window resize
         root.Controls.Add(termTabs, 0, 1);
 
         // ---- terminal host fills the remaining space ----
@@ -3348,7 +3931,7 @@ try {
         {
             var cur = s;
             var tabBtn = new DrawButton {
-                Tag = s, AutoSize = false, Size = new Size(230, 58),
+                Tag = s, AutoSize = false, Size = new Size(TermTabWidth(s), 58),
                 Margin = new Padding(0, 3, 6, 3), Cursor = Cursors.Hand, TabStop = true };
             RoundRegion(tabBtn, 8);
             tabBtn.Painter = (g, rect) => PaintTermTab(g, rect, cur, cur == selectedTerm);
@@ -3379,14 +3962,44 @@ try {
             termTabs.Controls.Add(tabBtn);
         }
         termTabs.ResumeLayout();
-        bool hasTabs = sessions.Count > 0;
-        termTabs.Visible = hasTabs;
-        if (terminalRoot != null && terminalRoot.RowStyles.Count > 1)
+        termTabs.Visible = sessions.Count > 0;
+        UpdateTermTabsScroll();
+        UpdateSidebarCounts();
+    }
+
+    // Tab width sized to its own text so nothing gets cut off (clamped so one
+    // extreme title can't eat the whole strip; the tooltip always has the rest).
+    int TermTabWidth(TermSession s)
+    {
+        string hint = TabHint(s.Task, s.Folder);
+        string model = SessionModelLabel(s.Model);
+        string status = string.IsNullOrWhiteSpace(s.Status) ? TermReady : s.Status.Trim();
+        int line1, line2;
+        using (var fHint = new Font("Segoe UI Semibold", 9.2f, FontStyle.Bold))
+        using (var fModel = new Font("Consolas", 8f))
+        using (var fStatus = new Font("Segoe UI", 8.8f, FontStyle.Bold))
         {
-            terminalRoot.RowStyles[1].Height = hasTabs ? 70f : 8f;
+            line1 = 26 + TextRenderer.MeasureText(hint, fHint).Width + 10 + TextRenderer.MeasureText(model, fModel).Width + 34;
+            line2 = 26 + TextRenderer.MeasureText(status, fStatus).Width + 16;
+        }
+        return Math.Max(200, Math.Min(420, Math.Max(line1, line2)));
+    }
+
+    // When the strip overflows, grow the row so the horizontal scrollbar gets its own
+    // lane instead of covering the tab bottoms.
+    void UpdateTermTabsScroll()
+    {
+        if (terminalRoot == null || terminalRoot.RowStyles.Count <= 1 || termTabs == null) return;
+        bool hasTabs = sessions.Count > 0;
+        int total = 0;
+        foreach (Control c in termTabs.Controls) total += c.Width + c.Margin.Horizontal;
+        bool overflow = hasTabs && total > Math.Max(1, termTabs.ClientSize.Width);
+        float want = hasTabs ? (overflow ? 88f : 70f) : 8f;
+        if (Math.Abs(terminalRoot.RowStyles[1].Height - want) > 0.1f)
+        {
+            terminalRoot.RowStyles[1].Height = want;
             terminalRoot.PerformLayout();
         }
-        UpdateSidebarCounts();
     }
 
     // Mac-parity terminal chip: task + runtime model on top, live status below,
@@ -3417,17 +4030,23 @@ try {
             using (var b = new SolidBrush(s.Color)) g.FillEllipse(b, cx - 4, cy - 4, 8, 8);
         }
 
+        // Title then model, each given its measured width (the tab itself is sized to
+        // fit via TermTabWidth, so ellipsis only kicks in at the clamp).
         int tx = 26;
         string hint = TabHint(s.Task, s.Folder);
+        int hintW;
         using (var f = new Font("Segoe UI Semibold", 9.2f, FontStyle.Bold))
-        using (var b = new SolidBrush(on ? Color.White : Color.FromArgb(222, 222, 228)))
-        using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(hint, f, b, new RectangleF(tx, 6, 92, 18), sf);
+        {
+            hintW = Math.Min(TextRenderer.MeasureText(hint, f).Width + 2, rect.Width - tx - 44);
+            using (var b = new SolidBrush(on ? Color.White : Color.FromArgb(222, 222, 228)))
+            using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
+                g.DrawString(hint, f, b, new RectangleF(tx, 6, hintW, 18), sf);
+        }
 
         using (var f = new Font("Consolas", 8f))
         using (var b = new SolidBrush(on ? Accent : TextFaint))
         using (var sf = new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap })
-            g.DrawString(SessionModelLabel(s.Model), f, b, new RectangleF(121, 7, rect.Width - 151, 18), sf);
+            g.DrawString(SessionModelLabel(s.Model), f, b, new RectangleF(tx + hintW + 8, 7, rect.Width - (tx + hintW + 8) - 30, 18), sf);
 
         using (var f = new Font("Segoe UI", 8f, FontStyle.Bold))
         using (var b = new SolidBrush(TextFaint))

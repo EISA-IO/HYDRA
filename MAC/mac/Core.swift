@@ -42,6 +42,13 @@ enum Paths {
         : home + "/.codex"
     static let codexAgents  = codexDir + "/AGENTS.md"
     static let codexRtk     = codexDir + "/RTK.md"
+    // Ollama is built into Hydra: a portable runtime (no installer, no login item,
+    // no system service) in Hydra's own state dir, with models kept alongside it.
+    static let ollamaDir       = stateDir + "/ollama"
+    static let ollamaExe       = stateDir + "/ollama/ollama"
+    static let ollamaModelsDir = stateDir + "/ollama/models"
+    static let ollamaCtxFile   = stateDir + "/ollama/context_size.cfg"
+    static let ollamaRecFile   = stateDir + "/ollama/recommended_models.txt"
 
     static func ensureDirs() {
         for d in [stateDir, eventsDir, sessDir, codexDir, codexSkillsDir] {

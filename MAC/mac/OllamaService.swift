@@ -27,7 +27,9 @@ private final class NativeOllamaProcess: OllamaProcess {
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = Shell.shared.path
-        environment["OLLAMA_HOST"] = "127.0.0.1:\(OllamaPort)"
+        for (key, value) in OllamaService.serverEnvironment(executable: executable) {
+            environment[key] = value
+        }
         process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -68,6 +70,8 @@ final class OllamaService: ObservableObject {
     }
 
     static func installedExecutable() -> String? {
+        // Hydra's built-in runtime wins; PATH/system copies are only a compatibility fallback.
+        if FileManager.default.isExecutableFile(atPath: Paths.ollamaExe) { return Paths.ollamaExe }
         if let executable = Shell.shared.which("ollama") { return executable }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let appExecutables = [
@@ -77,10 +81,60 @@ final class OllamaService: ObservableObject {
         return appExecutables.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    static func isEmbedded(_ executable: String) -> Bool {
+        executable.hasPrefix(Paths.ollamaDir + "/")
+    }
+
+    // Context window the built-in server starts with (persisted like the classic
+    // OLLAMA MANAGER's context_size.cfg; changing it restarts the owned server).
+    static func contextLength() -> Int {
+        if let s = try? String(contentsOfFile: Paths.ollamaCtxFile, encoding: .utf8),
+           let v = Int(s.trimmingCharacters(in: .whitespacesAndNewlines)), v > 0 { return v }
+        return 8192
+    }
+
+    static func saveContextLength(_ v: Int) {
+        try? FileManager.default.createDirectory(atPath: Paths.ollamaDir, withIntermediateDirectories: true)
+        try? String(v).write(toFile: Paths.ollamaCtxFile, atomically: true, encoding: .utf8)
+    }
+
+    /// Tuned like the classic OLLAMA MANAGER: persisted context window, warm keep-alive,
+    /// flash attention, single queue, quantized KV cache. The built-in runtime also keeps
+    /// its models inside Hydra's dir.
+    static func serverEnvironment(executable: String) -> [String: String] {
+        var env: [String: String] = [
+            "OLLAMA_HOST": "127.0.0.1:\(OllamaPort)",
+            // Open to every local app: localhost-bound (nothing from the network can
+            // reach it) but any app or web origin on THIS machine may call it.
+            "OLLAMA_ORIGINS": "*",
+            "OLLAMA_NUM_CTX": String(contextLength()),
+            "OLLAMA_KEEP_ALIVE": "30m",
+            "OLLAMA_FLASH_ATTENTION": "1",
+            "OLLAMA_NUM_PARALLEL": "1",
+            "OLLAMA_KV_CACHE_TYPE": "q8_0"
+        ]
+        if isEmbedded(executable) {
+            try? FileManager.default.createDirectory(atPath: Paths.ollamaModelsDir, withIntermediateDirectories: true)
+            env["OLLAMA_MODELS"] = Paths.ollamaModelsDir
+        }
+        return env
+    }
+
+    /// Shell prefix exporting the same environment (for terminal-based commands).
+    static func shellEnvPrefix(executable: String) -> String {
+        serverEnvironment(executable: executable)
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\(TerminalLauncher.shellQuote($0.value))" }
+            .joined(separator: " ")
+    }
+
     static func terminalCommand(executable: String, serverRunning: Bool) -> String {
-        let executable = TerminalLauncher.shellQuote(executable)
-        if serverRunning { return executable + " ps" }
-        return "OLLAMA_HOST=\(TerminalLauncher.shellQuote("127.0.0.1:\(OllamaPort)")) \(executable) serve"
+        let quoted = TerminalLauncher.shellQuote(executable)
+        if serverRunning { return quoted + " ps" }
+        // The built-in runtime serves with the full tuned environment; external copies
+        // keep the minimal localhost pin (their config is the user's business).
+        if isEmbedded(executable) { return "\(shellEnvPrefix(executable: executable)) \(quoted) serve" }
+        return "OLLAMA_HOST=\(TerminalLauncher.shellQuote("127.0.0.1:\(OllamaPort)")) \(quoted) serve"
     }
 
     var buttonTitle: String {
@@ -138,7 +192,7 @@ final class OllamaService: ObservableObject {
         }
         guard process?.isRunning != true else { return }
         guard let executable = executable() else {
-            errorMessage = "Install Ollama from ollama.com, then try again. Hydra never installs or starts it without your action."
+            errorMessage = "Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide."
             state = .unavailable
             return
         }

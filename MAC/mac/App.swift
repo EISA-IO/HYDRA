@@ -43,7 +43,7 @@ struct ContentView: View {
     static func initialTab() -> Int {
         // Allow `open -n "Hydra.app" --args --tab 3` to preselect a tab (used for QA).
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--tab"), i + 1 < args.count, let n = Int(args[i + 1]), (0...4).contains(n) {
+        if let i = args.firstIndex(of: "--tab"), i + 1 < args.count, let n = Int(args[i + 1]), (0...5).contains(n) {
             return n
         }
         return 0
@@ -54,7 +54,8 @@ struct ContentView: View {
         NavItem(id: 1, title: "Settings", icon: "slider.horizontal.3"),
         NavItem(id: 2, title: "SaaS", icon: "shippingbox.fill"),
         NavItem(id: 3, title: "Skills", icon: "puzzlepiece.extension.fill"),
-        NavItem(id: 4, title: "Glossary", icon: "book.fill")
+        NavItem(id: 4, title: "Glossary", icon: "book.fill"),
+        NavItem(id: 5, title: "Ollama", icon: "cpu.fill")
     ]
 
     var body: some View {
@@ -108,6 +109,7 @@ struct ContentView: View {
         case 1: SettingsView()
         case 2: SaaSView()
         case 3: SkillsView()
+        case 5: OllamaTabView()
         default: GlossaryView()
         }
     }
@@ -203,35 +205,39 @@ struct OllamaSidebarControl: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Button {
-                if ollama.state == .runningOwned {
-                    ollama.stop()
-                } else {
-                    ollama.start()
-                    if let message = ollama.errorMessage {
-                        app.alert("Ollama", message)
+            // Status row below is the single source of truth; the Start/Stop button only
+            // shows when there's an action to take (an external server has nothing to press).
+            if ollama.state != .runningExternal {
+                Button {
+                    if ollama.state == .runningOwned {
+                        ollama.stop()
+                    } else {
+                        ollama.start()
+                        if let message = ollama.errorMessage {
+                            app.alert("Ollama", message)
+                        }
                     }
+                } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: ollama.state == .runningOwned ? "stop.fill" : "play.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .frame(width: 18)
+                        Text(ollama.buttonTitle)
+                            .font(.system(size: 12.5, weight: .semibold))
+                        Spacer()
+                    }
+                    .foregroundStyle(ollama.isRunning ? Theme.green : Theme.textDim)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(ollama.isRunning ? Theme.green.opacity(0.10) : Color.white.opacity(0.035))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
                 }
-            } label: {
-                HStack(spacing: 9) {
-                    Image(systemName: ollama.state == .runningOwned ? "stop.fill" : "play.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .frame(width: 18)
-                    Text(ollama.buttonTitle)
-                        .font(.system(size: 12.5, weight: .semibold))
-                    Spacer()
-                }
-                .foregroundStyle(ollama.isRunning ? Theme.green : Theme.textDim)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .background(ollama.isRunning ? Theme.green.opacity(0.10) : Color.white.opacity(0.035))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .disabled(ollama.buttonDisabled)
+                .accessibilityLabel(ollama.buttonTitle)
+                .help(ollamaHelp)
             }
-            .buttonStyle(.plain)
-            .disabled(ollama.buttonDisabled)
-            .accessibilityLabel(ollama.buttonTitle)
-            .help(ollamaHelp)
 
             HStack(spacing: 6) {
                 Circle()
@@ -245,18 +251,18 @@ struct OllamaSidebarControl: View {
             .padding(.horizontal, 12)
 
             Button {
-                app.launchOllamaTerminal()
+                app.openOllamaChat()
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "terminal")
-                    Text("Open Ollama Terminal")
+                    Image(systemName: "bubble.left.and.bubble.right")
+                    Text("Ollama Chat")
                 }
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(Theme.textFaint)
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
-            .help("Open an embedded Ollama terminal; starts a local server when none is running")
+            .help("Chat with the picked local model in an embedded terminal; starts the built-in server when needed")
         }
         .padding(.horizontal, 8)
     }

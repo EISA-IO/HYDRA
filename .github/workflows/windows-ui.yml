@@ -31,7 +31,7 @@ jobs:
       - name: Render and validate UI
         shell: pwsh
         run: |
-          foreach ($tab in 0..4) {
+          foreach ($tab in 0..5) {
             .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\WINDOWS\Hydra-ci.exe) -Tab $tab -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-windows-ui-$tab.png")
           }
 

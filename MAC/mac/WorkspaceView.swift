@@ -129,7 +129,10 @@ struct TermTabChip: View {
                     .lineLimit(1)
             }
         }
-        .frame(width: 230, alignment: .leading)
+        // Sized to its own text so nothing gets cut off (clamped so one extreme title
+        // can't eat the whole strip); the strip itself scrolls horizontally.
+        .frame(minWidth: 200, maxWidth: 420, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 10).padding(.vertical, 7)
         .background(selected ? Theme.accent.opacity(0.20) : Theme.field)
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)

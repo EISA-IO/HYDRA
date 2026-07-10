@@ -61,12 +61,18 @@ compact workspace toolbar, task/model terminal chips, status colors and composed
   session, instead of an agent name. Process exit supplies the stopped fallback. Claude and Codex keep separate default
   model choices, so a Codex default like **gpt-5.6-sol** is not overwritten when you switch back
   to Claude.
-- **Ollama (macOS sidebar / Windows header)** — Ollama stays off by default. **Start Ollama** runs the installed
-  official CLI as a localhost-only `ollama serve` process; **Stop Ollama** stops only the process
-  Hydra owns. Hydra also detects a server started from another terminal without taking ownership.
-  **Open Ollama Terminal** starts the server in an embedded PTY, or opens a management shell when
-  one already runs. Install Ollama separately from [ollama.com](https://ollama.com); Hydra recognizes
-  PATH installs, the CLI inside macOS `Ollama.app`, and standard Windows Ollama install folders.
+- **Ollama (built into Hydra)** — the portable Ollama runtime lives in Hydra's own state dir
+  (`~/.claude-manager/ollama`) with the models, `context_size.cfg` and `recommended_models.txt`
+  alongside it: no installer, no login item, no system service — delete the folder and every
+  trace is gone. "Install everything" (or the Ollama button) embeds it on both platforms.
+  The server stays off by default; **Start Ollama** serves localhost-only with a tuned
+  environment (persisted context window, keep-alive 30m, flash attention, single queue,
+  q8_0 KV cache) and **Stop Ollama** stops only the process Hydra owns. A server started
+  elsewhere is detected without taking ownership. **Settings → Ollama models** is the model
+  manager: a recommended list (LOW/HIGH VRAM groups, ornith by default), download any tag,
+  chat with a model in an embedded terminal, delete models, and change the context length
+  (restarts the owned server). Existing PATH / `Ollama.app` / system installs still work as
+  a fallback.
 - **Settings** — choose the default agent, launch defaults, token-compression toggles, one-click
   "Install everything" / "Update core packages".
   Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,
