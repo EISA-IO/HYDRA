@@ -48,7 +48,7 @@ try {
         for ($px = $X; $px -lt ($X + $Width); $px += 2) {
             for ($py = $Y; $py -lt ($Y + $Height); $py += 2) {
                 $pixel = $image.GetPixel($px, $py)
-                if ([Math]::Max($pixel.R, [Math]::Max($pixel.G, $pixel.B)) -gt 75) { $ink++ }
+                if ($pixel.A -gt 240 -and [Math]::Max($pixel.R, [Math]::Max($pixel.G, $pixel.B)) -gt 75) { $ink++ }
             }
         }
         if ($ink -lt $Minimum) {
