@@ -1832,7 +1832,7 @@ class Hydra : Form
         var acap = RowCap("Agent"); acap.Margin = new Padding(0, 0, 6, 0);
         var mcap = RowCap("Claude / ChatGPT model"); mcap.Margin = new Padding(0, 0, 6, 0);
         var pcap = RowCap("Permissions (Codex: YOLO)"); pcap.Margin = new Padding(6, 0, 0, 0);
-        agentCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
+        agentCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 6, 1) };
         agentCombo.Items.AddRange(new object[] { "Claude", "Codex" });
         agentCombo.SelectedIndex = 0;
         agentCombo.SelectedIndexChanged += (s, e) => {
@@ -1841,7 +1841,7 @@ class Hydra : Form
             if (termAgentCombo != null && termAgentCombo.SelectedItem != agentCombo.SelectedItem) termAgentCombo.SelectedItem = agentCombo.SelectedItem;
             UpdateLaunchText(); if (!loadingSettings) SaveSettings();
         };
-        modelCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(0, 1, 6, 1) };
+        modelCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 6, 1) };
         modelCombo.Items.AddRange(ClaudeModelChoices);
         modelCombo.Text = "Default";
         modelCombo.TextChanged += (s, e) => {
@@ -1849,7 +1849,7 @@ class Hydra : Form
             UpdateLaunchText();
             if (!loadingSettings && !refreshingModelChoices) SaveSettings();
         };
-        permCombo = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White, Margin = new Padding(6, 1, 0, 1) };
+        permCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(6, 1, 0, 1) };
         permCombo.Items.AddRange(new object[] { "Bypass – skip all prompts", "Plan mode (read-only)", "Accept edits automatically", "Ask for each action" });
         permCombo.SelectedIndex = 0;
         mp.Controls.Add(acap, 0, 0); mp.Controls.Add(mcap, 1, 0); mp.Controls.Add(pcap, 2, 0);
@@ -2761,6 +2761,58 @@ try {
         public bool CHeadroom, CRtk, CCaveman;
     }
 
+    class DarkComboBox : ComboBox
+    {
+        const int WM_PAINT = 0x000F, WM_NCPAINT = 0x0085, WM_PRINT = 0x0317, WM_PRINTCLIENT = 0x0318;
+
+        public DarkComboBox()
+        {
+            FlatStyle = FlatStyle.Flat;
+            BackColor = Field;
+            ForeColor = Color.White;
+            DrawMode = DrawMode.OwnerDrawFixed;
+            ItemHeight = 22;
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            Color fill = (e.State & DrawItemState.Selected) != 0 ? FieldHi : Field;
+            using (var brush = new SolidBrush(fill)) e.Graphics.FillRectangle(brush, e.Bounds);
+            string text = e.Index >= 0 && e.Index < Items.Count ? Items[e.Index].ToString() : Text;
+            TextRenderer.DrawText(e.Graphics, text ?? "", Font,
+                new Rectangle(e.Bounds.X + 6, e.Bounds.Y, Math.Max(0, e.Bounds.Width - 8), e.Bounds.Height),
+                Color.White, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            if ((e.State & DrawItemState.Focus) != 0) e.DrawFocusRectangle();
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg != WM_PAINT && m.Msg != WM_NCPAINT && m.Msg != WM_PRINT && m.Msg != WM_PRINTCLIENT) return;
+            if ((m.Msg == WM_PRINT || m.Msg == WM_PRINTCLIENT) && m.WParam != IntPtr.Zero)
+            {
+                using (var graphics = Graphics.FromHdc(m.WParam)) DrawDarkArrow(graphics);
+            }
+            else
+            {
+                using (var graphics = CreateGraphics()) DrawDarkArrow(graphics);
+            }
+        }
+
+        void DrawDarkArrow(Graphics graphics)
+        {
+            int arrowWidth = 19;
+            var arrow = new Rectangle(Math.Max(0, ClientSize.Width - arrowWidth), 1,
+                Math.Min(arrowWidth - 1, ClientSize.Width), Math.Max(0, ClientSize.Height - 2));
+            using (var brush = new SolidBrush(Field)) graphics.FillRectangle(brush, arrow);
+            int cx = arrow.Left + arrow.Width / 2, cy = arrow.Top + arrow.Height / 2;
+            using (var brush = new SolidBrush(TextDim))
+                graphics.FillPolygon(brush, new[] { new Point(cx - 3, cy - 1), new Point(cx + 3, cy - 1), new Point(cx, cy + 3) });
+            using (var pen = new Pen(Color.FromArgb(78, 78, 88)))
+                graphics.DrawRectangle(pen, 0, 0, Math.Max(0, ClientSize.Width - 1), Math.Max(0, ClientSize.Height - 1));
+        }
+    }
+
     // Flicker-free, fully owner-drawn button (used for the rich terminal tabs).
     class DrawButton : Button
     {
@@ -3510,8 +3562,7 @@ try {
             root.Controls.Add(c);
         };
         Func<object[], int, ComboBox> mkCombo = (items, idx) => {
-            var c = new ComboBox { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 8, 2), DropDownStyle = ComboBoxStyle.DropDownList,
-                FlatStyle = FlatStyle.Flat, BackColor = Panel2, ForeColor = Color.White };
+            var c = new DarkComboBox { Dock = DockStyle.Fill, Margin = new Padding(0, 2, 8, 2), DropDownStyle = ComboBoxStyle.DropDownList };
             c.Items.AddRange(items);
             if (items.Length > 0) c.SelectedIndex = Math.Min(Math.Max(idx, 0), items.Length - 1);
             return c;
