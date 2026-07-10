@@ -64,8 +64,8 @@ try {
         Assert-PixelNear "recent folders control" 755 65 @(40, 40, 45) 12
         Assert-PixelNear "terminal host" 500 300 @(16, 16, 18) 10
     }
-    if ($Tab -eq 1) { Assert-PixelNear "Settings dropdown arrow" 936 165 @(43, 43, 51) 12 }
-    if ($Tab -eq 2) { Assert-PixelNear "SaaS dropdown arrow" 936 135 @(43, 43, 51) 12 }
+    if ($Tab -eq 1) { Assert-PixelNear "Settings dropdown arrow" 930 165 @(43, 43, 51) 12 }
+    if ($Tab -eq 2) { Assert-PixelNear "SaaS dropdown arrow" 930 135 @(43, 43, 51) 12 }
     Assert-RegionHasInk "sidebar brand" 48 48 100 42 20
     Assert-RegionHasInk "Ollama action" 34 344 135 28 18
     Assert-RegionHasInk "sidebar footer" 14 618 164 46 15
