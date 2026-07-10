@@ -64,7 +64,9 @@ class Hydra : Form
     string claudeLaunchModel = "Default", codexLaunchModel = "Default", activeModelAgent = "Claude";
     Button launchBtn;   // the "+ New" terminal button; shows the active model + compression mix
     ToolTip tabTip;
-    ComboBox recentCombo, termAgentCombo;
+    ComboBox termAgentCombo;
+    Button recentButton;
+    ContextMenuStrip recentMenu;
     ListView skillsList, glossaryList;
     List<GEntry> glossary;
 
@@ -2567,11 +2569,19 @@ try {
 
     void RefreshRecent()
     {
-        if (recentCombo == null) return;
-        string cur = recentCombo.Text;
-        recentCombo.Items.Clear();
-        foreach (var r in GetRecent()) recentCombo.Items.Add(r);
-        recentCombo.Text = cur;
+        if (recentButton == null || recentMenu == null) return;
+        recentMenu.Items.Clear();
+        foreach (var path in GetRecent())
+        {
+            string recentPath = path;
+            string project = path;
+            try { project = new DirectoryInfo(path).Name; } catch { }
+            var item = new ToolStripMenuItem(project + "  —  " + path) { ForeColor = Color.White, BackColor = Field };
+            item.Click += (s, e) => { if (termPathBox != null) termPathBox.Text = recentPath; };
+            recentMenu.Items.Add(item);
+        }
+        recentButton.Enabled = recentMenu.Items.Count > 0;
+        recentButton.Text = recentMenu.Items.Count > 0 ? "Recent ▾" : "Recent";
     }
     void UpdateProxyStatus()
     {
@@ -2824,14 +2834,18 @@ try {
         bar.Controls.Add(termPathBox, 2, 0);
         pathBox = termPathBox;   // single source of truth for the launch folder
 
-        // Recent-folders quick-pick: the ONLY leftover launch control from the old left panel,
-        // now a compact dropdown so the terminals get essentially all the space.
-        recentCombo = new ComboBox { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 8, 6),
-            DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Field, ForeColor = Color.White };
-        recentCombo.SelectedIndexChanged += (s, e) => { if (recentCombo.SelectedItem != null) termPathBox.Text = recentCombo.SelectedItem.ToString(); };
+        // Match the Mac clock menu instead of using native ComboBox chrome, which
+        // renders a bright white arrow surface under Windows visual styles.
+        recentMenu = new ContextMenuStrip { BackColor = Field, ForeColor = Color.White, ShowImageMargin = false };
+        recentButton = GhostBtn("Recent");
+        recentButton.Dock = DockStyle.Fill;
+        recentButton.Margin = new Padding(0, 4, 8, 4);
+        recentButton.Click += (s, e) => {
+            if (recentMenu.Items.Count > 0) recentMenu.Show(recentButton, new Point(0, recentButton.Height));
+        };
         if (tabTip == null) tabTip = new ToolTip { ShowAlways = true, InitialDelay = 250 };
-        tabTip.SetToolTip(recentCombo, "Recent project folders");
-        bar.Controls.Add(recentCombo, 3, 0);
+        tabTip.SetToolTip(recentButton, "Recent project folders");
+        bar.Controls.Add(recentButton, 3, 0);
 
         var browseBtn = GhostBtn("Browse…");
         browseBtn.Dock = DockStyle.Fill; browseBtn.Margin = new Padding(0, 4, 8, 4);
@@ -3108,6 +3122,7 @@ try {
         sess.Status = TermReady; sess.Color = Green;
         sessions.Add(sess);
         SaveRecent(folder);
+        RefreshRecent();
         selectedTerm = sess;          // focus the freshly opened tab
         RefreshTermList();
         ShowSelectedTerminal();
