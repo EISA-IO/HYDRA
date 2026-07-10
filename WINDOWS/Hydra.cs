@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -133,6 +134,8 @@ class Hydra : Form
             var mgr = new Hydra();
             if (Array.IndexOf(args, "--demo") >= 0) mgr.EnableDemo();
             if (Array.IndexOf(args, "--demolaunch") >= 0) mgr.EnableDemoLaunch();
+            int screenshot = Array.IndexOf(args, "--screenshot");
+            if (screenshot >= 0 && screenshot + 1 < args.Length) mgr.EnableScreenshot(args[screenshot + 1]);
             Application.Run(mgr);
         }
         catch (Exception ex)
@@ -145,6 +148,37 @@ class Hydra : Form
     // Self-test for the big "Launch Claude" button: sit on the Launch tab, press it,
     // and prove the resulting session embeds as a tab INSIDE the manager (not external).
     public void EnableDemoLaunch() { Shown += (s, e) => RunLaunchDemo(); }
+
+    // Native Windows render contract used by CI. It captures the actual WinForms
+    // control tree after first layout, then exits without requiring user input.
+    public void EnableScreenshot(string path)
+    {
+        Shown += (s, e) => {
+            var timer = new System.Windows.Forms.Timer { Interval = 750 };
+            timer.Tick += (a, b) => {
+                timer.Stop();
+                try
+                {
+                    Refresh();
+                    Application.DoEvents();
+                    string directory = Path.GetDirectoryName(Path.GetFullPath(path));
+                    if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+                    using (var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb))
+                    {
+                        DrawToBitmap(bitmap, new Rectangle(0, 0, Width, Height));
+                        bitmap.Save(path, ImageFormat.Png);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Environment.ExitCode = 1;
+                    try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
+                }
+                Close();
+            };
+            timer.Start();
+        };
+    }
 
     void RunLaunchDemo()
     {
