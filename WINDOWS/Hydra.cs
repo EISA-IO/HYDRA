@@ -427,6 +427,11 @@ class Hydra : Form
             ollamaStatus.ForeColor = installed ? TextFaint : Yellow;
             if (sidebarOllamaDot != null) sidebarOllamaDot.BackColor = installed ? TextFaint : Yellow;
         }
+
+        // Chat sits right below whatever is visible — no hole where the hidden
+        // Start/Stop button would have been.
+        if (ollamaTerminalButton != null)
+            ollamaTerminalButton.Top = ollamaButton.Visible ? ollamaButton.Top + 36 : ollamaButton.Top;
     }
 
     void ToggleOllama()
