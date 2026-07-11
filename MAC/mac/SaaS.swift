@@ -51,10 +51,10 @@ final class SaaSModel: ObservableObject {
     // ---- vision ----
     @Published var pitch = ""
     @Published var features = ""
-    @Published var auth = "Email + Google + GitHub"
+    @Published var auth = "Firebase Auth (username/email + Google + Apple)"
     @Published var pay = SaaSBillingDefaults.provider
     let authOptions = ["Email + password", "Google", "GitHub", "Email + Google + GitHub",
-                       "Firebase Auth (email + Google + Apple)", "Supabase Auth (email + social)", "Clerk (drop-in auth UI)"]
+                       "Firebase Auth (username/email + Google + Apple)", "Supabase Auth (email + social)", "Clerk (drop-in auth UI)"]
     let payOptions = ["Lemon Squeezy", "Stripe", "Moyasar (KSA)", "Tap Payments (KSA)", "Polar.sh", "None (add later)"]
 
     // ---- AI layer: our own integrated, legitimate multi-provider router shipped with every
@@ -67,16 +67,16 @@ final class SaaSModel: ObservableObject {
                              "None (no AI features)"]
 
     // ---- deploy ----
-    @Published var target = "Vercel"
-    @Published var backend = "None (static site)"
+    @Published var target = "Firebase Hosting"
+    @Published var backend = "Fly.io API (container)"
     @Published var region = "us-central1"
     @Published var publicDir = "dist"
     @Published var gcpProject = ""
     @Published var serviceName = "api"
     @Published var repoVisibility = "Private"   // GitHub is the core deploy location; private by default
     let repoVisibilityOptions = ["Private", "Public"]
-    let targetOptions = ["Vercel", "Firebase Hosting", "Cloud Run"]
-    let backendOptions = ["None (static site)", "Firebase Functions + Firestore", "Cloud Run API (container)", "Vercel Serverless (/api)"]
+    let targetOptions = ["Firebase Hosting", "Vercel", "Cloud Run"]
+    let backendOptions = ["Fly.io API (container)", "None (static site)", "Firebase Functions + Firestore", "Cloud Run API (container)", "Vercel Serverless (/api)"]
     let regionOptions = ["us-central1", "us-east1", "europe-west1", "me-central2", "asia-south1"]
 
     // ---- subscriptions ----
@@ -1289,6 +1289,17 @@ final class SaaSModel: ObservableObject {
             2. Framework is auto-detected; only add vercel.json for overrides (e.g. SPA rewrite).
             3. Backend: put serverless endpoints in `/api`. Env: `vercel env add <NAME> production`, client vars need the `NEXT_PUBLIC_`/`VITE_` prefix.
             4. Connect a managed DB (Neon/Supabase/Upstash) via `DATABASE_URL`. Report the production URL and smoke-test it.
+            """
+        }
+        if backend.hasPrefix("Fly.io") {
+            s += """
+            \n
+            ## Backend compute on Fly.io
+            1. Deploy the Wasp server (Dockerfile at `.wasp/build`) to Fly: `fly launch --no-deploy` there, then `fly deploy`.
+            2. Database: `fly postgres create` + `fly postgres attach` (sets DATABASE_URL automatically).
+            3. Secrets: `fly secrets set WASP_WEB_CLIENT_URL=<hosting URL> WASP_SERVER_URL=<fly URL>` plus provider keys — never in git.
+            4. CI: create a deploy token (`fly tokens create deploy`) and add it as the FLY_API_TOKEN GitHub secret.
+            5. The frontend stays on the hosting target above and calls the Fly URL.
             """
         }
         s += "\n\n## GitHub is the core deploy location\n"

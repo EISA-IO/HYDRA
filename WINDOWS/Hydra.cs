@@ -6476,7 +6476,7 @@ try {
         row(saasFeatures, 90);
 
         saasAuth = mkCombo(new object[] { "Email + password", "Google", "GitHub", "Email + Google + GitHub",
-            "Firebase Auth (email + Google + Apple)", "Supabase Auth (email + social)", "Clerk (drop-in auth UI)" }, 3);
+            "Firebase Auth (username/email + Google + Apple)", "Supabase Auth (email + social)", "Clerk (drop-in auth UI)" }, 4);
         saasPay = mkCombo(new object[] { "Lemon Squeezy", "Stripe", "Moyasar (KSA)", "Tap Payments (KSA)", "Polar.sh", "None (add later)" }, 0);
         var payGuide = GhostBtn("Payments guide"); payGuide.Margin = new Padding(0, 2, 0, 2); payGuide.Click += (s, e) => ShowPaymentGuide();
         row(cells(new Control[] { cell("Auth", saasAuth), cell("Payments", saasPay), cell(" ", payGuide) }), 52);
@@ -6498,8 +6498,8 @@ try {
         // ================= STAGE 2 — DEPLOY =================
         row(stage(2, "Deploy", "Put it online via GitHub + your cloud of choice"), 46);
 
-        saasTarget = mkCombo(new object[] { "Vercel", "Firebase Hosting", "Cloud Run" }, 0);
-        saasBackend = mkCombo(new object[] { "None (static site)", "Firebase Functions + Firestore", "Cloud Run API (container)", "Vercel Serverless (/api)" }, 0);
+        saasTarget = mkCombo(new object[] { "Firebase Hosting", "Vercel", "Cloud Run" }, 0);
+        saasBackend = mkCombo(new object[] { "Fly.io API (container)", "None (static site)", "Firebase Functions + Firestore", "Cloud Run API (container)", "Vercel Serverless (/api)" }, 0);
         row(cells(new Control[] { cell("Deploy target", saasTarget), cell("Backend", saasBackend) }), 52);
 
         saasRegion = mkCombo(new object[] { "us-central1", "us-east1", "europe-west1", "me-central2", "asia-south1" }, 0);
@@ -6573,7 +6573,7 @@ try {
         tip.SetToolTip(saasAuth, "How users sign in. Email + password is simplest; adding Google/GitHub gives one-click login (built into Open SaaS). Integrated platforms go further: Firebase Auth = Google's hosted sign-in (email + Google + Apple, free tier); Supabase Auth = same idea on Postgres; Clerk = drop-in sign-in components with almost no code. Claude wires your pick, including syncing users into your database.");
         tip.SetToolTip(saasPay, "Which processor charges your customers. Lemon Squeezy is the default global merchant-of-record path. Tap & Moyasar support mada, Apple Pay and STC Pay for Saudi customers. Claude gets a verified integration spec for your choice.");
         tip.SetToolTip(saasTarget, "Where your site goes live. Vercel = fastest for React/Next.js. Firebase = Hosting + Firestore + Auth together. Cloud Run = a container for any language / long-running backend.");
-        tip.SetToolTip(saasBackend, "What powers your server logic. None = static site. Firebase Functions + Firestore = serverless API + DB. Cloud Run API = your container. Vercel Serverless = functions in /api.");
+        tip.SetToolTip(saasBackend, "What powers your server logic. Fly.io = the Wasp server container on Fly (recommended). None = static site. Firebase Functions + Firestore = serverless API + DB. Cloud Run API = your container. Vercel Serverless = functions in /api.");
         tip.SetToolTip(saasRegion, "The datacenter that runs your Cloud Run service. Pick one near your users (e.g. me-central2 for the Middle East).");
         tip.SetToolTip(saasServiceName, "The Cloud Run service name — appears in its URL. Lowercase, e.g. api.");
         tip.SetToolTip(saasGcpProject, "Your Google Cloud / Firebase project id (from the console). Deploys and CI/CD target this project.");
@@ -6883,6 +6883,16 @@ try {
             sb.AppendLine("1. Ensure the server listens on process.env.PORT on 0.0.0.0 (default 8080).\n2. `gcloud auth login` and set the project; enable run.googleapis.com + cloudbuild.googleapis.com.\n3. Secrets via Secret Manager; env via --set-env-vars. DB via Cloud SQL or a serverless DATABASE_URL.\n4. `gcloud run deploy " + ((saasServiceName.Text ?? "api").Trim()) + " --source . --region " + saasRegion.SelectedItem + " --allow-unauthenticated`. Report the URL and smoke-test it.");
         else
             sb.AppendLine("1. `vercel login`; run `vercel` (preview) then `vercel --prod`.\n2. Framework auto-detected; add vercel.json only for overrides.\n3. Backend: serverless endpoints in /api. Env: `vercel env add NAME production` (client vars need NEXT_PUBLIC_/VITE_).\n4. Connect a managed DB (Neon/Supabase/Upstash) via DATABASE_URL. Report the URL and smoke-test it.");
+        if ((saasBackend.SelectedItem ?? "").ToString().StartsWith("Fly.io"))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Backend compute on Fly.io");
+            sb.AppendLine("1. Deploy the Wasp server (Dockerfile at `.wasp/build`) to Fly: `fly launch --no-deploy` there, then `fly deploy`.");
+            sb.AppendLine("2. Database: `fly postgres create` + `fly postgres attach` (sets DATABASE_URL automatically).");
+            sb.AppendLine("3. Secrets: `fly secrets set WASP_WEB_CLIENT_URL=<hosting URL> WASP_SERVER_URL=<fly URL>` plus provider keys — never in git.");
+            sb.AppendLine("4. CI: create a deploy token (`fly tokens create deploy`) and add it as the FLY_API_TOKEN GitHub secret.");
+            sb.AppendLine("5. The frontend stays on the hosting target above and calls the Fly URL.");
+        }
         sb.AppendLine();
         sb.AppendLine("## GitHub is the core deploy location");
         sb.AppendLine("- Host the project as a **" + (saasRepoVis.SelectedItem ?? "Private").ToString().ToLower() + "** GitHub repository (the app can create + push it).");
