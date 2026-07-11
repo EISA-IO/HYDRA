@@ -1,24 +1,27 @@
 # Bundled native toolchain
 
-Hydra ships these so a user never has to hunt down or download tools by hand.
-On launch the app copies the right binary for the current OS into `~/.claude-manager/bin`
-(prepended to every embedded terminal's PATH) and seeds the Caveman plugin locally.
-Bundled skills are mirrored into both `~/.claude/skills` and Codex/ChatGPT's
-documented user skill folder, `~/.agents/skills`.
+Hydra’s self-contained releases include the complete core runtime. Embedded terminals place
+Hydra’s private binaries before the system `PATH`, and bundled skills are mirrored into both
+Claude and Codex/ChatGPT user skill folders.
 
-## What's bundled
-- `mac-arm64/rtk`, `mac-x64/rtk`, `win-x64/rtk.exe` — RTK input-compression binary (per platform).
-- `caveman/` — the Caveman marketplace (a local, offline Claude plugin source, Codex plugin
-  marketplace, and Node installer).
+## What is bundled
 
-## Completing cross-platform coverage
-This repo is built on Apple Silicon, so only `mac-arm64/rtk` ships prefilled. To make the app
-fully self-contained on the other targets, drop the matching binary into its slot:
-- Intel Mac: build/download `rtk` → `tools/mac-x64/rtk`
-- Windows x64: `rtk.exe` → `tools/win-x64/rtk.exe`
-The manifest lists a `fallbackInstall` command the app runs automatically if a slot is empty,
-so the app still self-provisions — bundling just makes it instant and offline.
+- Portable Node.js runtime.
+- Claude Code CLI and ChatGPT/Codex CLI.
+- Ollama runtime. Model weights remain user-selected and are not preloaded.
+- RTK input-compression binary for the target platform.
+- Caveman, Claude Video, Agent Skills, and the bundled skill library.
 
-## Agent CLIs
-Anthropic's `claude` binary and OpenAI's `codex` binary are not vendored. If either is missing,
-the app installs it once into `~/.claude-manager/bin` and keeps that directory first on PATH.
+## Release artifacts
+
+`WINDOWS/Build-SelfContained.ps1` produces one large Windows EXE containing a compressed
+payload. On first launch it extracts into `%USERPROFILE%\.claude-manager\runtime` and uses
+that private runtime before system-installed tools.
+
+`MAC/build-mac.sh` puts the architecture-matched payload directly inside
+`Hydra.app/Contents/Resources/runtime`. Set `HYDRA_THIN_BUILD=1` only for a developer build
+that intentionally omits the large runtime.
+
+The manual **Self-contained release builds** GitHub workflow builds and smoke-tests both
+targets. Review and comply with each bundled dependency’s current license and terms before
+redistributing generated artifacts.

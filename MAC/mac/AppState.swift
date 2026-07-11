@@ -25,8 +25,11 @@ final class AppState: ObservableObject {
     @Published var agent: String = "Claude"
     @Published var folder: String = Paths.home
     @Published var model: String = "Default"
-    private var claudeLaunchModel = "Default"
-    private var codexLaunchModel = "Default"
+    @Published private var claudeLaunchModel = "Default"
+    @Published private var codexLaunchModel = "Default"
+    @Published private var hermesLaunchModel = "Default"
+    @Published var hermesProvider = "auto"
+    @Published var hermesProfile = ""
     @Published var permission: String = "Bypass – skip all prompts"
     @Published var headroom = false
     @Published var rtk = false
@@ -54,6 +57,21 @@ final class AppState: ObservableObject {
     // Skills
     @Published var skills: [Skill] = []
     @Published var skillsSummary = ""
+    @Published var hermesSkills: [Skill] = []
+    @Published var hermesSkillsSummary = ""
+
+    // Native agent memory/context and MCP inventories.
+    @Published var claudeAutoMemory = true
+    @Published var codexMemories = false
+    @Published var codexContextWindow = ""
+    @Published var codexCompactLimit = ""
+    @Published var hermesCompression = true
+    @Published var hermesCompressionThreshold = "50"
+    @Published var mcpClaude = "Not checked yet."
+    @Published var mcpCodex = "Not checked yet."
+    @Published var mcpHermes = "Not checked yet."
+    @Published var mcpStatus = ""
+    @Published var mcpBusy = false
 
     // Shared access tokens & API keys (Settings → Access & API keys).
     // Persisted to ~/.claude-manager/credentials.env, injected into every
@@ -63,6 +81,7 @@ final class AppState: ObservableObject {
     // Setup / detection
     @Published var statusLine = ""
     @Published var setupLog = "Ready. Use the buttons above to install or update the Claude toolchain.\n"
+    @Published var cliUpdateStatus = "CLI updates not checked yet."
     @Published var setupBusy = false
 
     // Ollama models (Settings → Ollama models; runtime is built into Hydra)
@@ -74,16 +93,16 @@ final class AppState: ObservableObject {
     // Glossary
     let glossary: [GlossaryEntry] = Glossary.all
 
-    let claudeModelOptions = ["Default", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5"]
-    let chatGPTModelOptions = ["Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
-                               "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"]
-    var modelOptions: [String] { claudeModelOptions }
-    let agentOptions = ["Claude", "Codex"]
+    let claudeModelOptions = ModelCatalog.claude
+    let chatGPTModelOptions = ModelCatalog.codex
+    let agentOptions = ["Claude", "Codex", "Hermes"]
+    let hermesProviderOptions = HermesIntegration.providerOptions
     let permissionOptions = ["Bypass – skip all prompts", "Plan mode (read-only)",
                              "Accept edits automatically", "Ask for each action"]
 
     func launchModelOptions(for agent: String) -> [String] {
-        (agent == "Codex" || agent == "ChatGPT") ? chatGPTModelOptions : claudeModelOptions
+        if agent == "Hermes" { return HermesIntegration.modelSuggestions(forProviderID: hermesProvider) }
+        return (agent == "Codex" || agent == "ChatGPT") ? chatGPTModelOptions : claudeModelOptions
     }
 
     func setAgent(_ next: String) {
@@ -98,6 +117,37 @@ final class AppState: ObservableObject {
     func setLaunchModel(_ next: String) {
         model = next
         rememberVisibleModel()
+        saveSettings()
+    }
+
+    func defaultModel(for agent: String) -> String {
+        storedModel(for: agent)
+    }
+
+    func setDefaultModel(_ next: String, for agent: String) {
+        let normalized = normalizedModel(next, for: agent)
+        if agent == "Hermes" {
+            hermesLaunchModel = normalized
+        } else if agent == "Codex" || agent == "ChatGPT" {
+            codexLaunchModel = normalized
+        } else {
+            claudeLaunchModel = normalized
+        }
+        if self.agent == agent || (self.agent == "Codex" && agent == "ChatGPT") {
+            model = normalized
+        }
+        saveSettings()
+    }
+
+    func setHermesProviderLabel(_ label: String) {
+        hermesProvider = HermesIntegration.providerID(forLabel: label)
+        if hermesProvider == "custom" {
+            let choices = HermesIntegration.modelSuggestions(forProviderID: hermesProvider)
+            if !choices.contains(hermesLaunchModel) {
+                hermesLaunchModel = choices.first ?? "Default"
+                if agent == "Hermes" { model = hermesLaunchModel }
+            }
+        }
         saveSettings()
     }
 
@@ -118,6 +168,7 @@ final class AppState: ObservableObject {
     }
 
     private func normalizedModel(_ selection: String, for agent: String) -> String {
+        if agent == "Hermes" { return HermesIntegration.normalizedModel(selection) }
         let trimmed = selection.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed.caseInsensitiveCompare("Default") == .orderedSame { return "Default" }
         let normalized = cliModelName(trimmed)
@@ -126,7 +177,9 @@ final class AppState: ObservableObject {
 
     private func rememberVisibleModel() {
         let normalized = normalizedModel(model, for: agent)
-        if agent == "Codex" || agent == "ChatGPT" {
+        if agent == "Hermes" {
+            hermesLaunchModel = normalized
+        } else if agent == "Codex" || agent == "ChatGPT" {
             codexLaunchModel = normalized
         } else {
             claudeLaunchModel = normalized
@@ -134,7 +187,8 @@ final class AppState: ObservableObject {
     }
 
     private func storedModel(for agent: String) -> String {
-        normalizedModel((agent == "Codex" || agent == "ChatGPT") ? codexLaunchModel : claudeLaunchModel, for: agent)
+        if agent == "Hermes" { return normalizedModel(hermesLaunchModel, for: agent) }
+        return normalizedModel((agent == "Codex" || agent == "ChatGPT") ? codexLaunchModel : claudeLaunchModel, for: agent)
     }
 
     private var eventTimer: Timer?
@@ -162,6 +216,7 @@ final class AppState: ObservableObject {
         var legacyModel: String?
         var foundClaudeModel = false
         var foundCodexModel = false
+        var foundHermesModel = false
         for line in text.split(separator: "\n") {
             let l = String(line)
             if l.hasPrefix("agent=") {
@@ -180,6 +235,17 @@ final class AppState: ObservableObject {
                 let v = String(l.dropFirst(11))
                 if !v.isEmpty { codexLaunchModel = v; foundCodexModel = true }
             }
+            else if l.hasPrefix("hermesModel=") {
+                let v = String(l.dropFirst(12))
+                if !v.isEmpty { hermesLaunchModel = v; foundHermesModel = true }
+            }
+            else if l.hasPrefix("hermesProvider=") {
+                hermesProvider = HermesIntegration.normalizedProviderID(String(l.dropFirst(15)))
+            }
+            else if l.hasPrefix("hermesProfile=") {
+                let v = String(l.dropFirst(14)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if HermesIntegration.validProfile(v) { hermesProfile = v }
+            }
             else if l.hasPrefix("headroom=") { headroom = l.dropFirst(9).trimmingCharacters(in: .whitespaces) == "1" }
             else if l.hasPrefix("cont=") { continueLast = l.dropFirst(5).trimmingCharacters(in: .whitespaces) == "1" }
             else if l.hasPrefix("extra=") { extraArgs = String(l.dropFirst(6)) }
@@ -189,7 +255,9 @@ final class AppState: ObservableObject {
             }
         }
         if let legacyModel {
-            if (agent == "Codex" || agent == "ChatGPT"), !foundCodexModel {
+            if agent == "Hermes", !foundHermesModel {
+                hermesLaunchModel = legacyModel
+            } else if (agent == "Codex" || agent == "ChatGPT"), !foundCodexModel {
                 codexLaunchModel = legacyModel
             } else if !foundClaudeModel {
                 claudeLaunchModel = legacyModel
@@ -211,6 +279,9 @@ final class AppState: ObservableObject {
             "model=" + model.trimmingCharacters(in: .whitespaces),
             "claudeModel=" + claudeLaunchModel,
             "codexModel=" + codexLaunchModel,
+            "hermesModel=" + hermesLaunchModel,
+            "hermesProvider=" + HermesIntegration.normalizedProviderID(hermesProvider),
+            "hermesProfile=" + (HermesIntegration.validProfile(hermesProfile) ? hermesProfile : ""),
             "headroom=" + (headroom ? "1" : "0"),
             "perm=" + permission,
             "cont=" + (continueLast ? "1" : "0"),
@@ -230,6 +301,9 @@ final class AppState: ObservableObject {
             "agent": agent,
             "claudeModel": claudeLaunchModel,
             "codexModel": codexLaunchModel,
+            "hermesModel": hermesLaunchModel,
+            "hermesProvider": HermesIntegration.normalizedProviderID(hermesProvider),
+            "hermesProfile": HermesIntegration.validProfile(hermesProfile) ? hermesProfile : "",
             "headroom": headroom,
             "permission": permission,
             "continueLast": continueLast,
@@ -263,6 +337,9 @@ final class AppState: ObservableObject {
         if let v = dict["agent"] as? String, agentOptions.contains(v) { agent = v }
         if let v = dict["claudeModel"] as? String, !v.isEmpty { claudeLaunchModel = v }
         if let v = dict["codexModel"] as? String, !v.isEmpty { codexLaunchModel = v }
+        if let v = dict["hermesModel"] as? String, !v.isEmpty { hermesLaunchModel = HermesIntegration.normalizedModel(v) }
+        if let v = dict["hermesProvider"] as? String { hermesProvider = HermesIntegration.normalizedProviderID(v) }
+        if let v = dict["hermesProfile"] as? String, HermesIntegration.validProfile(v) { hermesProfile = v }
         if let v = dict["headroom"] as? Bool { headroom = v }
         if let v = dict["permission"] as? String, permissionOptions.contains(v) { permission = v }
         if let v = dict["continueLast"] as? Bool { continueLast = v }
@@ -374,17 +451,26 @@ final class AppState: ObservableObject {
     /// True once the core toolchain is fully present — used to hide "Install everything"
     /// and let the Setup tab focus on keeping things up to date. Headroom is optional.
     var ollamaBuiltIn: Bool { FileManager.default.isExecutableFile(atPath: Paths.ollamaExe) }
+    var hermesPlatformSupported: Bool {
+        #if arch(arm64)
+        return true
+        #else
+        return false
+        #endif
+    }
 
     var allCoreInstalled: Bool {
         let sh = Shell.shared
-        return sh.onPath("claude") && sh.onPath("codex") && sh.onPath("node") && rtkInstalled && cavemanInstalled && videoInstalled && agentSkillsInstalled && ollamaBuiltIn
+        let hermesReady = !hermesPlatformSupported || sh.onPath("hermes")
+        return sh.onPath("claude") && sh.onPath("codex") && hermesReady && sh.onPath("node") && rtkInstalled && cavemanInstalled && videoInstalled && agentSkillsInstalled && ollamaBuiltIn
     }
 
     func updateStatusLine() {
         let sh = Shell.shared
         func mark(_ ok: Bool) -> String { ok ? "OK" : "—" }
         let node = sh.onPath("node")
-        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Video \(mark(videoInstalled))   AgentSkills \(mark(agentSkillsInstalled))   Ollama \(mark(ollamaBuiltIn))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
+        let hermesMark = hermesPlatformSupported ? mark(sh.onPath("hermes")) : "N/A (Intel)"
+        statusLine = "Claude \(mark(sh.onPath("claude")))   Codex \(mark(sh.onPath("codex")))   Hermes \(hermesMark)   Node \(mark(node))   RTK \(mark(sh.onPath("rtk") && rtkInstalled))   Caveman \(mark(cavemanInstalled))   Video \(mark(videoInstalled))   AgentSkills \(mark(agentSkillsInstalled))   Ollama \(mark(ollamaBuiltIn))   Headroom \(mark(sh.onPath("headroom")))   Skills \(countSkills())"
     }
 
     func countSkills() -> Int {
@@ -423,6 +509,15 @@ final class AppState: ObservableObject {
         let en = list.filter { $0.enabled }.count
         let dis = list.count - en
         skillsSummary = "\(en) enabled" + (dis > 0 ? "  •  \(dis) disabled" : "")
+
+        let hermesRoot = Paths.hermesProfileHome(hermesProfile) + "/skills"
+        hermesSkills = FS.dirs(hermesRoot).compactMap { dir in
+            let md = dir + "/SKILL.md"
+            guard FS.exists(md) else { return nil }
+            let meta = Self.readMeta(md)
+            return Skill(name: FS.base(dir), desc: meta.desc, path: dir, enabled: true)
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        hermesSkillsSummary = "\(hermesSkills.count) installed" + (hermesProfile.isEmpty ? "" : " in \(hermesProfile)")
     }
 
     static func readMeta(_ path: String) -> (name: String, desc: String) {

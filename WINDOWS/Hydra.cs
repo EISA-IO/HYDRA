@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -23,8 +24,9 @@ class Hydra : Form
     const string TermWaiting = "Waiting for User";
     const string TermStopped = "Stopped / Token Limit";
     static readonly string HomeDir     = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    static readonly string StateDir    = Path.Combine(HomeDir, ".claude-manager");
+    static readonly string StateDir    = Environment.GetEnvironmentVariable("HYDRA_STATE_DIR") ?? Path.Combine(HomeDir, ".claude-manager");
     static readonly string ManagedBin  = Path.Combine(StateDir, "bin");   // native toolchain the app provisions (on PATH)
+    static readonly string EmbeddedRuntimeDir = Path.Combine(StateDir, "runtime");
     // Ollama is built into Hydra: a portable runtime (no installer, no system service)
     // living in Hydra's own state dir, with models kept alongside it. Hydra owns the
     // server process lifecycle — nothing external is installed or left running.
@@ -32,7 +34,11 @@ class Hydra : Form
     static readonly string OllamaModelsDir = Path.Combine(StateDir, "ollama", "models");
     static readonly string OllamaCtxFile   = Path.Combine(StateDir, "ollama", "context_size.cfg");
     static readonly string OllamaRecFile   = Path.Combine(StateDir, "ollama", "recommended_models.txt");
-    static string OllamaEmbeddedExe { get { return Path.Combine(OllamaDir, "ollama.exe"); } }
+    static string OllamaEmbeddedExe { get {
+        string installed = Path.Combine(OllamaDir, "ollama.exe");
+        string bundled = Path.Combine(EmbeddedRuntimeDir, "ollama", "ollama.exe");
+        return File.Exists(installed) ? installed : bundled;
+    } }
 
     // Context window the built-in server starts with (persisted like the classic
     // OLLAMA MANAGER's context_size.cfg; changing it restarts the owned server).
@@ -58,13 +64,23 @@ class Hydra : Form
     static readonly string CodexDisabledDir = Path.Combine(HomeDir, ".agents", "skills-disabled");
     static readonly string PluginsFile = Path.Combine(HomeDir, ".claude", "plugins", "installed_plugins.json");
     static readonly string ClaudeSettings = Path.Combine(HomeDir, ".claude", "settings.json");
+    static readonly string ClaudeInstructions = Path.Combine(HomeDir, ".claude", "CLAUDE.md");
+    static readonly string ClaudeMemoryDir = Path.Combine(HomeDir, ".claude", "projects");
     static readonly string CodexDir    = Environment.GetEnvironmentVariable("CODEX_HOME") ?? Path.Combine(HomeDir, ".codex");
+    static readonly string CodexConfig = Path.Combine(CodexDir, "config.toml");
     static readonly string CodexAgents = Path.Combine(CodexDir, "AGENTS.md");
     static readonly string CodexRtk    = Path.Combine(CodexDir, "RTK.md");
     static readonly string EventsDir   = Path.Combine(StateDir, "events");
     static readonly string SessDir     = Path.Combine(StateDir, "sessions");
     static readonly object[] ClaudeModelChoices = { "Default", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5" };
     static readonly object[] ChatGptModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark" };
+    // "Hermes default" (auto) can land on any provider, so offer a cross-section of the catalogs.
+    static readonly object[] HermesModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.5", "claude-sonnet-5", "claude-opus-4-8", "qwen3-coder:30b", "gpt-oss:20b" };
+    // Local Ollama tags: the recommended seeds plus common local coding models.
+    static readonly object[] HermesOllamaModelChoices = { "ornith:9b", "ornith:35b", "qwen3-coder:30b", "gpt-oss:20b" };
+    // OpenRouter: the curated allow-list of vendor-prefixed IDs Hydra supports.
+    static readonly object[] HermesOpenRouterModelChoices = { "moonshotai/kimi-k2.7-code", "z-ai/glm-5.2", "deepseek/deepseek-v4-flash" };
+    static readonly object[] HermesProviderChoices = { "Hermes default", "ChatGPT / Codex OAuth", "Claude / Anthropic", "Ollama (local)", "OpenRouter" };
     static bool screenshotMode;
 
     // palette — dark liquid-glass
@@ -84,17 +100,29 @@ class Hydra : Form
     readonly List<Control> contentPanels = new List<Control>();
 
     TextBox pathBox, extraBox, glossarySearch;
-    ComboBox agentCombo, modelCombo, permCombo;
+    ComboBox agentCombo, permCombo, hermesProviderCombo;
+    ComboBox claudeDefaultModelCombo, codexDefaultModelCombo, hermesDefaultModelCombo;
+    TextBox hermesProfileBox;
+    Label hermesStatus;
+    Label hermesMappingSummary;
     CheckBox hrCheck, rtCheck, cvCheck, continueChk;
     Label hrStatus, rtStatus, cvStatus, skillsCount, compAdvisory;
     bool suppressCaveman, suppressRtk, loadingSettings, refreshingModelChoices;
-    string claudeLaunchModel = "Default", codexLaunchModel = "Default", activeModelAgent = "Claude";
+    string claudeLaunchModel = "Default", codexLaunchModel = "Default", hermesLaunchModel = "Default";
+    string hermesProvider = "auto", hermesProfile = "";
+    string nextLaunchModelOverride;
     Button launchBtn;   // the "+ New" terminal button; shows the active model + compression mix
     ToolTip tabTip;
     ComboBox termAgentCombo;
     Button recentButton;
     ContextMenuStrip recentMenu;
     ListView skillsList, glossaryList;
+    TextBox mcpClaudeOut, mcpCodexOut, mcpHermesOut;
+    Label mcpStatus;
+    Button mcpRefresh;
+    CheckBox claudeAutoMemoryCheck, codexMemoriesCheck, hermesCompressionCheck;
+    TextBox codexContextBox, codexCompactBox, hermesThresholdBox;
+    bool loadingAgentContext;
     List<GEntry> glossary;
 
     // live UI animation (breathing launch button, pulsing header dot, spinning term tabs)
@@ -134,6 +162,7 @@ class Hydra : Form
     Button ollamaBuildBtn;              // Ollama tab: build-into-Hydra action
     TextBox ollamaOut;                  // Ollama tab: activity log (mirror of setup log)
     System.Windows.Forms.Timer ollamaTimer;
+    bool expectTwoHermesForScreenshot;
     bool ollamaProbePending, ollamaStartPending;
 
     // saas builder — unified one-page lifecycle (Vision / Deploy / Subscriptions)
@@ -162,18 +191,26 @@ class Hydra : Form
             HandleHook(args);
             return;
         }
+        if (Array.IndexOf(args, "--test-agent-config") >= 0)
+        {
+            Environment.ExitCode = RunAgentConfigSelfTest() ? 0 : 1;
+            return;
+        }
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         try
         {
             int screenshot = Array.IndexOf(args, "--screenshot");
             screenshotMode = screenshot >= 0 && screenshot + 1 < args.Length;
+            int freshInput = Array.IndexOf(args, "--test-fresh-input");
             int screenshotTab = 0;
             int tabArg = Array.IndexOf(args, "--tab");
             if (tabArg >= 0 && tabArg + 1 < args.Length) int.TryParse(args[tabArg + 1], out screenshotTab);
             var mgr = new Hydra();
             if (Array.IndexOf(args, "--demo") >= 0) mgr.EnableDemo();
             if (Array.IndexOf(args, "--demolaunch") >= 0) mgr.EnableDemoLaunch();
+            if (Array.IndexOf(args, "--demohermes") >= 0) mgr.EnableHermesDemoLaunch();
+            if (freshInput >= 0 && freshInput + 1 < args.Length) mgr.EnableFreshTerminalInputTest(args[freshInput + 1]);
             if (screenshotMode) mgr.EnableScreenshot(args[screenshot + 1], screenshotTab);
             Application.Run(mgr);
         }
@@ -187,18 +224,87 @@ class Hydra : Form
     // Self-test for the big "Launch Claude" button: sit on the Launch tab, press it,
     // and prove the resulting session embeds as a tab INSIDE the manager (not external).
     public void EnableDemoLaunch() { Shown += (s, e) => RunLaunchDemo(); }
+    public void EnableHermesDemoLaunch() { expectTwoHermesForScreenshot = true; Shown += (s, e) => RunHermesLaunchDemo(); }
+
+    // Regression contract for the empty-workspace focus path: launch the very first
+    // embedded console, type through normal Windows keyboard focus, and require the
+    // command to execute. Posting input directly to the process would hide focus bugs.
+    public void EnableFreshTerminalInputTest(string sentinelPath)
+    {
+        Shown += (s, e) => {
+            try { if (File.Exists(sentinelPath)) File.Delete(sentinelPath); } catch { }
+            try { if (Directory.Exists(sentinelPath)) Directory.Delete(sentinelPath, true); } catch { }
+            string sentinelDirectory = Path.GetDirectoryName(sentinelPath);
+            if (termPathBox != null && Directory.Exists(sentinelDirectory)) termPathBox.Text = sentinelDirectory;
+            StartUtilityTerminal("echo Fresh terminal ready", "Fresh input test", "Shell");
+            var typeTimer = new System.Windows.Forms.Timer { Interval = 1400 };
+            typeTimer.Tick += (a, b) => {
+                typeTimer.Stop();
+                try
+                {
+                    var info = new GUITHREADINFO { cbSize = Marshal.SizeOf(typeof(GUITHREADINFO)) };
+                    GetGUIThreadInfo(0, ref info);
+                    var selected = SelectedSession();
+                    File.WriteAllText(sentinelPath + ".diag", "foreground=" + GetForegroundWindow()
+                        + " active=" + info.hwndActive + " focus=" + info.hwndFocus
+                        + " main=" + Handle + " console=" + (selected != null ? selected.Hwnd : IntPtr.Zero)
+                        + " embedded=" + (selected != null && selected.Embedded));
+                    TypeAsKeyboard("mkdir " + Path.GetFileName(sentinelPath));
+                    keybd_event(0x0D, 0, 0, UIntPtr.Zero); // Enter down
+                    keybd_event(0x0D, 0, 2, UIntPtr.Zero); // Enter up
+                }
+                catch { }
+                var verifyTimer = new System.Windows.Forms.Timer { Interval = 900 };
+                verifyTimer.Tick += (c, d) => {
+                    verifyTimer.Stop();
+                    bool ok = false;
+                    try { ok = Directory.Exists(sentinelPath); } catch { }
+                    Environment.ExitCode = ok ? 0 : 1;
+                    Shutdown();
+                    Environment.Exit(Environment.ExitCode);
+                };
+                verifyTimer.Start();
+            };
+            typeTimer.Start();
+        };
+    }
+
+    static void TypeAsKeyboard(string text)
+    {
+        foreach (char ch in text)
+        {
+            short encoded = VkKeyScan(ch);
+            if (encoded == -1) continue;
+            byte key = (byte)(encoded & 0xff);
+            byte modifiers = (byte)((encoded >> 8) & 0xff);
+            if ((modifiers & 1) != 0) keybd_event(0x10, 0, 0, UIntPtr.Zero); // Shift
+            if ((modifiers & 2) != 0) keybd_event(0x11, 0, 0, UIntPtr.Zero); // Ctrl
+            if ((modifiers & 4) != 0) keybd_event(0x12, 0, 0, UIntPtr.Zero); // Alt
+            keybd_event(key, 0, 0, UIntPtr.Zero);
+            keybd_event(key, 0, 2, UIntPtr.Zero);
+            if ((modifiers & 4) != 0) keybd_event(0x12, 0, 2, UIntPtr.Zero);
+            if ((modifiers & 2) != 0) keybd_event(0x11, 0, 2, UIntPtr.Zero);
+            if ((modifiers & 1) != 0) keybd_event(0x10, 0, 2, UIntPtr.Zero);
+        }
+    }
 
     // Native Windows render contract used by CI. It captures the actual WinForms
     // control tree after first layout, then exits without requiring user input.
     public void EnableScreenshot(string path, int tab)
     {
         Shown += (s, e) => {
-            SelectNav(Math.Max(0, Math.Min(5, tab)));
-            var timer = new System.Windows.Forms.Timer { Interval = 750 };
+            SelectNav(Math.Max(0, Math.Min(6, tab)));
+            var timer = new System.Windows.Forms.Timer { Interval = tab == 6 ? 7000 : 750 };
             timer.Tick += (a, b) => {
                 timer.Stop();
                 try
                 {
+                    if (expectTwoHermesForScreenshot)
+                    {
+                        int hermesTabs = 0;
+                        foreach (var session in sessions) if (session.Agent == "Hermes") hermesTabs++;
+                        if (hermesTabs < 2) throw new InvalidOperationException("Hermes multi-terminal demo opened " + hermesTabs + " tabs; expected 2.");
+                    }
                     Refresh();
                     Application.DoEvents();
                     string directory = Path.GetDirectoryName(Path.GetFullPath(path));
@@ -223,6 +329,7 @@ class Hydra : Form
                     Environment.ExitCode = 1;
                     try { File.WriteAllText(path + ".error.txt", ex.ToString()); } catch { }
                 }
+                Shutdown(); // screenshot/demo mode must not orphan the terminal process tree
                 Environment.Exit(Environment.ExitCode);
             };
             timer.Start();
@@ -307,18 +414,21 @@ class Hydra : Form
         Directory.CreateDirectory(EventsDir);
         Directory.CreateDirectory(SessDir);
         Directory.CreateDirectory(ManagedBin);
+        ProvisionEmbeddedRuntime();
         // The app's OWN managed bin comes FIRST on PATH so natively-bundled tools (rtk, etc.)
         // always resolve — even on a PC where the user has installed nothing. Launched
         // terminals inherit this process PATH. This is what makes Hydra self-dependent.
         try {
             string cur = Environment.GetEnvironmentVariable("PATH") ?? "";
-            if (cur.IndexOf(ManagedBin, StringComparison.OrdinalIgnoreCase) < 0)
-                Environment.SetEnvironmentVariable("PATH", ManagedBin + ";" + cur, EnvironmentVariableTarget.Process);
+            string runtimeBin = Path.Combine(EmbeddedRuntimeDir, "bin");
+            if (cur.IndexOf(runtimeBin, StringComparison.OrdinalIgnoreCase) < 0)
+                Environment.SetEnvironmentVariable("PATH", ManagedBin + ";" + runtimeBin + ";" + cur, EnvironmentVariableTarget.Process);
         } catch { }
         bool firstRun = !File.Exists(SettingsFile);
         glossary = BuildGlossary();
         BuildUi();
         LoadSettings();
+        DetectStatus();
         RefreshRecent();
         UpdateProxyStatus();
         UpdateRtkStatus();
@@ -451,10 +561,8 @@ class Hydra : Form
                 BeginInvoke((Action)(() => {
                     ollamaStartPending = false;
                     if (reachable) { ApplyOllamaState(true, executable != null); return; }
-                    if (executable == null)
+                    if (WarnOllamaMissing(executable))
                     {
-                        MessageBox.Show("Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide.",
-                            "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         ApplyOllamaState(false, false);
                         return;
                     }
@@ -463,6 +571,48 @@ class Hydra : Form
             }
             catch { ollamaStartPending = false; }
         });
+    }
+
+    // The one tuned Ollama environment, shared by the owned server and every embedded
+    // Ollama terminal. OLLAMA_ORIGINS=* stays localhost-bound (nothing from the network
+    // can reach it) but lets any app or web origin on THIS machine call the API. The
+    // rest mirrors the classic OLLAMA MANAGER: persisted context window, warm keep-alive,
+    // flash attention, single queue, quantized KV cache. The built-in runtime also keeps
+    // its models inside Hydra's dir.
+    List<KeyValuePair<string, string>> OllamaEnvPairs(string executable)
+    {
+        var env = new List<KeyValuePair<string, string>> {
+            new KeyValuePair<string, string>("OLLAMA_HOST", "127.0.0.1:" + OllamaPort),
+            new KeyValuePair<string, string>("OLLAMA_ORIGINS", "*"),
+            new KeyValuePair<string, string>("OLLAMA_NUM_CTX", OllamaCtx().ToString()),
+            new KeyValuePair<string, string>("OLLAMA_KEEP_ALIVE", "30m"),
+            new KeyValuePair<string, string>("OLLAMA_FLASH_ATTENTION", "1"),
+            new KeyValuePair<string, string>("OLLAMA_NUM_PARALLEL", "1"),
+            new KeyValuePair<string, string>("OLLAMA_KV_CACHE_TYPE", "q8_0")
+        };
+        if (IsUnder(executable, OllamaDir))
+        {
+            try { Directory.CreateDirectory(OllamaModelsDir); } catch { }
+            env.Add(new KeyValuePair<string, string>("OLLAMA_MODELS", OllamaModelsDir));
+        }
+        return env;
+    }
+
+    // Same environment as a cmd.exe `set` chain for embedded terminals.
+    string OllamaEnvCmd(string executable)
+    {
+        var parts = new List<string>();
+        foreach (var kv in OllamaEnvPairs(executable)) parts.Add("set \"" + kv.Key + "=" + kv.Value + "\"");
+        return string.Join(" && ", parts.ToArray());
+    }
+
+    // One shared "runtime not built in yet" notice. Returns true when Ollama is missing.
+    static bool WarnOllamaMissing(string executable)
+    {
+        if (executable != null) return false;
+        MessageBox.Show("Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide.",
+            "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        return true;
     }
 
     void StartOwnedOllama(string executable)
@@ -475,22 +625,7 @@ class Hydra : Form
                 CreateNoWindow = true,
                 WorkingDirectory = HomeDir
             };
-            psi.EnvironmentVariables["OLLAMA_HOST"] = "127.0.0.1:" + OllamaPort;
-            // Open to every local app: the API stays localhost-bound (nothing from the
-            // network can reach it) but any app or web origin on THIS machine may call it.
-            psi.EnvironmentVariables["OLLAMA_ORIGINS"] = "*";
-            // Tuned like the classic OLLAMA MANAGER: persisted context window, warm
-            // keep-alive, flash attention, single queue, quantized KV cache.
-            psi.EnvironmentVariables["OLLAMA_NUM_CTX"] = OllamaCtx().ToString();
-            psi.EnvironmentVariables["OLLAMA_KEEP_ALIVE"] = "30m";
-            psi.EnvironmentVariables["OLLAMA_FLASH_ATTENTION"] = "1";
-            psi.EnvironmentVariables["OLLAMA_NUM_PARALLEL"] = "1";
-            psi.EnvironmentVariables["OLLAMA_KV_CACHE_TYPE"] = "q8_0";
-            if (IsUnder(executable, OllamaDir))   // built-in runtime keeps its models inside Hydra's dir too
-            {
-                try { Directory.CreateDirectory(OllamaModelsDir); } catch { }
-                psi.EnvironmentVariables["OLLAMA_MODELS"] = OllamaModelsDir;
-            }
+            foreach (var kv in OllamaEnvPairs(executable)) psi.EnvironmentVariables[kv.Key] = kv.Value;
             Process started = Process.Start(psi);
             if (started == null) throw new InvalidOperationException("Ollama did not create a process.");
             ollamaProcess = started;
@@ -559,28 +694,14 @@ class Hydra : Form
     void OpenOllamaTerminal()
     {
         string executable = FindOllamaExecutable();
-        if (executable == null)
-        {
-            MessageBox.Show("Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide.",
-                "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
+        if (WarnOllamaMissing(executable)) return;
 
         bool running = TestPort(OllamaPort);
         string id = Guid.NewGuid().ToString("N").Substring(0, 12);
         string task = running ? "Manage local models" : "Serve local models";
-        string env = "set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\""
-            + " && set \"OLLAMA_ORIGINS=*\""
-            + " && set \"OLLAMA_NUM_CTX=" + OllamaCtx() + "\" && set \"OLLAMA_KEEP_ALIVE=30m\""
-            + " && set \"OLLAMA_FLASH_ATTENTION=1\" && set \"OLLAMA_NUM_PARALLEL=1\" && set \"OLLAMA_KV_CACHE_TYPE=q8_0\"";
-        if (IsUnder(executable, OllamaDir))
-        {
-            try { Directory.CreateDirectory(OllamaModelsDir); } catch { }
-            env += " && set \"OLLAMA_MODELS=" + OllamaModelsDir + "\"";
-        }
         string command = running
             ? CmdQ(executable) + " ps"
-            : env + " && " + CmdQ(executable) + " serve";
+            : OllamaEnvCmd(executable) + " && " + CmdQ(executable) + " serve";
         var sess = new TermSession {
             Id = id, Folder = HomeDir, Agent = "Ollama", Model = "Local server",
             Task = task, Name = TabHint(task, HomeDir), Status = running ? TermReady : TermWorking,
@@ -598,20 +719,16 @@ class Hydra : Form
             MessageBox.Show("Could not open Ollama terminal:\n" + ex.Message, "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        sessions.Add(sess);
-        selectedTerm = sess;
-        SelectNav(0);
-        RefreshTermList();
-        ShowSelectedTerminal();
+        RegisterSession(sess, true);
     }
 
-    // Keyboard shortcuts: Ctrl+1..5 switch tabs, Ctrl+T new terminal, Ctrl+W close terminal.
+    // Keyboard shortcuts: Ctrl+1..7 switch tabs, Ctrl+T new terminal, Ctrl+W close terminal.
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
         if ((keyData & (Keys.Control | Keys.Alt)) == Keys.Control)
         {
             Keys k = keyData & Keys.KeyCode;
-            if (k >= Keys.D1 && k <= Keys.D6) { SelectNav((int)(k - Keys.D1)); return true; }
+            if (k >= Keys.D1 && k <= Keys.D7) { SelectNav((int)(k - Keys.D1)); return true; }
             if (k == Keys.T) { SelectNav(0); NewTerminal(termPathBox != null ? termPathBox.Text : null); return true; }
             if (k == Keys.W) { CloseSelectedTerminal(); return true; }
         }
@@ -833,21 +950,24 @@ class Hydra : Form
             if (!File.Exists(SettingsFile)) return;
             loadingSettings = true;
             string legacyModel = null;
-            bool foundClaudeModel = false, foundCodexModel = false;
+            bool foundClaudeModel = false, foundCodexModel = false, foundHermesModel = false;
             foreach (var line in File.ReadAllLines(SettingsFile))
             {
                 if (line.StartsWith("agent="))
                 {
                     var v = line.Substring(6);
-                    if (v == "Claude" || v == "Codex")
+                    if (v == "Claude" || v == "Codex" || v == "Hermes")
                     {
                         if (agentCombo != null) agentCombo.SelectedItem = v;
                         if (termAgentCombo != null) termAgentCombo.SelectedItem = v;
                     }
                 }
-                else if (line.StartsWith("model=")) { var v = line.Substring(6); if (v.Length > 0) { legacyModel = v; modelCombo.Text = v; } }
+                else if (line.StartsWith("model=")) { var v = line.Substring(6); if (v.Length > 0) legacyModel = v; }
                 else if (line.StartsWith("claudeModel=")) { var v = line.Substring(12); if (v.Length > 0) { claudeLaunchModel = v; foundClaudeModel = true; } }
                 else if (line.StartsWith("codexModel=")) { var v = line.Substring(11); if (v.Length > 0) { codexLaunchModel = v; foundCodexModel = true; } }
+                else if (line.StartsWith("hermesModel=")) { var v = line.Substring(12); if (v.Length > 0) { hermesLaunchModel = v; foundHermesModel = true; } }
+                else if (line.StartsWith("hermesProvider=")) { hermesProvider = line.Substring(15).Trim(); if (hermesProviderCombo != null) hermesProviderCombo.SelectedItem = HermesProviderLabel(hermesProvider); }
+                else if (line.StartsWith("hermesProfile=")) { hermesProfile = line.Substring(14).Trim(); if (hermesProfileBox != null) hermesProfileBox.Text = hermesProfile; }
                 else if (line.StartsWith("headroom=")) hrCheck.Checked = line.Substring(9).Trim() == "1";
                 else if (line.StartsWith("cont=")) continueChk.Checked = line.Substring(5).Trim() == "1";
                 else if (line.StartsWith("extra=")) { if (extraBox != null) extraBox.Text = line.Substring(6); }
@@ -862,10 +982,11 @@ class Hydra : Form
             if (legacyModel != null)
             {
                 if (agent == "Codex" && !foundCodexModel) codexLaunchModel = legacyModel;
+                else if (agent == "Hermes" && !foundHermesModel) hermesLaunchModel = legacyModel;
                 else if (!foundClaudeModel) claudeLaunchModel = legacyModel;
             }
-            activeModelAgent = agent;
             loadingSettings = false;
+            SyncDefaultModelControls();
             RefreshModelChoicesForAgent();
         }
         catch { loadingSettings = false; }
@@ -875,8 +996,10 @@ class Hydra : Form
         try
         {
             string currentAgent = ActiveLaunchAgent();
-            RememberVisibleModelForAgent(currentAgent);
-            string currentModel = modelCombo != null ? modelCombo.Text.Trim() : StoredModelForAgent(currentAgent);
+            RememberVisibleModelForAgent("Claude");
+            RememberVisibleModelForAgent("Codex");
+            RememberVisibleModelForAgent("Hermes");
+            string currentModel = StoredModelForAgent(currentAgent);
             string perm = (permCombo != null && permCombo.SelectedItem != null) ? permCombo.SelectedItem.ToString() : "";
             string extra = extraBox != null ? extraBox.Text.Trim() : "";
             File.WriteAllLines(SettingsFile, new[] {
@@ -884,6 +1007,9 @@ class Hydra : Form
                 "model=" + currentModel,
                 "claudeModel=" + claudeLaunchModel,
                 "codexModel=" + codexLaunchModel,
+                "hermesModel=" + hermesLaunchModel,
+                "hermesProvider=" + hermesProvider,
+                "hermesProfile=" + hermesProfile,
                 "headroom=" + ((hrCheck != null && hrCheck.Checked) ? "1" : "0"),
                 "perm=" + perm,
                 "cont=" + ((continueChk != null && continueChk.Checked) ? "1" : "0"),
@@ -950,6 +1076,8 @@ class Hydra : Form
         { "Resend API key",          "RESEND_API_KEY",           "re_… — transactional + subscriber email" },
         { "Fly.io token",            "FLY_API_TOKEN",            "fly tokens create deploy — flyctl deploys" },
         { "OpenRouter key",          "OPENROUTER_API_KEY",       "one key → 300+ models incl. :free" },
+        { "OpenAI API key",          "OPENAI_API_KEY",           "direct OpenAI API access for Hermes" },
+        { "Anthropic API key",       "ANTHROPIC_API_KEY",        "direct Claude API access for Hermes" },
         { "Groq key",                "GROQ_API_KEY",             "fastest free inference — console.groq.com/keys" },
         { "Gemini key",              "GEMINI_API_KEY",           "Google AI Studio free tier" }
     };
@@ -972,6 +1100,9 @@ class Hydra : Form
             + "  \"agent\": \"" + JsonEsc(agent) + "\",\r\n"
             + "  \"claudeModel\": \"" + JsonEsc(claudeLaunchModel) + "\",\r\n"
             + "  \"codexModel\": \"" + JsonEsc(codexLaunchModel) + "\",\r\n"
+            + "  \"hermesModel\": \"" + JsonEsc(hermesLaunchModel) + "\",\r\n"
+            + "  \"hermesProvider\": \"" + JsonEsc(hermesProvider) + "\",\r\n"
+            + "  \"hermesProfile\": \"" + JsonEsc(hermesProfile) + "\",\r\n"
             + "  \"headroom\": " + ((hrCheck != null && hrCheck.Checked) ? "true" : "false") + ",\r\n"
             + "  \"permission\": \"" + JsonEsc(permCombo != null && permCombo.SelectedItem != null ? permCombo.SelectedItem.ToString() : "") + "\",\r\n"
             + "  \"continueLast\": " + ((continueChk != null && continueChk.Checked) ? "true" : "false") + ",\r\n"
@@ -1014,14 +1145,18 @@ class Hydra : Form
             try
             {
                 string json = File.ReadAllText(d.FileName);
+                loadingSettings = true;
                 string agent = JsonStr(json, "agent");
-                if (agent == "Claude" || agent == "Codex")
+                if (agent == "Claude" || agent == "Codex" || agent == "Hermes")
                 {
                     if (agentCombo != null) agentCombo.SelectedItem = agent;
                     if (termAgentCombo != null) termAgentCombo.SelectedItem = agent;
                 }
                 string cm = JsonStr(json, "claudeModel"); if (!string.IsNullOrEmpty(cm)) claudeLaunchModel = cm;
                 string xm = JsonStr(json, "codexModel"); if (!string.IsNullOrEmpty(xm)) codexLaunchModel = xm;
+                string hm = JsonStr(json, "hermesModel"); if (!string.IsNullOrEmpty(hm)) hermesLaunchModel = hm;
+                string hp = JsonStr(json, "hermesProvider"); if (!string.IsNullOrEmpty(hp)) { hermesProvider = hp; if (hermesProviderCombo != null) hermesProviderCombo.SelectedItem = HermesProviderLabel(hp); }
+                string hpr = JsonStr(json, "hermesProfile"); if (hpr != null && ValidHermesProfile(hpr)) { hermesProfile = hpr; if (hermesProfileBox != null) hermesProfileBox.Text = hpr; }
                 bool? hr = JsonBool(json, "headroom"); if (hr.HasValue && hrCheck != null) hrCheck.Checked = hr.Value;
                 bool? co = JsonBool(json, "continueLast"); if (co.HasValue && continueChk != null) continueChk.Checked = co.Value;
                 string ex2 = JsonStr(json, "extraFlags"); if (ex2 != null && extraBox != null) extraBox.Text = ex2;
@@ -1047,13 +1182,14 @@ class Hydra : Form
                         File.WriteAllLines(OllamaRecFile, lines.ToArray());
                     }
                 }
-                activeModelAgent = ActiveLaunchAgent();
+                loadingSettings = false;
+                SyncDefaultModelControls();
                 RefreshModelChoicesForAgent();
                 SaveSettings();
                 RefreshOllamaModels();
                 SetupLog("OK  Settings imported from " + d.FileName + ".");
             }
-            catch (Exception ex) { SetupLog("ERR import: " + ex.Message); }
+            catch (Exception ex) { loadingSettings = false; SetupLog("ERR import: " + ex.Message); }
         }
     }
 
@@ -1100,10 +1236,10 @@ class Hydra : Form
                 "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return false;
         }
-        for (int i = 0; i < 20; i++) { Thread.Sleep(500); if (TestPort(ProxyPort)) return true; }
-        MessageBox.Show("Started 'headroom proxy' but port " + ProxyPort + " did not come up in time.",
-            "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        return false;
+        // Do not poll on the WinForms UI thread. The CLI does not contact the proxy until
+        // the user submits a prompt, giving Headroom time to finish starting while the new
+        // terminal is created and painted immediately.
+        return true;
     }
     // ---------- caveman (output compression, a global Claude Code plugin) ----------
     static bool CavemanInstalled()
@@ -1348,44 +1484,84 @@ class Hydra : Form
     }
     static object[] ChoicesForAgent(string agent)
     {
-        return agent == "Codex" ? ChatGptModelChoices : ClaudeModelChoices;
+        if (agent == "Codex") return ChatGptModelChoices;
+        if (agent == "Hermes") return HermesModelChoices;
+        return ClaudeModelChoices;
     }
     static string NormalizeModelForAgent(string selection, string agent)
     {
+        string raw = (selection ?? "").Trim();
+        if (agent == "Hermes")
+        {
+            if (raw.Length == 0 || string.Equals(raw, "Default", StringComparison.OrdinalIgnoreCase)) return "Default";
+            // Provider model IDs do not require shell syntax. This allowlist supports
+            // OpenRouter/Ollama/Hugging Face-style IDs while keeping cmd.exe quoting safe.
+            return Regex.IsMatch(raw, "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,199}$") ? raw : "Default";
+        }
         string m = CliModelName(selection);
         if (m.Length == 0 || string.Equals(m, "Default", StringComparison.OrdinalIgnoreCase)) return "Default";
         return ChoiceContains(ChoicesForAgent(agent), m) ? m : "Default";
     }
     void RememberVisibleModelForAgent(string agent)
     {
-        if (modelCombo == null || refreshingModelChoices) return;
-        string normalized = NormalizeModelForAgent(modelCombo.Text ?? "", agent);
+        if (refreshingModelChoices) return;
+        ComboBox control = DefaultModelControl(agent);
+        if (control == null) return;
+        string normalized = NormalizeModelForAgent(control.Text ?? "", agent);
         if (agent == "Codex") codexLaunchModel = normalized;
+        else if (agent == "Hermes") hermesLaunchModel = normalized;
         else claudeLaunchModel = normalized;
     }
     string StoredModelForAgent(string agent)
     {
-        return NormalizeModelForAgent(agent == "Codex" ? codexLaunchModel : claudeLaunchModel, agent);
+        return NormalizeModelForAgent(agent == "Codex" ? codexLaunchModel : (agent == "Hermes" ? hermesLaunchModel : claudeLaunchModel), agent);
+    }
+    ComboBox DefaultModelControl(string agent)
+    {
+        if (agent == "Codex") return codexDefaultModelCombo;
+        if (agent == "Hermes") return hermesDefaultModelCombo;
+        return claudeDefaultModelCombo;
+    }
+    void FillModelControl(ComboBox control, object[] choices, string value, bool allowCustom)
+    {
+        if (control == null) return;
+        control.BeginUpdate(); control.Items.Clear(); control.Items.AddRange(choices); control.EndUpdate();
+        control.DropDownStyle = allowCustom ? ComboBoxStyle.DropDown : ComboBoxStyle.DropDownList;
+        string normalized = string.IsNullOrEmpty(value) ? "Default" : value;
+        if (!allowCustom && !ChoiceContains(choices, normalized))
+            normalized = ChoiceContains(choices, "Default") ? "Default" : (choices.Length > 0 ? choices[0].ToString() : "");
+        control.Text = normalized;
+    }
+    void SyncDefaultModelControls()
+    {
+        refreshingModelChoices = true;
+        FillModelControl(claudeDefaultModelCombo, ClaudeModelChoices, StoredModelForAgent("Claude"), false);
+        FillModelControl(codexDefaultModelCombo, ChatGptModelChoices, StoredModelForAgent("Codex"), false);
+        FillModelControl(hermesDefaultModelCombo, HermesModelsForProvider(hermesProvider), StoredModelForAgent("Hermes"), hermesProvider != "custom");
+        refreshingModelChoices = false;
+        RememberVisibleModelForAgent("Hermes");
+        UpdateHermesMappingSummary();
+    }
+    void RefreshHermesModelSuggestions()
+    {
+        if (hermesDefaultModelCombo == null) return;
+        string current = loadingSettings ? StoredModelForAgent("Hermes") : NormalizeModelForAgent(hermesDefaultModelCombo.Text, "Hermes");
+        refreshingModelChoices = true;
+        FillModelControl(hermesDefaultModelCombo, HermesModelsForProvider(hermesProvider), current, hermesProvider != "custom");
+        refreshingModelChoices = false;
+        if (!loadingSettings) RememberVisibleModelForAgent("Hermes");
+        UpdateHermesMappingSummary();
+    }
+    void UpdateHermesMappingSummary()
+    {
+        if (hermesMappingSummary == null) return;
+        string model = StoredModelForAgent("Hermes");
+        hermesMappingSummary.Text = "Hermes will use  " + HermesProviderLabel(hermesProvider) + "  →  "
+            + (model == "Default" ? "provider default model" : model);
     }
     void RefreshModelChoicesForAgent()
     {
-        if (modelCombo == null) return;
-        string agent = ActiveLaunchAgent();
-        object[] choices = ChoicesForAgent(agent);
-        string current = StoredModelForAgent(agent);
-        refreshingModelChoices = true;
-        modelCombo.BeginUpdate();
-        modelCombo.Items.Clear();
-        modelCombo.Items.AddRange(choices);
-        modelCombo.EndUpdate();
-        if (current.Length == 0 || string.Equals(current, "Default", StringComparison.OrdinalIgnoreCase))
-            modelCombo.Text = "Default";
-        else if (ChoiceContains(choices, current))
-            modelCombo.Text = current;
-        else
-            modelCombo.Text = "Default";
-        activeModelAgent = agent;
-        refreshingModelChoices = false;
+        UpdateLaunchText();
     }
     void RefreshSaasBuildModelChoices()
     {
@@ -1451,6 +1627,18 @@ class Hydra : Form
         }
         catch { }
     }
+    // Register a bundled marketplace with Codex (re-adding repairs stale paths), then add
+    // the plugin from it. Shared by the caveman / claude-video / agent-skills installs.
+    int EnsureCodexMarketplacePlugin(string marketplace, string root, string plugin)
+    {
+        if (!CodexMarketplaceConfigured(marketplace, root))
+        {
+            RunCodexCmd("plugin marketplace remove " + marketplace);
+            RunCodexCmd("plugin marketplace add " + CmdQ(root));
+        }
+        return RunCodexCmd("plugin add " + plugin);
+    }
+
     void InstallBundledCavemanForCodexIfPossible()
     {
         try
@@ -1461,13 +1649,8 @@ class Hydra : Form
             if (src == null) return;
             string root = Path.Combine(src, "caveman");
             if (!File.Exists(Path.Combine(root, ".agents", "plugins", "marketplace.json"))) return;
-            if (!CodexMarketplaceConfigured("caveman", root))
-            {
-                RunCodexCmd("plugin marketplace remove caveman");
-                RunCodexCmd("plugin marketplace add " + CmdQ(root));
-            }
-            int plugin = RunCodexCmd("plugin add caveman@caveman");
-            if (plugin == 0) File.WriteAllText(marker, "");
+            if (EnsureCodexMarketplacePlugin("caveman", root, "caveman@caveman") == 0)
+                File.WriteAllText(marker, "");
         }
         catch { }
     }
@@ -1501,14 +1684,16 @@ class Hydra : Form
     {
         skillsList.BeginUpdate();
         skillsList.Items.Clear();
-        int en = 0, dis = 0;
-        AddSkillDir(SkillsDir, "Enabled", ref en);
-        AddSkillDir(DisabledDir, "Disabled", ref dis);
+        int en = 0, dis = 0, hermes = 0;
+        AddSkillDir(SkillsDir, "Claude + Codex", "Enabled", ref en);
+        AddSkillDir(DisabledDir, "Claude + Codex", "Disabled", ref dis);
+        AddSkillDir(Path.Combine(HermesActiveHomeDir(), "skills"), "Hermes", "Native", ref hermes);
         skillsList.EndUpdate();
-        skillsCount.Text = en + " enabled" + (dis > 0 ? "  •  " + dis + " disabled" : "");
+        skillsCount.Text = en + " shared enabled" + (dis > 0 ? "  •  " + dis + " disabled" : "")
+            + "  •  " + hermes + " Hermes" + ((hermesProfile ?? "").Length > 0 ? " (" + hermesProfile + ")" : "");
         UpdateSidebarCounts();
     }
-    void AddSkillDir(string root, string status, ref int count)
+    void AddSkillDir(string root, string agent, string status, ref int count)
     {
         if (!Directory.Exists(root)) return;
         foreach (var dir in Directory.GetDirectories(root))
@@ -1517,6 +1702,7 @@ class Hydra : Form
             if (!File.Exists(md)) continue;
             string nm, ds; ReadMeta(md, out nm, out ds);
             var item = new ListViewItem(new DirectoryInfo(dir).Name) { Tag = dir };
+            item.SubItems.Add(agent);
             item.SubItems.Add(status);
             item.SubItems.Add(ds);
             if (status == "Disabled") item.ForeColor = TextFaint;
@@ -1554,6 +1740,9 @@ class Hydra : Form
     void RemoveSkill()
     {
         var it = SelectedSkill(); if (it == null) return;
+        if (it.SubItems.Count > 1 && it.SubItems[1].Text == "Hermes") {
+            NewHermesUtilityTerminal("skills", "Manage Hermes skills"); return;
+        }
         string dir = (string)it.Tag;
         if (MessageBox.Show("Delete skill '" + new DirectoryInfo(dir).Name + "'?\n\n" + dir, "Hydra",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
@@ -1565,6 +1754,9 @@ class Hydra : Form
     void ToggleSkill()
     {
         var it = SelectedSkill(); if (it == null) return;
+        if (it.SubItems.Count > 1 && it.SubItems[1].Text == "Hermes") {
+            NewHermesUtilityTerminal("skills", "Manage Hermes skills"); return;
+        }
         string dir = (string)it.Tag;
         string name = new DirectoryInfo(dir).Name;
         bool enabled = IsUnder(dir, SkillsDir);
@@ -1585,6 +1777,7 @@ class Hydra : Form
         LoadSkills();
     }
     void OpenSkillsFolder() { try { Directory.CreateDirectory(SkillsDir); Process.Start(SkillsDir); } catch { } }
+    void OpenHermesSkillsFolder() { OpenFolder(Path.Combine(HermesActiveHomeDir(), "skills")); }
 
     // ---------- glossary ----------
     class GEntry { public string Cat, Term, Desc; public GEntry(string c, string t, string d) { Cat = c; Term = t; Desc = d; } }
@@ -1794,6 +1987,87 @@ class Hydra : Form
         try { return System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(name); }
         catch { return null; }
     }
+    void RunHermesLaunchDemo()
+    {
+        SelectNav(0);
+        if (agentCombo != null) agentCombo.SelectedItem = "Hermes";
+        if (termAgentCombo != null) termAgentCombo.SelectedItem = "Hermes";
+        hermesLaunchModel = "Default";
+        SyncDefaultModelControls();
+        if (termPathBox != null) termPathBox.Text = HomeDir;
+        int opened = 0;
+        var t = new System.Windows.Forms.Timer { Interval = 250 };
+        t.Tick += (s, e) => { if (launchBtn != null) launchBtn.PerformClick(); if (++opened >= 2) t.Stop(); };
+        t.Start();
+    }
+    static string HermesProviderId(string label)
+    {
+        if (label == "ChatGPT / Codex OAuth") return "openai-codex";
+        if (label == "Claude / Anthropic") return "anthropic";
+        if (label == "Ollama (local)") return "custom";
+        if (label == "OpenRouter") return "openrouter";
+        return "auto";
+    }
+    static string HermesProviderLabel(string id)
+    {
+        if (id == "openai-codex") return "ChatGPT / Codex OAuth";
+        if (id == "anthropic") return "Claude / Anthropic";
+        if (id == "custom") return "Ollama (local)";
+        if (id == "openrouter") return "OpenRouter";
+        return "Hermes default";
+    }
+    // Per-provider suggestions mirror what each provider actually serves: the same
+    // Claude/Codex catalogs the launch pickers use, real local Ollama tags, and
+    // vendor-prefixed OpenRouter IDs — so the mapping summary is always launchable.
+    static object[] HermesModelsForProvider(string provider)
+    {
+        if (provider == "openai-codex") return ChatGptModelChoices;   // Codex OAuth serves the same models as the Codex CLI
+        if (provider == "anthropic") return ClaudeModelChoices;       // Anthropic serves the same models as the Claude CLI
+        if (provider == "custom") return HermesOllamaModelChoices;    // must be an installed/pullable Ollama tag
+        if (provider == "openrouter") return HermesOpenRouterModelChoices;
+        return HermesModelChoices;
+    }
+    static bool ValidHermesProfile(string profile)
+    {
+        return string.IsNullOrEmpty(profile) || Regex.IsMatch(profile, "^[a-z0-9][a-z0-9_-]{0,63}$");
+    }
+    static void ProvisionEmbeddedRuntime()
+    {
+        try
+        {
+            using (var payload = EmbeddedRes("hydra-runtime.zip"))
+            {
+                if (payload == null) return;
+                string version = "embedded";
+                using (var versionStream = EmbeddedRes("hydra-runtime-version.txt"))
+                using (var reader = versionStream == null ? null : new StreamReader(versionStream))
+                    if (reader != null) version = reader.ReadToEnd().Trim();
+                string marker = Path.Combine(EmbeddedRuntimeDir, ".payload-version");
+                if (File.Exists(marker) && File.ReadAllText(marker).Trim() == version) return;
+                Directory.CreateDirectory(EmbeddedRuntimeDir);
+                using (var archive = new ZipArchive(payload, ZipArchiveMode.Read, false))
+                {
+                    string root = Path.GetFullPath(EmbeddedRuntimeDir + Path.DirectorySeparatorChar);
+                    foreach (var entry in archive.Entries)
+                    {
+                        string destination = Path.GetFullPath(Path.Combine(EmbeddedRuntimeDir, entry.FullName));
+                        if (!destination.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("Invalid embedded runtime path: " + entry.FullName);
+                        if (string.IsNullOrEmpty(entry.Name)) { Directory.CreateDirectory(destination); continue; }
+                        Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                        using (var input = entry.Open())
+                        using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+                            input.CopyTo(output);
+                    }
+                }
+                File.WriteAllText(marker, version);
+            }
+        }
+        catch (Exception ex)
+        {
+            try { File.WriteAllText(Path.Combine(StateDir, "runtime-extract-error.txt"), ex.ToString()); } catch { }
+        }
+    }
     static Icon AppIcon()
     {
         try { return new Icon(Path.Combine(AppDir, "bot.ico")); } catch { }
@@ -1880,8 +2154,8 @@ class Hydra : Form
         host.Controls.Add(new Label { Text = "By Ahmed Al-Eissa", AutoSize = true, Location = new Point(55, 36),
             ForeColor = TextFaint, Font = new Font("Segoe UI", 7.5f, FontStyle.Italic) });
 
-        string[] titles = { "Workspace", "Settings", "SaaS", "Skills", "Glossary", "Ollama" };
-        string[] icons = { ">_", "≡", "◇", "✦", "▤", "◎" };
+        string[] titles = { "Workspace", "Settings", "SaaS", "Skills", "Glossary", "Ollama", "MCP" };
+        string[] icons = { ">_", "≡", "◇", "✦", "▤", "◎", "⌁" };
         int navTop = 88;
         for (int i = 0; i < titles.Length; i++)
         {
@@ -1962,6 +2236,7 @@ class Hydra : Form
         var pSkills   = NewContentPanel(content);
         var pGloss    = NewContentPanel(content);
         var pOllama   = NewContentPanel(content);
+        var pMcp      = NewContentPanel(content);
 
         BuildWorkspaceTab(pWork);
         BuildSettingsTab(pSettings);
@@ -1969,6 +2244,7 @@ class Hydra : Form
         BuildSkillsTab(pSkills);
         BuildGlossaryTab(pGloss);
         BuildOllamaTab(pOllama);
+        BuildMcpTab(pMcp);
 
         Modernize(content);
         SelectNav(0);
@@ -1997,6 +2273,7 @@ class Hydra : Form
         for (int i = 0; i < contentPanels.Count; i++)
             contentPanels[i].Visible = i == sel;
         if (sel == 5) { UpdateOllamaTab(); RefreshOllamaModels(); }   // fresh state whenever the Ollama tab opens
+        if (sel == 6) RefreshMcpServers();
     }
 
     // walk the content tree and modernize input controls to the flat field look
@@ -2128,11 +2405,49 @@ class Hydra : Form
     // maintenance actions — leaving the Workspace tab minimal and clean.
     void BuildSettingsTab(Control tab)
     {
-        var root = new TableLayoutPanel {
-            Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 1,
-            AutoScroll = true, Padding = new Padding(22, 16, 22, 18) };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        tab.Controls.Add(root);
+        var shell = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 1,
+            RowCount = 3, Padding = new Padding(22, 16, 22, 18) };
+        shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 54f));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 46f));
+        shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        shell.Controls.Add(PageHeader("Settings", "Launch behavior, agent memory, context budgets, and toolchain maintenance — grouped by purpose."), 0, 0);
+        tab.Controls.Add(shell);
+
+        var pageHost = new Panel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        shell.Controls.Add(pageHost, 0, 2);
+        Func<TableLayoutPanel> makePage = () => {
+            var page = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 1,
+                AutoScroll = true, Padding = new Padding(0, 8, 8, 8), Visible = false };
+            page.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            pageHost.Controls.Add(page);
+            return page;
+        };
+        var generalPage = makePage();
+        var memoryPage = makePage();
+        var toolsPage = makePage();
+        var systemPage = makePage();
+        var pages = new[] { generalPage, memoryPage, toolsPage, systemPage };
+        var pageButtons = new List<Button>();
+        var settingsNav = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent,
+            FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 2, 0, 4) };
+        string[] pageNames = { "Launch & agents", "Memory & context", "Compression", "System & updates" };
+        Action<int> selectPage = index => {
+            for (int i = 0; i < pages.Length; i++) pages[i].Visible = i == index;
+            for (int i = 0; i < pageButtons.Count; i++) {
+                pageButtons[i].BackColor = i == index ? Lerp(TitleBg, Accent, 0.24f) : Panel2;
+                pageButtons[i].ForeColor = i == index ? Color.White : TextDim;
+            }
+        };
+        for (int i = 0; i < pageNames.Length; i++) {
+            int index = i;
+            var button = GhostBtn(pageNames[i]); button.AutoSize = true; button.Height = 32;
+            button.Margin = new Padding(0, 2, 8, 2); button.Click += (s, e) => selectPage(index);
+            pageButtons.Add(button); settingsNav.Controls.Add(button);
+        }
+        shell.Controls.Add(settingsNav, 0, 1);
+
+        var root = generalPage;
 
         Action<Control, int> row = (c, h) => {
             c.Margin = new Padding(0, 2, 0, 2);
@@ -2140,47 +2455,95 @@ class Hydra : Form
             root.Controls.Add(c);
         };
 
-        row(PageHeader("Settings", "Defaults for every new terminal, the token-compression toolchain, and one-click install."), 52);
-
-        // ---- launch defaults ----
-        row(SectionCap("Launch defaults"), 26);
-        var mp = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
-        mp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 130f));
-        mp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-        mp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-        mp.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f));
-        mp.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
-        var acap = RowCap("Agent"); acap.Margin = new Padding(0, 0, 6, 0);
-        var mcap = RowCap("Claude / ChatGPT model"); mcap.Margin = new Padding(0, 0, 6, 0);
-        var pcap = RowCap("Permissions (Codex: YOLO)"); pcap.Margin = new Padding(6, 0, 0, 0);
-        agentCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 6, 1) };
-        agentCombo.Items.AddRange(new object[] { "Claude", "Codex" });
-        agentCombo.SelectedIndex = 0;
+        // 1. Pick the agent used by the workspace's primary New Terminal action.
+        row(SectionCap("1  Choose what New Terminal starts"), 28);
+        row(RowCap("This only chooses the agent. Each agent keeps its own default model below."), 22);
+        var agentRow = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        agentRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220f)); agentRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        agentCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 3, 12, 3) };
+        agentCombo.Items.AddRange(new object[] { "Claude", "Codex", "Hermes" }); agentCombo.SelectedIndex = 0;
+        var agentHelp = new Label { Dock = DockStyle.Fill, Text = "Pressing + New Terminal opens this agent in your selected project folder.",
+            ForeColor = TextDim, Font = new Font("Segoe UI", 9f), TextAlign = ContentAlignment.MiddleLeft };
+        agentRow.Controls.Add(agentCombo, 0, 0); agentRow.Controls.Add(agentHelp, 1, 0);
         agentCombo.SelectedIndexChanged += (s, e) => {
-            if (!loadingSettings) RememberVisibleModelForAgent(activeModelAgent);
             RefreshModelChoicesForAgent();
             if (termAgentCombo != null && termAgentCombo.SelectedItem != agentCombo.SelectedItem) termAgentCombo.SelectedItem = agentCombo.SelectedItem;
-            UpdateLaunchText(); if (!loadingSettings) SaveSettings();
+            if (!loadingSettings && IsHandleCreated) SaveSettings();
         };
-        modelCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 6, 1) };
-        modelCombo.Items.AddRange(ClaudeModelChoices);
-        modelCombo.Text = "Default";
-        modelCombo.TextChanged += (s, e) => {
-            if (!refreshingModelChoices) RememberVisibleModelForAgent(ActiveLaunchAgent());
-            UpdateLaunchText();
-            if (!loadingSettings && !refreshingModelChoices) SaveSettings();
-        };
-        permCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(6, 1, 0, 1) };
-        permCombo.Items.AddRange(new object[] { "Bypass – skip all prompts", "Plan mode (read-only)", "Accept edits automatically", "Ask for each action" });
-        permCombo.SelectedIndex = 0;
-        mp.Controls.Add(acap, 0, 0); mp.Controls.Add(mcap, 1, 0); mp.Controls.Add(pcap, 2, 0);
-        mp.Controls.Add(agentCombo, 0, 1); mp.Controls.Add(modelCombo, 1, 1); mp.Controls.Add(permCombo, 2, 1);
-        row(mp, 52);
+        row(agentRow, 38);
 
-        continueChk = new CheckBox { Text = "Continue last conversation (--continue)", AutoSize = false };
-        row(continueChk, 26);
+        // 2. Claude and Codex are independent; show both instead of hiding one behind the agent picker.
+        row(SectionCap("2  Set the Claude and Codex default models"), 32);
+        row(RowCap("These defaults are remembered separately and apply only to new terminals."), 22);
+        var modelGrid = new TableLayoutPanel { ColumnCount = 2, RowCount = 3, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        modelGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f)); modelGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        modelGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 22f)); modelGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f)); modelGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32f));
+        modelGrid.Controls.Add(SectionCap("Claude Code"), 0, 0); modelGrid.Controls.Add(SectionCap("Codex"), 1, 0);
+        modelGrid.Controls.Add(RowCap("Default = let Claude choose its current default"), 0, 1);
+        modelGrid.Controls.Add(RowCap("Default = let Codex choose its current default"), 1, 1);
+        claudeDefaultModelCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 8, 1) };
+        claudeDefaultModelCombo.Items.AddRange(ClaudeModelChoices); claudeDefaultModelCombo.SelectedItem = "Default";
+        codexDefaultModelCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(8, 1, 0, 1) };
+        codexDefaultModelCombo.Items.AddRange(ChatGptModelChoices); codexDefaultModelCombo.SelectedItem = "Default";
+        claudeDefaultModelCombo.SelectedIndexChanged += (s, e) => { if (!refreshingModelChoices) { RememberVisibleModelForAgent("Claude"); UpdateLaunchText(); if (!loadingSettings && IsHandleCreated) SaveSettings(); } };
+        codexDefaultModelCombo.SelectedIndexChanged += (s, e) => { if (!refreshingModelChoices) { RememberVisibleModelForAgent("Codex"); UpdateLaunchText(); if (!loadingSettings && IsHandleCreated) SaveSettings(); } };
+        modelGrid.Controls.Add(claudeDefaultModelCombo, 0, 2); modelGrid.Controls.Add(codexDefaultModelCombo, 1, 2);
+        row(modelGrid, 76);
+
+        // 3. Hermes mapping is explicit: provider/account on the left, model ID in the middle.
+        row(SectionCap("3  Map Hermes to an LLM"), 32);
+        row(RowCap("Choose where Hermes authenticates, then choose or type the model that provider should run."), 22);
+        var hermesMap = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        hermesMap.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34f)); hermesMap.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38f)); hermesMap.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28f));
+        hermesMap.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f)); hermesMap.RowStyles.Add(new RowStyle(SizeType.Absolute, 32f));
+        hermesMap.Controls.Add(RowCap("Provider / account"), 0, 0); hermesMap.Controls.Add(RowCap("Hermes model ID"), 1, 0); hermesMap.Controls.Add(RowCap("Profile (optional)"), 2, 0);
+        hermesProviderCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 8, 1) };
+        hermesProviderCombo.Items.AddRange(HermesProviderChoices); hermesProviderCombo.SelectedItem = HermesProviderLabel(hermesProvider);
+        hermesDefaultModelCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown, Margin = new Padding(0, 1, 8, 1) };
+        hermesDefaultModelCombo.Items.AddRange(HermesModelsForProvider(hermesProvider)); hermesDefaultModelCombo.Text = "Default";
+        hermesProfileBox = new TextBox { Dock = DockStyle.Fill, BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 1, 0, 1) };
+        hermesProviderCombo.SelectedIndexChanged += (s, e) => {
+            hermesProvider = HermesProviderId((hermesProviderCombo.SelectedItem ?? "Hermes default").ToString());
+            RefreshHermesModelSuggestions(); UpdateHermesStatusLine(); UpdateLaunchText(); if (!loadingSettings && IsHandleCreated) SaveSettings();
+        };
+        hermesDefaultModelCombo.TextChanged += (s, e) => {
+            if (!refreshingModelChoices) { RememberVisibleModelForAgent("Hermes"); UpdateHermesMappingSummary(); UpdateLaunchText(); if (!loadingSettings && IsHandleCreated) SaveSettings(); }
+        };
+        hermesProfileBox.TextChanged += (s, e) => { string p = hermesProfileBox.Text.Trim().ToLowerInvariant(); if (ValidHermesProfile(p)) { hermesProfile = p; UpdateHermesStatusLine(); if (!loadingSettings && IsHandleCreated) SaveSettings(); } };
+        hermesMap.Controls.Add(hermesProviderCombo, 0, 1); hermesMap.Controls.Add(hermesDefaultModelCombo, 1, 1); hermesMap.Controls.Add(hermesProfileBox, 2, 1);
+        row(hermesMap, 54);
+        hermesMappingSummary = new Label { Dock = DockStyle.Fill, ForeColor = AccentHi, Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
+        row(hermesMappingSummary, 28);
+        hermesStatus = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Consolas", 9f), TextAlign = ContentAlignment.MiddleLeft };
+        row(hermesStatus, 22);
+        var hermesActions = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0) };
+        var hSetup = GhostBtn("Configure Hermes accounts"); hSetup.AutoSize = true; hSetup.Click += (s, e) => NewHermesUtilityTerminal("model", "Configure Hermes models");
+        var hInstall = GhostBtn("Install / repair"); hInstall.AutoSize = true; hInstall.Click += (s, e) => InstallHermes();
+        var hCheck = GhostBtn("Check update"); hCheck.AutoSize = true; hCheck.Click += (s, e) => SetupRun(CheckHermesUpdate);
+        var hDoctor = GhostBtn("Doctor"); hDoctor.AutoSize = true; hDoctor.Click += (s, e) => NewHermesUtilityTerminal("doctor", "Hermes diagnostics");
+        hermesActions.Controls.AddRange(new Control[] { hSetup, hInstall, hCheck, hDoctor });
+        row(hermesActions, 38);
+
+        row(SectionCap("4  Session behavior"), 32);
+        var behavior = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        behavior.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 55f)); behavior.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 45f));
+        behavior.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f)); behavior.RowStyles.Add(new RowStyle(SizeType.Absolute, 32f));
+        behavior.Controls.Add(RowCap("Claude / Codex permissions"), 0, 0); behavior.Controls.Add(RowCap("Conversation"), 1, 0);
+        permCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 10, 1) };
+        permCombo.Items.AddRange(new object[] { "Bypass – skip all prompts", "Plan mode (read-only)", "Accept edits automatically", "Ask for each action" }); permCombo.SelectedIndex = 0;
+        continueChk = new CheckBox { Text = "Resume the previous conversation when supported", Dock = DockStyle.Fill, AutoSize = false, Margin = new Padding(0, 1, 0, 1) };
+        permCombo.SelectedIndexChanged += (s, e) => { if (!loadingSettings && IsHandleCreated) SaveSettings(); };
+        continueChk.CheckedChanged += (s, e) => { if (!loadingSettings && IsHandleCreated) SaveSettings(); };
+        behavior.Controls.Add(permCombo, 0, 1); behavior.Controls.Add(continueChk, 1, 1);
+        row(behavior, 54);
+
+        SyncDefaultModelControls();
+
+        root = memoryPage;
+        BuildMemoryContextSettings(row);
 
         // ---- token compression ----
+        root = toolsPage;
         row(SectionCap("Token compression"), 26);
         row(RowCap("Each toggle is independent — mix & match freely:"), 22);
         hrCheck = new CheckBox { Text = "Headroom — proxy compresses all tool output & context (per launch)",
@@ -2212,12 +2575,15 @@ class Hydra : Form
         row(compAdvisory, 26);
 
         // ---- extra flags ----
+        root = generalPage;
         row(SectionCap("Extra flags"), 26);
         row(RowCap("Appended verbatim to every launch (optional)"), 18);
         extraBox = new TextBox { Dock = DockStyle.Fill, BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle };
+        extraBox.TextChanged += (s, e) => { if (!loadingSettings && IsHandleCreated) SaveSettings(); };
         row(extraBox, 28);
 
         // ---- backup & sync ----
+        root = systemPage;
         row(SectionCap("Backup & sync"), 26);
         row(RowCap("Settings travel as plain JSON — credentials and API keys are never included, so exports and git pushes stay clean."), 18);
         var bsRow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = true };
@@ -2265,6 +2631,7 @@ class Hydra : Form
         };
         mk("Claude CLI", Color.FromArgb(70, 120, 85), Color.FromArgb(84, 140, 100), (s, e) => SetupRun(InstallClaudeCli));
         mk("Codex CLI", Color.FromArgb(70, 120, 85), Color.FromArgb(84, 140, 100), (s, e) => SetupRun(InstallCodexCli));
+        mk("Check CLI updates", Panel2, FieldHi, (s, e) => SetupRun(CheckCliUpdates));
         mk("Node.js", Panel2, FieldHi, (s, e) => SetupRun(() => { EnsureNode(); }));
         mk("RTK", Panel2, FieldHi, (s, e) => SetupRun(InstallRtk));
         mk("Caveman", Panel2, FieldHi, (s, e) => SetupRun(InstallCaveman));
@@ -2284,36 +2651,350 @@ class Hydra : Form
         row(setupOut, 190);
 
         DetectStatus();
+        selectPage(0);
+    }
+
+    void BuildMemoryContextSettings(Action<Control, int> row)
+    {
+        row(SectionCap("Claude memory & context"), 28);
+        row(RowCap("Claude Code loads CLAUDE.md instructions and its per-project auto-memory at startup. Changes apply to new sessions."), 22);
+        claudeAutoMemoryCheck = new CheckBox { Text = "Enable Claude auto-memory", AutoSize = false };
+        claudeAutoMemoryCheck.CheckedChanged += (s, e) => {
+            if (!loadingAgentContext) SetClaudeAutoMemory(claudeAutoMemoryCheck.Checked);
+        };
+        row(claudeAutoMemoryCheck, 28);
+        var claudeActions = MemoryActionRow();
+        AddMemoryButton(claudeActions, "User CLAUDE.md", (s, e) => OpenTextFile(ClaudeInstructions, "# Claude user instructions\r\n"));
+        AddMemoryButton(claudeActions, "Project CLAUDE.md", (s, e) => OpenTextFile(Path.Combine(CurrentProjectDir(), "CLAUDE.md"), "# Project context for Claude\r\n"));
+        AddMemoryButton(claudeActions, "Auto-memory folder", (s, e) => OpenFolder(ClaudeMemoryDir));
+        AddMemoryButton(claudeActions, "Claude settings", (s, e) => OpenTextFile(ClaudeSettings, "{}\r\n"));
+        row(claudeActions, 40);
+
+        row(SectionCap("Codex memory & context"), 32);
+        row(RowCap("Codex memories are experimental and off by default. Context values left blank use the selected model's defaults."), 22);
+        codexMemoriesCheck = new CheckBox { Text = "Enable Codex memories (generate and reuse consolidated memories)", AutoSize = false };
+        codexMemoriesCheck.CheckedChanged += (s, e) => {
+            if (!loadingAgentContext) SetCodexMemories(codexMemoriesCheck.Checked);
+        };
+        row(codexMemoriesCheck, 28);
+        var codexFields = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        codexFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40f));
+        codexFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40f));
+        codexFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20f));
+        codexFields.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f)); codexFields.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
+        codexFields.Controls.Add(RowCap("Context window tokens"), 0, 0);
+        codexFields.Controls.Add(RowCap("Auto-compact token threshold"), 1, 0);
+        codexFields.Controls.Add(RowCap(""), 2, 0);
+        codexContextBox = MemoryNumberBox(); codexContextBox.Margin = new Padding(0, 1, 8, 1);
+        codexCompactBox = MemoryNumberBox(); codexCompactBox.Margin = new Padding(0, 1, 8, 1);
+        var applyCodex = GhostBtn("Apply"); applyCodex.Dock = DockStyle.Fill; applyCodex.Click += (s, e) => ApplyCodexContext();
+        codexFields.Controls.Add(codexContextBox, 0, 1); codexFields.Controls.Add(codexCompactBox, 1, 1); codexFields.Controls.Add(applyCodex, 2, 1);
+        row(codexFields, 52);
+        var codexActions = MemoryActionRow();
+        AddMemoryButton(codexActions, "User AGENTS.md", (s, e) => OpenTextFile(CodexAgents, "# Codex user instructions\r\n"));
+        AddMemoryButton(codexActions, "Project AGENTS.md", (s, e) => OpenTextFile(Path.Combine(CurrentProjectDir(), "AGENTS.md"), "# Project instructions\r\n"));
+        AddMemoryButton(codexActions, "Codex config", (s, e) => OpenTextFile(CodexConfig, ""));
+        row(codexActions, 40);
+
+        row(SectionCap("Hermes memory & context"), 32);
+        row(RowCap("Built-in MEMORY.md and USER.md stay active; Hermes can optionally connect one external memory provider."), 22);
+        hermesCompressionCheck = new CheckBox { Text = "Enable Hermes automatic context compression", AutoSize = false };
+        hermesCompressionCheck.CheckedChanged += (s, e) => {
+            if (!loadingAgentContext) SetHermesContext("compression.enabled", hermesCompressionCheck.Checked ? "true" : "false");
+        };
+        row(hermesCompressionCheck, 28);
+        var hermesFields = new TableLayoutPanel { ColumnCount = 3, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent };
+        hermesFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40f));
+        hermesFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40f));
+        hermesFields.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 20f));
+        hermesFields.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f)); hermesFields.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
+        hermesFields.Controls.Add(RowCap("Compression threshold (10–95%)"), 0, 0);
+        hermesThresholdBox = MemoryNumberBox(); hermesThresholdBox.Margin = new Padding(0, 1, 8, 1);
+        var applyHermes = GhostBtn("Apply"); applyHermes.Dock = DockStyle.Fill; applyHermes.Click += (s, e) => ApplyHermesThreshold();
+        hermesFields.Controls.Add(hermesThresholdBox, 0, 1); hermesFields.Controls.Add(applyHermes, 2, 1);
+        row(hermesFields, 52);
+        var hermesActions = MemoryActionRow();
+        AddMemoryButton(hermesActions, "Memory setup", (s, e) => NewHermesUtilityTerminal("memory setup", "Configure Hermes memory"));
+        AddMemoryButton(hermesActions, "Memory status", (s, e) => NewHermesUtilityTerminal("memory status", "Hermes memory status"));
+        AddMemoryButton(hermesActions, "Built-in only", (s, e) => NewHermesUtilityTerminal("memory off", "Use built-in Hermes memory"));
+        AddMemoryButton(hermesActions, "MEMORY.md", (s, e) => OpenTextFile(Path.Combine(HermesActiveHomeDir(), "memories", "MEMORY.md"), "# Long-term memory\r\n"));
+        AddMemoryButton(hermesActions, "USER.md", (s, e) => OpenTextFile(Path.Combine(HermesActiveHomeDir(), "memories", "USER.md"), "# User preferences\r\n"));
+        AddMemoryButton(hermesActions, "Project .hermes.md", (s, e) => OpenTextFile(Path.Combine(CurrentProjectDir(), ".hermes.md"), "# Project context for Hermes\r\n"));
+        row(hermesActions, 72);
+
+        var refresh = GhostBtn("Refresh memory & context state"); refresh.AutoSize = true; refresh.Click += (s, e) => RefreshAgentContext();
+        row(refresh, 38);
+        RefreshAgentContext();
+    }
+
+    FlowLayoutPanel MemoryActionRow()
+    {
+        return new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0) };
+    }
+    void AddMemoryButton(FlowLayoutPanel row, string text, EventHandler click)
+    {
+        var button = GhostBtn(text); button.AutoSize = true; button.Margin = new Padding(0, 2, 8, 2); button.Click += click; row.Controls.Add(button);
+    }
+    TextBox MemoryNumberBox()
+    {
+        return new TextBox { Dock = DockStyle.Fill, BackColor = Field, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Consolas", 9.5f) };
+    }
+
+    static string HermesHomeDir()
+    {
+        string configured = Environment.GetEnvironmentVariable("HERMES_HOME");
+        return string.IsNullOrWhiteSpace(configured) ? Path.Combine(HomeDir, ".hermes") : configured;
+    }
+    string HermesActiveHomeDir()
+    {
+        string profile = (hermesProfile ?? "").Trim();
+        return ValidHermesProfile(profile) && profile.Length > 0
+            ? Path.Combine(HermesHomeDir(), "profiles", profile)
+            : HermesHomeDir();
+    }
+    string CurrentProjectDir()
+    {
+        string candidate = termPathBox == null ? null : termPathBox.Text;
+        return !string.IsNullOrWhiteSpace(candidate) && Directory.Exists(candidate) ? candidate : HomeDir;
+    }
+    void OpenFolder(string path)
+    {
+        try { Directory.CreateDirectory(path); Process.Start(path); }
+        catch (Exception ex) { MessageBox.Show("Could not open folder:\n" + ex.Message, "Hydra"); }
+    }
+    void OpenTextFile(string path, string initial)
+    {
+        try {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            if (!File.Exists(path)) File.WriteAllText(path, initial ?? "");
+            Process.Start("notepad.exe", CmdQ(path));
+        }
+        catch (Exception ex) { MessageBox.Show("Could not open file:\n" + ex.Message, "Hydra"); }
+    }
+
+    static bool ReadJsonBoolSetting(string path, string key, bool fallback)
+    {
+        try {
+            if (!File.Exists(path)) return fallback;
+            var match = Regex.Match(File.ReadAllText(path), "\\\"" + Regex.Escape(key) + "\\\"\\s*:\\s*(true|false)", RegexOptions.IgnoreCase);
+            return match.Success ? match.Groups[1].Value.Equals("true", StringComparison.OrdinalIgnoreCase) : fallback;
+        } catch { return fallback; }
+    }
+    static void SetJsonBoolSetting(string path, string key, bool value)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path));
+        string text = File.Exists(path) ? File.ReadAllText(path) : "{}";
+        text = WithJsonBoolSetting(text, key, value);
+        try { if (File.Exists(path)) File.Copy(path, path + ".hydra.bak", true); } catch { }
+        File.WriteAllText(path, text);
+    }
+    static string WithJsonBoolSetting(string text, string key, bool value)
+    {
+        if (string.IsNullOrWhiteSpace(text)) text = "{}";
+        string pattern = "(\\\"" + Regex.Escape(key) + "\\\"\\s*:\\s*)(true|false)";
+        if (Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase))
+            text = Regex.Replace(text, pattern, m => m.Groups[1].Value + (value ? "true" : "false"), RegexOptions.IgnoreCase);
+        else {
+            int end = text.LastIndexOf('}');
+            if (end < 0) text = "{}";
+            end = text.LastIndexOf('}');
+            string before = text.Substring(0, end).TrimEnd();
+            bool empty = before.EndsWith("{");
+            text = before + (empty ? "\r\n" : ",\r\n") + "  \"" + key + "\": " + (value ? "true" : "false") + "\r\n" + text.Substring(end);
+        }
+        return text;
+    }
+    void SetClaudeAutoMemory(bool enabled)
+    {
+        try { SetJsonBoolSetting(ClaudeSettings, "autoMemoryEnabled", enabled); }
+        catch (Exception ex) { MessageBox.Show("Claude settings could not be updated:\n" + ex.Message, "Hydra"); RefreshAgentContext(); }
+    }
+
+    static string ReadTomlTopLevel(string path, string key)
+    {
+        try {
+            if (!File.Exists(path)) return "";
+            string text = File.ReadAllText(path);
+            var table = Regex.Match(text, "(?m)^\\s*\\[");
+            string top = table.Success ? text.Substring(0, table.Index) : text;
+            var match = Regex.Match(top, "(?m)^\\s*" + Regex.Escape(key) + "\\s*=\\s*([^#\\r\\n]+)");
+            return match.Success ? match.Groups[1].Value.Trim().Trim('"') : "";
+        } catch { return ""; }
+    }
+    static void SetTomlTopLevel(string path, string key, string value)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path));
+        string text = File.Exists(path) ? File.ReadAllText(path) : "";
+        text = WithTomlTopLevel(text, key, value);
+        try { if (File.Exists(path)) File.Copy(path, path + ".hydra.bak", true); } catch { }
+        File.WriteAllText(path, text);
+    }
+    static string WithTomlTopLevel(string text, string key, string value)
+    {
+        if (text == null) text = "";
+        var table = Regex.Match(text, "(?m)^\\s*\\[");
+        int tableAt = table.Success ? table.Index : text.Length;
+        string top = text.Substring(0, tableAt);
+        string tables = text.Substring(tableAt);
+        string pattern = "(?m)^\\s*" + Regex.Escape(key) + "\\s*=\\s*[^\\r\\n]*(?:\\r?\\n)?";
+        top = Regex.Replace(top, pattern, "");
+        if (!string.IsNullOrWhiteSpace(value)) {
+            string prefix = top.TrimEnd();
+            top = prefix + (prefix.Length == 0 ? "" : "\r\n") + key + " = " + value + "\r\n";
+        }
+        return top + tables.TrimStart('\r', '\n');
+    }
+    static bool RunAgentConfigSelfTest()
+    {
+        try {
+            string json = WithJsonBoolSetting("{\r\n  \"theme\": \"dark\",\r\n  \"autoMemoryEnabled\": false\r\n}", "autoMemoryEnabled", true);
+            if (!Regex.IsMatch(json, "\\\"autoMemoryEnabled\\\"\\s*:\\s*true") || json.IndexOf("theme", StringComparison.Ordinal) < 0) return false;
+            json = WithJsonBoolSetting("{}", "autoMemoryEnabled", false);
+            if (!Regex.IsMatch(json, "\\\"autoMemoryEnabled\\\"\\s*:\\s*false")) return false;
+            string toml = "model = \"gpt\"\r\n\r\n[features]\r\nmemories = false\r\n";
+            toml = WithTomlTopLevel(toml, "model_context_window", "200000");
+            if (toml.IndexOf("model_context_window = 200000", StringComparison.Ordinal) < 0
+                || toml.IndexOf("[features]", StringComparison.Ordinal) < toml.IndexOf("model_context_window", StringComparison.Ordinal)) return false;
+            toml = WithTomlTopLevel(toml, "model_context_window", null);
+            if (toml.IndexOf("model_context_window", StringComparison.Ordinal) >= 0
+                || toml.IndexOf("memories = false", StringComparison.Ordinal) < 0
+                || WithTomlTopLevel("[profile]\r\nmodel_context_window = 7\r\n", "model_context_window", null).IndexOf("model_context_window = 7", StringComparison.Ordinal) < 0) return false;
+            // Hermes mapping contract: each provider suggests only models it actually
+            // serves — Claude/Codex reuse the launch-picker catalogs, Ollama offers only
+            // local tags (no "Default"), OpenRouter offers only the curated allow-list
+            // of vendor-prefixed IDs (no "Default").
+            object[] ollamaModels = HermesModelsForProvider("custom");
+            object[] openRouterModels = HermesModelsForProvider("openrouter");
+            bool ollamaTagsOnly = !ChoiceContains(ollamaModels, "Default");
+            foreach (var m in ollamaModels) if (m.ToString().IndexOf(':') < 0) ollamaTagsOnly = false;
+            bool openRouterAllowListed = openRouterModels.Length == 3 && !ChoiceContains(openRouterModels, "Default");
+            foreach (var m in openRouterModels) if (m.ToString().IndexOf('/') < 0) openRouterAllowListed = false;
+            return HermesModelsForProvider("anthropic") == ClaudeModelChoices
+                && HermesModelsForProvider("openai-codex") == ChatGptModelChoices
+                && ChoiceContains(HermesModelsForProvider("anthropic"), "claude-opus-4-8")
+                && !ChoiceContains(HermesModelsForProvider("anthropic"), "gpt-5.6-sol")
+                && ChoiceContains(HermesModelsForProvider("openai-codex"), "gpt-5.6-sol")
+                && ChoiceContains(ollamaModels, "ornith:9b")
+                && ChoiceContains(ollamaModels, "ornith:35b")
+                && ollamaTagsOnly
+                && ChoiceContains(openRouterModels, "moonshotai/kimi-k2.7-code")
+                && ChoiceContains(openRouterModels, "z-ai/glm-5.2")
+                && ChoiceContains(openRouterModels, "deepseek/deepseek-v4-flash")
+                && openRouterAllowListed;
+        } catch { return false; }
+    }
+    void ApplyCodexContext()
+    {
+        try {
+            string context = ValidateOptionalTokenValue(codexContextBox.Text, "Context window");
+            string compact = ValidateOptionalTokenValue(codexCompactBox.Text, "Auto-compact threshold");
+            SetTomlTopLevel(CodexConfig, "model_context_window", context);
+            SetTomlTopLevel(CodexConfig, "model_auto_compact_token_limit", compact);
+            MessageBox.Show("Codex context settings saved. New Codex sessions will use them.", "Hydra");
+        } catch (Exception ex) { MessageBox.Show(ex.Message, "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+    }
+    static string ValidateOptionalTokenValue(string text, string label)
+    {
+        text = (text ?? "").Trim(); if (text.Length == 0) return null;
+        int value; if (!int.TryParse(text, out value) || value < 1024) throw new InvalidDataException(label + " must be blank or at least 1,024 tokens.");
+        return value.ToString();
+    }
+    void SetCodexMemories(bool enabled)
+    {
+        RunAgentContextCommand("codex features " + (enabled ? "enable" : "disable") + " memories");
+    }
+    string HermesCliPrefix()
+    {
+        string profile = (hermesProfile ?? "").Trim();
+        return "hermes" + (ValidHermesProfile(profile) && profile.Length > 0 ? " -p " + profile : "");
+    }
+    void ApplyHermesThreshold()
+    {
+        int percent;
+        if (!int.TryParse((hermesThresholdBox.Text ?? "").Trim(), out percent) || percent < 10 || percent > 95) {
+            MessageBox.Show("Hermes compression threshold must be between 10 and 95 percent.", "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Warning); return;
+        }
+        SetHermesContext("compression.threshold", (percent / 100.0).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture));
+    }
+    void SetHermesContext(string key, string value)
+    {
+        RunAgentContextCommand(HermesCliPrefix() + " config set " + key + " " + value);
+    }
+    void RunAgentContextCommand(string command)
+    {
+        var thread = new Thread(() => {
+            string result = RunCapturedCmd(command);
+            try { BeginInvoke((Action)(() => {
+                if (result == null) MessageBox.Show("The command failed:\n" + command, "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                RefreshAgentContext();
+            })); } catch { }
+        });
+        thread.IsBackground = true; thread.Start();
+    }
+    void RefreshAgentContext()
+    {
+        bool claudeMemory = ReadJsonBoolSetting(ClaudeSettings, "autoMemoryEnabled", true);
+        string context = ReadTomlTopLevel(CodexConfig, "model_context_window");
+        string compact = ReadTomlTopLevel(CodexConfig, "model_auto_compact_token_limit");
+        var thread = new Thread(() => {
+            string features = RunCapturedCmd("codex features list") ?? "";
+            bool codexMemory = Regex.IsMatch(features, "(?m)^memories\\s+.*\\s+true\\s*$");
+            string hermes = RunCapturedCmd(HermesCliPrefix() + " config show") ?? "";
+            bool compression = !Regex.IsMatch(hermes, "Enabled:\\s+(?:no|off|false)", RegexOptions.IgnoreCase);
+            string threshold = "50";
+            var match = Regex.Match(hermes, "Threshold:\\s*(\\d+)%", RegexOptions.IgnoreCase);
+            if (match.Success) threshold = match.Groups[1].Value;
+            try { BeginInvoke((Action)(() => {
+                loadingAgentContext = true;
+                if (claudeAutoMemoryCheck != null) claudeAutoMemoryCheck.Checked = claudeMemory;
+                if (codexMemoriesCheck != null) codexMemoriesCheck.Checked = codexMemory;
+                if (codexContextBox != null) codexContextBox.Text = context;
+                if (codexCompactBox != null) codexCompactBox.Text = compact;
+                if (hermesCompressionCheck != null) hermesCompressionCheck.Checked = compression;
+                if (hermesThresholdBox != null) hermesThresholdBox.Text = threshold;
+                loadingAgentContext = false;
+            })); } catch { }
+        });
+        thread.IsBackground = true; thread.Start();
     }
 
     void BuildSkillsTab(Control tab)
     {
         int W = 760;
-        var header = PageHeader("Skills", "Manage skills for Claude and ChatGPT/Codex.");
+        var header = PageHeader("Skills", "Shared Claude/Codex skills and native Hermes skills, together in one inventory.");
         header.Location = new Point(22, 16); header.Size = new Size(W, 52);
         header.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         tab.Controls.Add(header);
-        skillsCount = new Label { AutoSize = true, Location = new Point(22, 70), ForeColor = TextDim };
+        skillsCount = new Label { AutoSize = true, Location = new Point(22, 68), ForeColor = TextDim };
         tab.Controls.Add(skillsCount);
 
-        skillsList = new ListView { Location = new Point(22, 94), Size = new Size(W, 474),
+        var hermesManage = GhostBtn("Browse / install Hermes skills"); hermesManage.Location = new Point(22, 92); hermesManage.Size = new Size(190, 30);
+        hermesManage.Click += (s, e) => NewHermesUtilityTerminal("skills", "Manage Hermes skills"); tab.Controls.Add(hermesManage);
+        var hermesCheck = GhostBtn("Check updates & audit"); hermesCheck.Location = new Point(220, 92); hermesCheck.Size = new Size(150, 30);
+        hermesCheck.Click += (s, e) => NewHermesUtilityTerminal("skills check", "Check Hermes skills"); tab.Controls.Add(hermesCheck);
+        var hermesOpen = GhostBtn("Open Hermes folder"); hermesOpen.Location = new Point(378, 92); hermesOpen.Size = new Size(145, 30);
+        hermesOpen.Click += (s, e) => OpenHermesSkillsFolder(); tab.Controls.Add(hermesOpen);
+
+        skillsList = new ListView { Location = new Point(22, 172), Size = new Size(W, 396),
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom,
             View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false,
             BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle };
-        skillsList.Columns.Add("Skill", 170);
-        skillsList.Columns.Add("Status", 80);
-        skillsList.Columns.Add("Description", 400);
+        skillsList.Columns.Add("Skill", 160);
+        skillsList.Columns.Add("Agent", 115);
+        skillsList.Columns.Add("Status", 75);
+        skillsList.Columns.Add("Description", 330);
         skillsList.DoubleClick += (s, e) => ToggleSkill();
         tab.Controls.Add(skillsList);
 
-        int y = 576;
+        int y = 132;
         var add = OkBtn("Import…");             add.Location = new Point(22, y);  add.Size = new Size(104, 32); add.Click += (s, e) => AddSkill();       tab.Controls.Add(add);
         var tog = GhostBtn("Enable / Disable"); tog.Location = new Point(134, y); tog.Size = new Size(130, 32); tog.Click += (s, e) => ToggleSkill();    tab.Controls.Add(tog);
         var rem = DangerBtn("Remove");          rem.Location = new Point(272, y); rem.Size = new Size(96, 32);  rem.Click += (s, e) => RemoveSkill();    tab.Controls.Add(rem);
         var refr = GhostBtn("Refresh");         refr.Location = new Point(376, y); refr.Size = new Size(90, 32); refr.Click += (s, e) => LoadSkills();   tab.Controls.Add(refr);
         var open = GhostBtn("Open folder");     open.Location = new Point(474, y); open.Size = new Size(110, 32); open.Click += (s, e) => OpenSkillsFolder(); tab.Controls.Add(open);
 
-        foreach (Control c in tab.Controls) if (c is Button) c.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+        foreach (Control c in tab.Controls) if (c is Button) c.Anchor = AnchorStyles.Top | AnchorStyles.Left;
     }
 
     void BuildGlossaryTab(Control tab)
@@ -2336,6 +3017,82 @@ class Hydra : Form
         glossaryList.Columns.Add("Command / Key", 240);
         glossaryList.Columns.Add("What it does", 410);
         tab.Controls.Add(glossaryList);
+    }
+
+    void BuildMcpTab(Control tab)
+    {
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 1,
+            RowCount = 5, Padding = new Padding(22, 16, 22, 18) };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 56f));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 44f));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33f));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33f));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 33.34f));
+        root.Controls.Add(PageHeader("MCP integrations", "Every server visible to Claude, Codex, or the selected Hermes profile — reported by each native CLI."), 0, 0);
+
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0) };
+        mcpRefresh = OkBtn("Refresh all"); mcpRefresh.AutoSize = true; mcpRefresh.Click += (s, e) => RefreshMcpServers();
+        var claudeHelp = GhostBtn("Claude MCP help"); claudeHelp.AutoSize = true; claudeHelp.Click += (s, e) => StartUtilityTerminal("claude mcp --help", "Claude MCP manager", "Claude");
+        var codexConfig = GhostBtn("Codex config"); codexConfig.AutoSize = true; codexConfig.Click += (s, e) => OpenTextFile(CodexConfig, "");
+        var hermesManager = GhostBtn("Hermes MCP manager"); hermesManager.AutoSize = true; hermesManager.Click += (s, e) => NewHermesUtilityTerminal("mcp", "Hermes MCP manager");
+        foreach (var button in new[] { mcpRefresh, claudeHelp, codexConfig, hermesManager }) button.Margin = new Padding(0, 2, 8, 2);
+        actions.Controls.AddRange(new Control[] { mcpRefresh, claudeHelp, codexConfig, hermesManager });
+        mcpStatus = new Label { AutoSize = true, ForeColor = TextFaint, Margin = new Padding(8, 10, 0, 0), Font = new Font("Segoe UI", 8.5f) };
+        actions.Controls.Add(mcpStatus);
+        root.Controls.Add(actions, 0, 1);
+
+        root.Controls.Add(McpAgentCard("Claude", "User, project, local, plugin, and claude.ai connectors", out mcpClaudeOut), 0, 2);
+        root.Controls.Add(McpAgentCard("Codex", "Servers merged from the active Codex config", out mcpCodexOut), 0, 3);
+        root.Controls.Add(McpAgentCard("Hermes", "Servers for the selected Hermes profile", out mcpHermesOut), 0, 4);
+        tab.Controls.Add(root);
+    }
+
+    Control McpAgentCard(string agent, string subtitle, out TextBox output)
+    {
+        var card = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(30, 30, 35), ColumnCount = 1,
+            RowCount = 2, Padding = new Padding(14, 9, 14, 10), Margin = new Padding(0, 4, 0, 4) };
+        card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        card.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f)); card.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+        var title = new Label { Dock = DockStyle.Fill, Text = agent + "   " + subtitle, ForeColor = Color.White,
+            Font = new Font("Segoe UI Semibold", 10f, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
+        output = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, WordWrap = false,
+            ScrollBars = ScrollBars.Both, BackColor = Color.FromArgb(18, 18, 20), ForeColor = Color.FromArgb(205, 205, 212),
+            BorderStyle = BorderStyle.None, Font = new Font("Consolas", 9f), Text = "Not checked yet." };
+        card.Controls.Add(title, 0, 0); card.Controls.Add(output, 0, 1);
+        return card;
+    }
+
+    void RefreshMcpServers()
+    {
+        if (mcpRefresh == null || !mcpRefresh.Enabled) return;
+        string project = CurrentProjectDir();
+        string prefix = "cd /d " + CmdQ(project) + " && ";
+        mcpRefresh.Enabled = false;
+        mcpStatus.Text = "Checking " + project + "…";
+        mcpClaudeOut.Text = mcpCodexOut.Text = mcpHermesOut.Text = "Checking native CLI…";
+        var thread = new Thread(() => {
+            string claude = RunCapturedDisplay(prefix + "claude mcp list", "Claude CLI is unavailable or MCP discovery failed.");
+            string codex = RunCapturedDisplay(prefix + "codex mcp list", "Codex CLI is unavailable or MCP discovery failed.");
+            string hermes = RunCapturedDisplay(prefix + HermesCliPrefix() + " mcp list", "Hermes CLI is unavailable or MCP discovery failed.");
+            try { BeginInvoke((Action)(() => {
+                mcpClaudeOut.Text = claude; mcpCodexOut.Text = codex; mcpHermesOut.Text = hermes;
+                mcpStatus.Text = "Updated " + DateTime.Now.ToString("HH:mm:ss") + " · " + project;
+                mcpRefresh.Enabled = true;
+            })); } catch { }
+        });
+        thread.IsBackground = true; thread.Start();
+    }
+
+    // MCP-list variant of the shared capture core: keeps stderr, strips ANSI, human fallback.
+    static string RunCapturedDisplay(string commandLine, string fallback)
+    {
+        int rc;
+        string text = RunCapturedCore(commandLine, true, out rc);
+        if (text == null) return fallback;
+        text = Regex.Replace(text, "\\x1B\\[[0-?]*[ -/]*[@-~]", "");
+        text = Regex.Replace(text, "\\r(?!\\n)", "\r\n");
+        return text.Length > 0 ? text : (rc == 0 ? "No MCP servers configured." : fallback);
     }
 
     // ================= Ollama tab: the local-LLM home (runtime · models · tuning) =================
@@ -2464,10 +3221,12 @@ class Hydra : Form
     }
 
     // ================= Setup / bootstrap helpers (UI now lives in the Settings tab) =================
-    static bool HasNpm() { return OnPath("npm.cmd") || OnPath("npm.exe") || OnPath("npm"); }
-    static bool HasNpx() { return OnPath("npx.cmd") || OnPath("npx.exe") || OnPath("npx"); }
-    static bool HasClaude() { return OnPath("claude.cmd") || OnPath("claude.exe") || OnPath("claude"); }
-    static bool HasCodex() { return OnPath("codex.cmd") || OnPath("codex.exe") || OnPath("codex"); }
+    static bool HasTool(string name) { return OnPath(name + ".cmd") || OnPath(name + ".exe") || OnPath(name); }
+    static bool HasNpm() { return HasTool("npm"); }
+    static bool HasNpx() { return HasTool("npx"); }
+    static bool HasClaude() { return HasTool("claude"); }
+    static bool HasCodex() { return HasTool("codex"); }
+    static bool HasHermes() { return HasTool("hermes"); }
     static string RtkLocalPath() { return Path.Combine(HomeDir, ".local", "bin", "rtk.exe"); }
     static bool HasRtk() { return OnPath("rtk.exe") || OnPath("rtk") || File.Exists(RtkLocalPath()); }
     static bool HasNode() { return OnPath("node.exe") || OnPath("node"); }
@@ -2487,7 +3246,9 @@ class Hydra : Form
             string[] extra = {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"),
-                Path.Combine(HomeDir, ".local", "bin")
+                Path.Combine(HomeDir, ".local", "bin"),
+                Path.Combine(HomeDir, ".hermes", "hermes-agent", "venv", "Scripts"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "hermes", "bin")
             };
             foreach (var d in extra)
                 if (Directory.Exists(d) && combined.IndexOf(d, StringComparison.OrdinalIgnoreCase) < 0)
@@ -2572,16 +3333,17 @@ try {
     // is pointless, so we hide it and let the Setup tab focus on the Update button.
     bool AllCoreInstalled()
     {
-        return HasClaude() && HasCodex() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled() && VideoInstalled() && AgentSkillsInstalled() && File.Exists(OllamaEmbeddedExe);
+        return HasClaude() && HasCodex() && HasHermes() && (OnPath("node.exe") || OnPath("node")) && RtkInstalled() && CavemanInstalled() && VideoInstalled() && AgentSkillsInstalled() && File.Exists(OllamaEmbeddedExe);
     }
 
     void DetectStatus()
     {
         if (setupStatus == null) return;
         bool node = OnPath("node.exe") || OnPath("node");
-        setupStatus.Text = "Claude " + Mark(HasClaude()) + "   Codex " + Mark(HasCodex()) + "   Node " + Mark(node) + "   RTK " + Mark(HasRtk() && RtkInstalled())
+        setupStatus.Text = "Claude " + Mark(HasClaude()) + "   Codex " + Mark(HasCodex()) + "   Hermes " + Mark(HasHermes()) + "   Node " + Mark(node) + "   RTK " + Mark(HasRtk() && RtkInstalled())
             + "   Caveman " + Mark(CavemanInstalled()) + "   Video " + Mark(VideoInstalled()) + "   AgentSkills " + Mark(AgentSkillsInstalled()) + "   Ollama " + Mark(File.Exists(OllamaEmbeddedExe))
             + "   Headroom " + Mark(OnPath("headroom.exe") || OnPath("headroom")) + "   Skills " + CountSkills();
+        UpdateHermesStatusLine();
 
         // Once everything's installed the button stays (it re-checks on every click);
         // it just says so, and Update gets promoted to the accent style. Restyle ONLY
@@ -2639,6 +3401,78 @@ try {
         }
         catch (Exception ex) { SetupLog("  ERR " + ex.Message); return -1; }
     }
+    void UpdateHermesStatusLine()
+    {
+        if (hermesStatus == null) return;
+        hermesStatus.Text = HasHermes() ? "Hermes installed · provider " + HermesProviderLabel(hermesProvider)
+            + (hermesProfile.Length > 0 ? " · profile " + hermesProfile : " · default profile") : "Hermes not installed";
+        hermesStatus.ForeColor = HasHermes() ? Green : Yellow;
+    }
+
+    // Shared hidden-cmd capture core: stdout (optionally + stderr) and exit code; null on timeout/crash.
+    static string RunCapturedCore(string commandLine, bool includeStderr, out int exitCode)
+    {
+        exitCode = -1;
+        try
+        {
+            var psi = new ProcessStartInfo("cmd.exe", "/d /c " + commandLine)
+            { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            psi.StandardErrorEncoding = Encoding.UTF8;
+            var p = Process.Start(psi);
+            var output = new StringBuilder();
+            var error = new StringBuilder();
+            p.OutputDataReceived += (s, e) => { if (e.Data != null) lock (output) output.AppendLine(e.Data); };
+            p.ErrorDataReceived += (s, e) => { if (e.Data != null) lock (error) error.AppendLine(e.Data); };
+            p.BeginOutputReadLine(); p.BeginErrorReadLine();
+            if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return null; }
+            p.WaitForExit();
+            exitCode = p.ExitCode;
+            string stdout; lock (output) stdout = output.ToString();
+            if (!includeStderr) return stdout.Trim();
+            string stderr; lock (error) stderr = error.ToString();
+            return (stdout + (stdout.Length > 0 && stderr.Length > 0 ? "\r\n" : "") + stderr).Trim();
+        }
+        catch { return null; }
+    }
+
+    static string RunCapturedCmd(string commandLine)
+    {
+        int rc;
+        string text = RunCapturedCore(commandLine, false, out rc);
+        return text == null || rc != 0 ? null : text;
+    }
+
+    static Version ParseCliVersion(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var match = Regex.Match(text, @"\d+(?:\.\d+){1,3}");
+        Version version;
+        return match.Success && Version.TryParse(match.Value, out version) ? version : null;
+    }
+
+    void CheckCliUpdates()
+    {
+        SetupLog("");
+        SetupLog("===== Checking Claude and ChatGPT/Codex CLI updates =====");
+        CheckCliUpdate("Claude", "claude --version", "@anthropic-ai/claude-code");
+        CheckCliUpdate("ChatGPT/Codex", "codex --version", "@openai/codex");
+    }
+
+    void CheckCliUpdate(string name, string installedCommand, string packageName)
+    {
+        string installedText = RunCapturedCmd(installedCommand);
+        if (installedText == null) { SetupLog(name + ": not installed or could not run"); return; }
+        string latestText = RunCapturedCmd("npm view " + packageName + " version --silent");
+        Version installed = ParseCliVersion(installedText);
+        Version latest = ParseCliVersion(latestText);
+        if (installed == null || latest == null)
+        {
+            SetupLog(name + ": update check failed (npm/network unavailable)");
+            return;
+        }
+        SetupLog(name + ": " + installed + " -> " + latest + (installed.CompareTo(latest) < 0 ? "  UPDATE AVAILABLE" : "  up to date"));
+    }
 
     void RunPowerShellScript(string script)
     {
@@ -2680,6 +3514,45 @@ try {
         InstallBundledCavemanForCodexIfPossible();
         InstallClaudeVideoIfPossible();
         InstallAgentSkillsIfPossible();
+    }
+
+    void InstallHermes()
+    {
+        StartUtilityTerminal("powershell -NoProfile -ExecutionPolicy Bypass -Command \"iex (irm https://hermes-agent.nousresearch.com/install.ps1)\"", "Install / repair Hermes", "Hermes");
+    }
+
+    void CheckHermesUpdate()
+    {
+        RefreshPathFromRegistry();
+        if (!HasHermes()) { SetupLog("Hermes is not installed. Use Install / repair Hermes first."); return; }
+        SetupLog("Checking Hermes Agent updates…");
+        int rc = RunLoggedCmd("hermes update --check");
+        SetupLog(rc == 0 ? "Hermes update check complete." : "Hermes update check returned exit " + rc + ".");
+    }
+
+    void UpdateHermes()
+    {
+        RefreshPathFromRegistry();
+        if (!HasHermes()) { SetupLog("Hermes is not installed. Use Install / repair Hermes first."); return; }
+        if (HasRunningHermesSessions())
+        {
+            SetupLog("SKIP Hermes update: close all running Hermes tabs first so its managed environment cannot be changed underneath a live session.");
+            return;
+        }
+        SetupLog("Backing up Hermes state, then updating through its supported managed updater…");
+        int rc = RunLoggedCmd("hermes update --backup --yes");
+        RefreshPathFromRegistry();
+        SetupLog(rc == 0 ? "OK  Hermes updated. New terminals use the new version." : "Hermes update returned exit " + rc + ".");
+    }
+
+    bool HasRunningHermesSessions()
+    {
+        foreach (var session in sessions)
+        {
+            if (session.Agent != "Hermes" || session.Proc == null) continue;
+            try { if (!session.Proc.HasExited) return true; } catch { }
+        }
+        return false;
     }
 
 
@@ -2972,21 +3845,8 @@ try {
     void ChatOllamaModel(string tag)
     {
         string exe = FindOllamaExecutable();
-        if (exe == null)
-        {
-            MessageBox.Show("Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) first.",
-                "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-        string env = "set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\""
-            + " && set \"OLLAMA_ORIGINS=*\""
-            + " && set \"OLLAMA_NUM_CTX=" + OllamaCtx() + "\" && set \"OLLAMA_KEEP_ALIVE=30m\""
-            + " && set \"OLLAMA_FLASH_ATTENTION=1\" && set \"OLLAMA_NUM_PARALLEL=1\" && set \"OLLAMA_KV_CACHE_TYPE=q8_0\"";
-        if (IsUnder(exe, OllamaDir))
-        {
-            try { Directory.CreateDirectory(OllamaModelsDir); } catch { }
-            env += " && set \"OLLAMA_MODELS=" + OllamaModelsDir + "\"";
-        }
+        if (WarnOllamaMissing(exe)) return;
+        string env = OllamaEnvCmd(exe);
         // Boot the built-in server first so the chat just works; the terminal itself
         // waits for the port before starting the model (curl ships with Windows 10+).
         if (!TestPort(OllamaPort))
@@ -3015,11 +3875,7 @@ try {
             MessageBox.Show("Could not open the model chat terminal:\n" + ex.Message, "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
-        sessions.Add(sess);
-        selectedTerm = sess;
-        SelectNav(0);
-        RefreshTermList();
-        ShowSelectedTerminal();
+        RegisterSession(sess, true);
     }
 
     // Persist a new context window; restart the owned server so it takes effect.
@@ -3067,6 +3923,7 @@ try {
             string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
             string parent = Path.GetDirectoryName(exeDir) ?? exeDir;
             string[] cands = {
+                Path.Combine(EmbeddedRuntimeDir, "tools"),
                 Path.Combine(exeDir, "tools"),
                 Path.Combine(parent, "tools"),
                 Path.Combine(HomeDir, "Desktop", "HYDRA", "tools")
@@ -3162,6 +4019,7 @@ try {
             string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
             string parent = Path.GetDirectoryName(exeDir) ?? exeDir;
             string[] cands = {
+                Path.Combine(EmbeddedRuntimeDir, "skills"),
                 Path.Combine(exeDir, "SKILLS-BACKUP"),
                 Path.Combine(parent, "SKILLS-BACKUP"),
                 Path.Combine(exeDir, "skills"),
@@ -3243,12 +4101,7 @@ try {
 
         if (HasCodex() && File.Exists(Path.Combine(root, ".agents", "plugins", "marketplace.json")))
         {
-            if (!CodexMarketplaceConfigured("claude-video", root))
-            {
-                RunCodexCmd("plugin marketplace remove claude-video");
-                RunCodexCmd("plugin marketplace add " + CmdQ(root));
-            }
-            RunCodexCmd("plugin add watch@claude-video");
+            EnsureCodexMarketplacePlugin("claude-video", root, "watch@claude-video");
         }
         SetupLog("OK  Claude Video /watch installed for Claude and Codex.");
         try { BeginInvoke((Action)LoadSkills); } catch { }
@@ -3287,12 +4140,7 @@ try {
 
         if (HasCodex() && File.Exists(Path.Combine(root, ".agents", "plugins", "marketplace.json")))
         {
-            if (!CodexMarketplaceConfigured("agent-skills", root))
-            {
-                RunCodexCmd("plugin marketplace remove agent-skills");
-                RunCodexCmd("plugin marketplace add " + CmdQ(root));
-            }
-            RunCodexCmd("plugin add agent-skills@agent-skills");
+            EnsureCodexMarketplacePlugin("agent-skills", root, "agent-skills@agent-skills");
         }
         SetupLog("OK  Agent Skills installed for Claude and Codex (" + copied + " skills).");
         try { BeginInvoke((Action)LoadSkills); } catch { }
@@ -3303,7 +4151,7 @@ try {
     void InstallEverything()
     {
         SetupLog("");
-        SetupLog("===== Install everything (Node + Claude/Codex CLI + RTK + Caveman + Video + Agent Skills + skills + Ollama) =====");
+        SetupLog("===== Install everything (Node + Claude/Codex + Hermes + RTK + Caveman + Video + Agent Skills + skills + Ollama) =====");
         SetupLog("Checking what's already installed — only missing packages get installed.");
         RefreshPathFromRegistry();
 
@@ -3319,6 +4167,15 @@ try {
 
         if (HasCodex()) SetupLog("OK  Codex CLI already installed — skipping.");
         else InstallCodexCli();
+
+        if (HasHermes()) SetupLog("OK  Hermes Agent already installed — skipping.");
+        else
+        {
+            // Hermes owns its own Python environment, so its official interactive
+            // installer runs in a Workspace terminal instead of the silent pass here.
+            SetupLog("Hermes Agent: opening its official installer in a Workspace terminal — answer its prompts there.");
+            try { BeginInvoke((Action)InstallHermes); } catch { }
+        }
 
         if (HasRtk() && RtkInstalled()) SetupLog("OK  RTK already installed — skipping.");
         else InstallRtk();
@@ -3338,7 +4195,7 @@ try {
         if (File.Exists(OllamaEmbeddedExe)) SetupLog("OK  Ollama runtime already built into Hydra — skipping.");
         else InstallOllama();
 
-        SetupLog("===== Done. Restart any open Claude/Codex sessions to pick up new tools/skills. =====");
+        SetupLog("===== Done. New Claude/Codex/Hermes terminals pick up updated tools and settings. =====");
     }
 
     // Update the core packages in place to their latest versions. Assumes they're already
@@ -3356,6 +4213,7 @@ try {
         SetupLog("> updating Codex CLI");
         int cx = RunLoggedCmd(CodexInstallCmd());
         SetupLog(cx == 0 ? "OK  Codex CLI up to date." : "Codex CLI update exit " + cx + ".");
+        if (HasHermes()) UpdateHermes();
         // RTK: pull the latest release binary again, then re-register the hook
         SetupLog("Updating RTK to the latest release…");
         RunPowerShellScript(RtkDownloadScript());
@@ -3380,7 +4238,7 @@ try {
             else if (OnPath("uv")) RunLoggedCmd("uv tool upgrade headroom-ai");
             else if (OnPath("pip")) RunLoggedCmd("pip install --upgrade \"headroom-ai[all]\"");
         }
-        SetupLog("===== Update complete. Restart any open Claude/Codex sessions. =====");
+        SetupLog("===== Update complete. New Claude/Codex/Hermes sessions use the updated versions. =====");
     }
 
     void RefreshRecent()
@@ -3418,18 +4276,19 @@ try {
     }
     void UpdateLaunchText()
     {
-        string m = (modelCombo.Text ?? "").Trim(); if (m.Length == 0) m = "Default";
         string agent = (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
+        string m = StoredModelForAgent(agent);
         string tail = "";
-        if (agent != "Codex" && hrCheck != null && hrCheck.Checked) tail += " +Headroom";
-        if (rtCheck != null && rtCheck.Checked) tail += " +RTK";
-        if (cvCheck != null && cvCheck.Checked) tail += " +Caveman";
+        if (agent == "Claude" && hrCheck != null && hrCheck.Checked) tail += " +Headroom";
+        if (agent != "Hermes" && rtCheck != null && rtCheck.Checked) tail += " +RTK";
+        if (agent != "Hermes" && cvCheck != null && cvCheck.Checked) tail += " +Caveman";
         if (launchBtn != null)
         {
             // Plain label; the compression mix lives in the tooltip instead of cryptic badges.
             launchBtn.Text = "+ New Terminal";
             if (tabTip == null) tabTip = new ToolTip { ShowAlways = true, InitialDelay = 250 };
-            tabTip.SetToolTip(launchBtn, "Start an embedded " + agent + " session in the chosen folder.\nModel: " + m + (tail.Length > 0 ? "\nCompression:" + tail : "\nCompression: none"));
+            string hermesInfo = agent == "Hermes" ? "\nBackend: " + HermesProviderLabel(hermesProvider) + (hermesProfile.Length > 0 ? "\nProfile: " + hermesProfile : "\nProfile: default") : "";
+            tabTip.SetToolTip(launchBtn, "Start an embedded " + agent + " session in the chosen folder.\nModel: " + m + hermesInfo + (tail.Length > 0 ? "\nCompression:" + tail : "\nCompression: none"));
         }
     }
 
@@ -3468,10 +4327,20 @@ try {
     [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO info);
     [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hWnd);
-    [DllImport("user32.dll")] static extern IntPtr SetActiveWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern short VkKeyScan(char character);
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+    [StructLayout(LayoutKind.Sequential)]
+    struct GUITHREADINFO
+    {
+        public int cbSize, flags;
+        public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret;
+        public int rcLeft, rcTop, rcRight, rcBottom;
+    }
     delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
     [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
@@ -3552,6 +4421,7 @@ try {
         public IntPtr Hwnd = IntPtr.Zero;
         public bool Embedded;
         public bool Popped;
+        public bool FocusPending;
         // token-compression tools captured at launch, so each session shows its own mix
         public bool CHeadroom, CRtk, CCaveman;
     }
@@ -3644,7 +4514,7 @@ try {
         var bar = new TableLayoutPanel {
             Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 1, BackColor = Color.Transparent, Margin = new Padding(0) };
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112f)); // Agent
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 176f)); // Agent
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150f)); // "+ New Terminal"
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));  // path (stretches)
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132f)); // recent combo
@@ -3656,7 +4526,7 @@ try {
         // Mac-style segmented agent picker; keep an invisible ComboBox as the existing
         // settings synchronization boundary so launch behavior stays unchanged.
         var agentPick = new ComboBox { Visible = false, DropDownStyle = ComboBoxStyle.DropDownList };
-        agentPick.Items.AddRange(new object[] { "Claude", "Codex" });
+        agentPick.Items.AddRange(new object[] { "Claude", "Codex", "Hermes" });
         agentPick.SelectedItem = agentCombo != null ? agentCombo.SelectedItem : "Claude";
         termAgentCombo = agentPick;
         var segment = new Panel { Dock = DockStyle.Fill, Margin = new Padding(0, 6, 8, 6), BackColor = Field };
@@ -3665,25 +4535,34 @@ try {
             Size = new Size(52, 28), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand, TabStop = true };
         var codexSegment = new Button { Text = "Codex", FlatStyle = FlatStyle.Flat, Location = new Point(52, 0),
             Size = new Size(52, 28), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand, TabStop = true };
+        var hermesSegment = new Button { Text = "Hermes", FlatStyle = FlatStyle.Flat, Location = new Point(104, 0),
+            Size = new Size(64, 28), TextAlign = ContentAlignment.MiddleCenter, Cursor = Cursors.Hand, TabStop = true };
         claudeSegment.FlatAppearance.BorderSize = 0;
         codexSegment.FlatAppearance.BorderSize = 0;
+        hermesSegment.FlatAppearance.BorderSize = 0;
         Action syncSegments = () => {
-            bool claude = (agentPick.SelectedItem ?? "Claude").ToString() != "Codex";
+            string selected = (agentPick.SelectedItem ?? "Claude").ToString();
+            bool claude = selected == "Claude", codex = selected == "Codex", hermes = selected == "Hermes";
             claudeSegment.BackColor = claude ? FieldHi : Field;
-            codexSegment.BackColor = claude ? Field : FieldHi;
+            codexSegment.BackColor = codex ? FieldHi : Field;
+            hermesSegment.BackColor = hermes ? FieldHi : Field;
             claudeSegment.ForeColor = claude ? Color.White : TextDim;
-            codexSegment.ForeColor = claude ? TextDim : Color.White;
+            codexSegment.ForeColor = codex ? Color.White : TextDim;
+            hermesSegment.ForeColor = hermes ? Color.White : TextDim;
             claudeSegment.Font = new Font("Segoe UI", 8f, claude ? FontStyle.Bold : FontStyle.Regular);
-            codexSegment.Font = new Font("Segoe UI", 8f, claude ? FontStyle.Regular : FontStyle.Bold);
+            codexSegment.Font = new Font("Segoe UI", 8f, codex ? FontStyle.Bold : FontStyle.Regular);
+            hermesSegment.Font = new Font("Segoe UI", 8f, hermes ? FontStyle.Bold : FontStyle.Regular);
         };
         claudeSegment.Click += (s, e) => agentPick.SelectedItem = "Claude";
         codexSegment.Click += (s, e) => agentPick.SelectedItem = "Codex";
+        hermesSegment.Click += (s, e) => agentPick.SelectedItem = "Hermes";
         agentPick.SelectedIndexChanged += (s, e) => {
             syncSegments();
             if (agentCombo != null && agentCombo.SelectedItem != agentPick.SelectedItem) agentCombo.SelectedItem = agentPick.SelectedItem;
         };
         segment.Controls.Add(claudeSegment);
         segment.Controls.Add(codexSegment);
+        segment.Controls.Add(hermesSegment);
         syncSegments();
         bar.Controls.Add(segment, 0, 0);
 
@@ -3716,7 +4595,7 @@ try {
         var browseBtn = GhostBtn("Browse…");
         browseBtn.Dock = DockStyle.Fill; browseBtn.Margin = new Padding(0, 4, 8, 4);
         browseBtn.Click += (s, e) => {
-            using (var dlg = new FolderBrowserDialog { Description = "Folder for the next Claude session", ShowNewFolderButton = true })
+            using (var dlg = new FolderBrowserDialog { Description = "Folder for the next agent session", ShowNewFolderButton = true })
             { if (Directory.Exists(termPathBox.Text)) dlg.SelectedPath = termPathBox.Text; if (dlg.ShowDialog() == DialogResult.OK) termPathBox.Text = dlg.SelectedPath; }
         };
         bar.Controls.Add(browseBtn, 4, 0);
@@ -3744,10 +4623,11 @@ try {
             BackColor = Color.FromArgb(16, 16, 18), BorderStyle = BorderStyle.FixedSingle };
         RoundRegion(termHost, 12);
         termHost.Resize += (s, e) => ResizeEmbedded();
+        termHost.MouseDown += (s, e) => { var selected = SelectedSession(); if (selected != null) RequestTerminalFocus(selected); };
         root.Controls.Add(termHost, 0, 2);
 
         termEmptyState = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 18) };
-        var empty = new Panel { Size = new Size(590, 170), BackColor = Color.Transparent };
+        var empty = new Panel { Size = new Size(590, 196), BackColor = Color.Transparent };
         Action centerEmpty = () => empty.Location = new Point(Math.Max(0, (termEmptyState.ClientSize.Width - empty.Width) / 2),
                                                                Math.Max(0, (termEmptyState.ClientSize.Height - empty.Height) / 2));
         termEmptyState.Resize += (s, e) => centerEmpty();
@@ -3755,10 +4635,13 @@ try {
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextFaint, Font = new Font("Consolas", 19f, FontStyle.Bold) });
         empty.Controls.Add(new Label { Text = "No terminals yet", Location = new Point(0, 49), Size = new Size(590, 24),
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextDim, Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold) });
-        empty.Controls.Add(new Label { Text = "Click “+ New Terminal” to start a Claude or Codex session. It runs right here as a tab —\r\nopen as many as you like and switch between them.",
-            Location = new Point(0, 79), Size = new Size(590, 42), TextAlign = ContentAlignment.MiddleCenter,
+        empty.Controls.Add(new Label {
+            Text = "1   First time?  Settings → “Install everything” sets up Claude, Codex, and the tools for you.\r\n"
+                 + "2   Pick your agent above — Claude, Codex, or Hermes — and choose a project folder.\r\n"
+                 + "3   Click “+ New Terminal”. The session runs right here as a tab — open as many as you like.",
+            Location = new Point(0, 79), Size = new Size(590, 66), TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = TextFaint, Font = new Font("Segoe UI", 8.5f) });
-        empty.Controls.Add(new Label { Text = "Ctrl+T new terminal   ·   hover the button to see the compression mix", Location = new Point(0, 132), Size = new Size(590, 20),
+        empty.Controls.Add(new Label { Text = "Ctrl+T new terminal   ·   hover the button to see the compression mix", Location = new Point(0, 156), Size = new Size(590, 20),
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextFaint, Font = new Font("Segoe UI", 8f) });
         termEmptyState.Controls.Add(empty);
         centerEmpty();
@@ -3907,7 +4790,48 @@ try {
         catch { }
     }
 
-    void NewTerminal() { NewTerminal(null); }
+    void NewHermesUtilityTerminal(string arguments, string task)
+    {
+        RefreshPathFromRegistry();
+        if (!HasHermes())
+        {
+            MessageBox.Show("Hermes is not installed yet. Use Settings → Launch & agents → Map Hermes to an LLM → Install / repair.", "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        string profile = (hermesProfile ?? "").Trim();
+        string profileArg = ValidHermesProfile(profile) && profile.Length > 0 ? " -p " + profile : "";
+        StartUtilityTerminal("hermes" + profileArg + " " + arguments, task, "Hermes");
+    }
+    // Shared tail for every embedded-terminal launch: register the session and focus its tab.
+    void RegisterSession(TermSession sess, bool jumpToWorkspace)
+    {
+        sessions.Add(sess);
+        selectedTerm = sess;
+        if (jumpToWorkspace) SelectNav(0);
+        RefreshTermList();
+        ShowSelectedTerminal();
+    }
+
+    void StartUtilityTerminal(string command, string task, string agentLabel)
+    {
+        string folder = termPathBox != null && Directory.Exists(termPathBox.Text) ? termPathBox.Text : HomeDir;
+        string id = Guid.NewGuid().ToString("N").Substring(0, 12);
+        var sess = new TermSession { Id = id, Folder = folder, Agent = agentLabel, Model = "Configuration", Task = task,
+            Name = TabHint(task, folder), Status = TermReady, Color = Green };
+        try
+        {
+            var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title " + agentLabel + " " + id + " & " + command)
+            { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = folder };
+            ApplyCreds(psi);
+            sess.Proc = Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Failed to start " + agentLabel + " terminal:\n" + ex.Message, "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        RegisterSession(sess, false);
+    }
     void NewTerminal(string presetFolder)
     {
         string folder;
@@ -3918,7 +4842,7 @@ try {
         else
         {
             folder = pathBox != null && Directory.Exists(pathBox.Text) ? pathBox.Text : HomeDir;
-            using (var dlg = new FolderBrowserDialog { Description = "Folder for this Claude session", ShowNewFolderButton = true, SelectedPath = folder })
+            using (var dlg = new FolderBrowserDialog { Description = "Folder for this agent session", ShowNewFolderButton = true, SelectedPath = folder })
             {
                 if (dlg.ShowDialog() != DialogResult.OK) return;
                 folder = dlg.SelectedPath;
@@ -3926,27 +4850,60 @@ try {
         }
         bool useHeadroom = hrCheck != null && hrCheck.Checked;
         string agent = (agentCombo != null && agentCombo.SelectedItem != null) ? agentCombo.SelectedItem.ToString() : "Claude";
-        if (agent != "Codex") TrustFolder(folder);   // Claude trust prompt is noisy inside embedded terminals
-        if (agent != "Codex" && useHeadroom && !EnsureProxy()) return;
+        if (agent == "Claude") TrustFolder(folder);   // Claude trust prompt is noisy inside embedded terminals
+        if (agent == "Claude" && useHeadroom && !EnsureProxy()) return;
 
         string id = Guid.NewGuid().ToString("N").Substring(0, 12);
         bool useRtk = rtCheck != null && rtCheck.Checked;
         bool useCaveman = cvCheck != null && cvCheck.Checked;
 
-        string selectedModel = (modelCombo.Text ?? "").Trim();
+        string selectedModel = string.IsNullOrWhiteSpace(nextLaunchModelOverride) ? StoredModelForAgent(agent) : nextLaunchModelOverride;
+        nextLaunchModelOverride = null;
         string model = CliModelName(selectedModel);
         string extra = (extraBox.Text ?? "").Trim();
         string cmd;
         string codexProfilePath = null;
+        string hermesSelectedProvider = "auto";
         if (agent == "Codex")
         {
-            EnsureCodexCompressionForLaunch(useRtk, useCaveman);
+            // Compression is provisioned when its Settings toggle/install action runs.
+            // Never run npm/plugin setup here: this method is a UI click handler and those
+            // commands can take minutes, making the whole app appear frozen.
             string profile = WriteCodexSessionProfile(id, out codexProfilePath);
             cmd = "codex --profile " + CmdQ(profile) + " --enable hooks --dangerously-bypass-hook-trust -C " + CmdQ(folder);
             if (model.Length > 0 && model != "Default") cmd += " --model " + CmdQ(model);
             cmd += CodexPermFlag();
             if (extra.Length > 0) cmd += " " + extra;
             if (continueChk.Checked) cmd += " resume --last";
+        }
+        else if (agent == "Hermes")
+        {
+            string profile = (hermesProfileBox != null ? hermesProfileBox.Text : hermesProfile).Trim().ToLowerInvariant();
+            if (!ValidHermesProfile(profile))
+            {
+                MessageBox.Show("Hermes profile names must use lowercase letters, numbers, underscores, or hyphens (max 64 characters).", "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            string provider = HermesProviderId(hermesProviderCombo != null && hermesProviderCombo.SelectedItem != null ? hermesProviderCombo.SelectedItem.ToString() : HermesProviderLabel(hermesProvider));
+            hermesSelectedProvider = provider;
+            if (provider == "custom" && !TestPort(OllamaPort))
+            {
+                string executable = FindOllamaExecutable();
+                if (executable == null)
+                {
+                    MessageBox.Show("Ollama isn't available yet. Install the built-in runtime from Settings, then launch this Hermes backend again.",
+                        "Hermes + Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+                StartOwnedOllama(executable);
+            }
+            cmd = "hermes";
+            if (profile.Length > 0) cmd += " -p " + CmdQ(profile);
+            cmd += " --tui";
+            if (provider != "auto") cmd += " --provider " + CmdQ(provider);
+            if (model.Length > 0 && model != "Default") cmd += " --model " + CmdQ(model);
+            if (continueChk.Checked) cmd += " --continue";
+            if (extra.Length > 0) cmd += " " + extra;
         }
         else
         {
@@ -3961,12 +4918,12 @@ try {
         string task = TaskLabelForLaunch(extra, continueChk.Checked);
         var sess = new TermSession { Id = id, Folder = folder,
             Agent = agent,
-            Model = SessionModelLabel(model),
+            Model = agent == "Hermes" && (model.Length == 0 || model == "Default") ? "Hermes default" : SessionModelLabel(model),
             Task = task,
             Name = TabHint(task, folder),
-            CHeadroom = agent == "Codex" ? false : useHeadroom,
-            CRtk = useRtk,
-            CCaveman = useCaveman,
+            CHeadroom = agent == "Claude" ? useHeadroom : false,
+            CRtk = agent == "Hermes" ? false : useRtk,
+            CCaveman = agent == "Hermes" ? false : useCaveman,
             CodexProfilePath = codexProfilePath };
         try
         {
@@ -3976,8 +4933,13 @@ try {
             var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title " + agent + " " + id + " & " + cmd + " & " + exitHook)
             { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = folder };
             psi.EnvironmentVariables["CODEX_HOME"] = CodexDir;
-            if (agent != "Codex" && useHeadroom) psi.EnvironmentVariables["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:" + ProxyPort;
+            if (agent == "Claude" && useHeadroom) psi.EnvironmentVariables["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:" + ProxyPort;
             ApplyCreds(psi);   // shared tokens/keys (SaaS → API keys) — same as the Mac app
+            if (agent == "Hermes" && hermesSelectedProvider == "custom")
+            {
+                psi.EnvironmentVariables["OPENROUTER_BASE_URL"] = "http://127.0.0.1:" + OllamaPort + "/v1";
+                psi.EnvironmentVariables["OPENAI_API_KEY"] = "no-key-required";
+            }
             sess.Proc = Process.Start(psi);
         }
         catch (Exception ex)
@@ -3988,12 +4950,9 @@ try {
         // Start idle: Claude boots to a prompt and waits for you. The tab only spins once
         // the UserPromptSubmit hook fires ("work"); the Stop hook returns it to idle.
         sess.Status = TermReady; sess.Color = Green;
-        sessions.Add(sess);
         SaveRecent(folder);
         RefreshRecent();
-        selectedTerm = sess;          // focus the freshly opened tab
-        RefreshTermList();
-        ShowSelectedTerminal();
+        RegisterSession(sess, false);
     }
 
     string SessionModelLabel(string model)
@@ -4055,7 +5014,11 @@ try {
             s.Hwnd = h;
             s.Embedded = true;
             ShowWindow(h, SelectedSession() == s ? SW_SHOW : SW_HIDE);
-            if (SelectedSession() == s) { ResizeEmbedded(); FocusConsole(h); }
+            if (SelectedSession() == s)
+            {
+                ResizeEmbedded();
+                if (s.FocusPending) RequestTerminalFocus(s);
+            }
         }
         catch { }
     }
@@ -4071,11 +5034,42 @@ try {
             uint tpid;
             uint conThread = GetWindowThreadProcessId(h, out tpid);
             uint guiThread = GetCurrentThreadId();
-            bool attached = conThread != guiThread && AttachThreadInput(guiThread, conThread, true);
-            try { SetForegroundWindow(this.Handle); SetFocus(h); SetActiveWindow(h); }
-            finally { if (attached) AttachThreadInput(guiThread, conThread, false); }
+            uint foregroundPid;
+            IntPtr foreground = GetForegroundWindow();
+            uint foregroundThread = foreground == IntPtr.Zero ? guiThread : GetWindowThreadProcessId(foreground, out foregroundPid);
+            bool attachedForeground = foregroundThread != guiThread && AttachThreadInput(guiThread, foregroundThread, true);
+            bool attachedConsole = conThread != guiThread && conThread != foregroundThread && AttachThreadInput(guiThread, conThread, true);
+            try { SetForegroundWindow(this.Handle); SetFocus(h); }
+            finally {
+                if (attachedConsole) AttachThreadInput(guiThread, conThread, false);
+                if (attachedForeground) AttachThreadInput(guiThread, foregroundThread, false);
+            }
         }
         catch { }
+    }
+
+    // A new console may be embedded during a button/Shown event. Windows can restore
+    // focus to that originating control after the handler returns, so one synchronous
+    // SetFocus call is not durable. Retry briefly after the event unwinds; stop as soon
+    // as the user selects another terminal so normal navigation is never hijacked.
+    void RequestTerminalFocus(TermSession session)
+    {
+        if (session == null || session.Popped) return;
+        session.FocusPending = true;
+        if (!session.Embedded || session.Hwnd == IntPtr.Zero) return;
+        session.FocusPending = false;
+        int attempts = 0;
+        var timer = new System.Windows.Forms.Timer { Interval = 90 };
+        timer.Tick += (s, e) => {
+            if (SelectedSession() != session || !session.Embedded || session.Hwnd == IntPtr.Zero || ++attempts >= 4)
+            {
+                timer.Stop(); timer.Dispose();
+                return;
+            }
+            FocusConsole(session.Hwnd);
+        };
+        try { BeginInvoke((Action)(() => { if (SelectedSession() == session) FocusConsole(session.Hwnd); })); } catch { }
+        timer.Start();
     }
 
     void ShowSelectedTerminal()
@@ -4085,7 +5079,7 @@ try {
         foreach (var s in sessions)
             if (s.Embedded && s.Hwnd != IntPtr.Zero)
                 ShowWindow(s.Hwnd, s == sel ? SW_SHOW : SW_HIDE);
-        if (sel != null) { EmbedIfReady(sel); ResizeEmbedded(); if (sel.Embedded) FocusConsole(sel.Hwnd); }
+        if (sel != null) { sel.FocusPending = true; EmbedIfReady(sel); ResizeEmbedded(); if (sel.Embedded) RequestTerminalFocus(sel); }
     }
 
     void ResizeEmbedded()
@@ -4753,7 +5747,7 @@ try {
     // Launch the selected SaaS builder in an embedded workspace terminal with the chosen model.
     void SaasLaunchBuilder(string dir, string prompt)
     {
-        string savedExtra = extraBox.Text, savedModel = modelCombo.Text;
+        string savedExtra = extraBox.Text;
         object savedAgent = agentCombo != null ? agentCombo.SelectedItem : null;
         try
         {
@@ -4762,14 +5756,14 @@ try {
             if (agentCombo != null) agentCombo.SelectedItem = builder == "ChatGPT" ? "Codex" : "Claude";
             extraBox.Text = "\"" + prompt.Replace("\"", "'") + "\"";
             string bm = saasBuildModel != null ? (saasBuildModel.Text ?? "").Trim() : "";
-            if (bm.Length > 0) modelCombo.Text = bm;
+            if (bm.Length > 0) nextLaunchModelOverride = bm;
             NewTerminal(dir);
         }
         finally
         {
             if (agentCombo != null && savedAgent != null) agentCombo.SelectedItem = savedAgent;
             extraBox.Text = savedExtra;
-            modelCombo.Text = savedModel;
+            nextLaunchModelOverride = null;
         }
     }
 
@@ -4788,22 +5782,6 @@ try {
         string exe, install, login; SaasTargetTool(out exe, out install, out login);
         SaasLog(OnPath(exe) || OnPath(exe + ".cmd") ? (exe + " is ready for " + saasTarget.SelectedItem + ".") : (exe + " missing — click Install CLI."));
     }
-    void SaasInstallCLI()
-    {
-        string exe, install, login; SaasTargetTool(out exe, out install, out login);
-        if (OnPath(exe) || OnPath(exe + ".cmd")) { SaasLog(exe + " already installed."); return; }
-        SaasRunTerm(install, HomeDir, "Installing the " + saasTarget.SelectedItem + " CLI…");
-    }
-    void SaasDeployLogin()
-    {
-        if (!SaasDeployDirValid()) return;
-        string exe, install, login; SaasTargetTool(out exe, out install, out login);
-        string cmd = login;
-        string proj = (saasGcpProject.Text ?? "").Trim();
-        if ((saasTarget.SelectedItem ?? "").ToString() == "Cloud Run" && proj.Length > 0) cmd += " && gcloud config set project " + proj;
-        SaasRunTerm(cmd, SaasDeployDir(), "Sign in to " + saasTarget.SelectedItem + "… a browser may open.");
-    }
-
     void SaasScaffoldDeploy()
     {
         if (!SaasDeployDirValid()) return;

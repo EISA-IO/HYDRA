@@ -28,9 +28,22 @@
       "fallbackInstall": "npx skills add addyosmani/agent-skills"
     },
     "claude": {
-      "role": "Claude Code CLI (Anthropic — not redistributable, auto-installed once if missing)",
-      "bundled": {},
+      "role": "Claude Code CLI",
+      "bundled": { "selfContainedBuilds": "runtime/app/node_modules/@anthropic-ai/claude-code" },
       "fallbackInstall": "curl -fsSL https://claude.ai/install.sh | bash"
+    },
+    "codex": {
+      "role": "ChatGPT/Codex CLI",
+      "bundled": { "selfContainedBuilds": "runtime/app/node_modules/@openai/codex" },
+      "fallbackInstall": "npm install -g @openai/codex@latest"
+    },
+    "node": {
+      "role": "portable JavaScript runtime for bundled CLIs and plugins",
+      "bundled": { "selfContainedBuilds": "runtime/bin" }
+    },
+    "ollama": {
+      "role": "offline local-model runtime (models remain user-managed)",
+      "bundled": { "selfContainedBuilds": "runtime/ollama" }
     },
     "headroom": {
       "role": "optional compression proxy (Python)",

@@ -43,7 +43,7 @@ struct ContentView: View {
     static func initialTab() -> Int {
         // Allow `open -n "Hydra.app" --args --tab 3` to preselect a tab (used for QA).
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--tab"), i + 1 < args.count, let n = Int(args[i + 1]), (0...5).contains(n) {
+        if let i = args.firstIndex(of: "--tab"), i + 1 < args.count, let n = Int(args[i + 1]), (0...6).contains(n) {
             return n
         }
         return 0
@@ -55,7 +55,8 @@ struct ContentView: View {
         NavItem(id: 2, title: "SaaS", icon: "shippingbox.fill"),
         NavItem(id: 3, title: "Skills", icon: "puzzlepiece.extension.fill"),
         NavItem(id: 4, title: "Glossary", icon: "book.fill"),
-        NavItem(id: 5, title: "Ollama", icon: "cpu.fill")
+        NavItem(id: 5, title: "Ollama", icon: "cpu.fill"),
+        NavItem(id: 6, title: "MCP", icon: "point.3.connected.trianglepath.dotted")
     ]
 
     var body: some View {
@@ -85,6 +86,19 @@ struct ContentView: View {
                     app.launch(folder: dir)
                 }
             }
+            // QA hook for the native multi-session Hermes path. Each call creates a separate
+            // PTY/tab and snapshots the launch defaults at that moment.
+            if CommandLine.arguments.contains("--demohermes") {
+                let dir = FS.isDir(Paths.home + "/Desktop/HYDRA") ? Paths.home + "/Desktop/HYDRA" : Paths.home
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    app.folder = dir
+                    app.setAgent("Hermes")
+                    app.launch(folder: dir)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        app.launch(folder: dir)
+                    }
+                }
+            }
             // QA: `--qa <caveman|video|agent-skills|update|everything>` runs an installer method so the log
             // pipeline can be observed deterministically.
             if let i = CommandLine.arguments.firstIndex(of: "--qa"), i + 1 < CommandLine.arguments.count {
@@ -106,11 +120,13 @@ struct ContentView: View {
     @ViewBuilder var content: some View {
         switch tab {
         case 0: WorkspaceView()
-        case 1: SettingsView()
+        case 1: SettingsHubView()
         case 2: SaaSView()
         case 3: SkillsView()
+        case 4: GlossaryView()
         case 5: OllamaTabView()
-        default: GlossaryView()
+        case 6: MCPView()
+        default: WorkspaceView()
         }
     }
 

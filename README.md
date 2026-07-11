@@ -11,10 +11,10 @@
 | **Windows 10/11** | [`hydra_v1.0.exe`](https://github.com/EISA-IO/HYDRA/releases/latest/download/hydra_v1.0.exe) | double-click — no installer |
 | **macOS 14+** | [`hydra_v1.0-mac.zip`](https://github.com/EISA-IO/HYDRA/releases/latest/download/hydra_v1.0-mac.zip) | unzip → right-click **Hydra.app** → Open |
 
-A launcher + toolchain manager for Claude Code, Codex CLI, and a natively built-in Ollama, with an embedded multi-terminal
+A launcher + toolchain manager for Claude Code, Codex CLI, Hermes Agent, and a natively built-in Ollama, with an embedded multi-terminal
 Workspace, a token-compression toolchain (RTK + Caveman + Headroom), Claude Video `/watch`,
 Addy Osmani's Agent Skills, and a bundled skills library,
-and a guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).
+dedicated memory/context and MCP control centers, and a guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).
 
 ## Repository layout
 
@@ -31,8 +31,11 @@ HYDRA/
 │   ├── Hydra.cs
 │   ├── Hydra.bat        — compiles + launches (rebuilds when the source changes)
 │   ├── Hydra.ps1         — lightweight fallback launcher
+│   ├── Build-SelfContained.ps1 — packs the offline single-file exe
 │   ├── bot.ico, bot.png
 ├── SKILLS-BACKUP/    — bundled skills (auto-seeded into ~/.claude/skills and ~/.agents/skills)
+├── tools/            — bundled toolchain (RTK, Caveman, Claude Video, Agent Skills) + manifest.json
+├── docs/             — BUILD-A-SAAS-PLAYBOOK.md (canonical SaaS production runbook)
 └── README.md
 ```
 
@@ -40,6 +43,12 @@ HYDRA/
 app finds it in the repo root (the parent of `WINDOWS/`).
 
 ## Build & run
+
+Self-contained releases include portable Node, Claude Code, ChatGPT/Codex, Ollama, RTK,
+plugins, and skills. They require no separate CLI/runtime installation and are intentionally
+large. Hermes is installed and updated on demand through its official installer/updater so its
+Python environment and migrations remain Hermes-owned. Ollama model weights are downloaded only
+when the user selects a model.
 
 **macOS** (needs Xcode Command Line Tools — `xcode-select --install`):
 ```bash
@@ -53,6 +62,12 @@ double-click `WINDOWS/Hydra.bat` — it compiles `Hydra.cs` on first run
 
 ## The SaaS production playbook
 
+Build the single-file offline Windows artifact with:
+
+```powershell
+.\WINDOWS\Build-SelfContained.ps1 -Output .\WINDOWS\Hydra-SelfContained.exe
+```
+
 Every project the SaaS builder creates gets a `PLAYBOOK.md` — the battle-tested sequence
 to a production site (accounts-first ordering, deploy-the-skeleton-early, Firebase Auth
 enablement, Lemon Squeezy / KSA payments decision tree, Namecheap domain → Firebase Hosting
@@ -64,14 +79,16 @@ The macOS and Windows apps share the same dark shell: a persistent 190px sidebar
 Ollama controls and live tool counts; a flat content canvas; matching page headers; and the same
 compact workspace toolbar, task/model terminal chips, status colors and composed empty state.
 
-- **Workspace** — create multiple embedded Claude and Codex terminals in tabs; each terminal gets
+- **Workspace** — create multiple embedded Claude, Codex, and Hermes terminals in tabs. Hermes tabs
+  can run concurrently with different provider/model/profile settings; changing a default affects
+  only terminals opened afterward. Claude/Codex terminals get
   RTK + Caveman when enabled. Terminal tabs make live state primary: **Ready**, **Working**,
   **Waiting for User**, or **Stopped / Token Limit**. Per-session Claude and Codex hooks drive
   turn state and report the actual runtime model; unresolved sessions say **Resolving model…**, never
   “Default.” Tabs use a short prompt-derived task hint, or the project folder for an interactive
   session, instead of an agent name. Process exit supplies the stopped fallback. Claude and Codex keep separate default
   model choices, so a Codex default like **gpt-5.6-sol** is not overwritten when you switch back
-  to Claude.
+  to Claude. Hermes has its own editable model field, allowing arbitrary Ollama and OpenRouter IDs.
 - **Ollama (built into Hydra)** — the portable Ollama runtime lives in Hydra's own state dir
   (`~/.claude-manager/ollama`) with the models, `context_size.cfg` and `recommended_models.txt`
   alongside it: no installer, no login item, no system service — delete the folder and every
@@ -84,17 +101,44 @@ compact workspace toolbar, task/model terminal chips, status colors and composed
   chat with a model in an embedded terminal, delete models, and change the context length
   (restarts the owned server). Existing PATH / `Ollama.app` / system installs still work as
   a fallback.
-- **Settings** — choose the default agent, launch defaults, token-compression toggles, one-click
-  "Install everything" / "Update core packages".
+- **Settings** — four focused pages for **Launch & agents**, **Memory & context**, **Compression**, and
+  **System & updates**. Launch & agents shows independent Claude and Codex default models at the
+  same time, plus an explicit Hermes **provider/account → model ID** mapping. Control Claude
+  auto-memory and `CLAUDE.md`; Codex memories, context window,
+  compaction threshold, and `AGENTS.md`; and Hermes built-in/external memory plus context compression.
+  Also choose the default agent, launch defaults, token-compression toggles, one-click
+  "Install everything" / "Update core packages", and check the installed Claude and
+  ChatGPT/Codex CLI versions against their latest published releases.
   Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,
   and Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
   Hydra also installs Claude Video `/watch` from `tools/claude-video` and Addy Osmani's
   24-skill lifecycle pack from `tools/agent-skills` into both Claude and Codex skill folders.
+  The Hermes section selects **ChatGPT/Codex OAuth**, **Claude/Anthropic**, **Ollama (local)**,
+  **OpenRouter**, or Hermes' own default. It also exposes profile selection, official installation,
+  `hermes model`, update checks, in-place updates, and `hermes doctor`.
 - **SaaS** — the guided *Build a SaaS* lifecycle: describe your idea, scaffold Open SaaS, deploy
   (Firebase / Vercel / Cloud Run via a private GitHub repo + GitHub Actions CI/CD), and add
   subscription billing + subscriber email. Choose Claude or ChatGPT as the builder.
 - **Skills** — manage the bundled skills library. Imports are mirrored into Claude skills and
   Codex/ChatGPT user skills (`~/.agents/skills`) so either builder can use them automatically.
+  Native Hermes skills are inventoried separately for the selected profile, with direct access to
+  `hermes skills` for browsing, installation, updates, and audits.
   The built-in Agent Skills pack adds workflows for spec, plan, build, test, review, performance,
   security, documentation, launch readiness, and more.
 - **Glossary** — reference for the whole toolchain.
+- **MCP** — a dedicated, refreshable inventory for Claude, Codex, and the selected Hermes profile.
+  Hydra calls each CLI's native `mcp list`, so project/user/plugin/profile sources and health status
+  remain authoritative; native manager/config actions sit beside the results.
+
+## Hermes compatibility boundary
+
+Hydra never rewrites Hermes' `~/.hermes/config.yaml` or `.env` itself; memory/context changes go
+through supported `hermes memory` and `hermes config set` commands. New terminals receive
+documented per-launch `--provider`, `--model`, `-p`, `--tui`, and `--continue` arguments. Ollama is
+connected through its localhost OpenAI-compatible endpoint only in the selected terminal's process
+environment. Authentication remains in `hermes model`, installation uses the
+[official installer](https://hermes-agent.nousresearch.com/docs/getting-started/installation), and
+upgrades use the [official `hermes update` workflow](https://hermes-agent.nousresearch.com/docs/reference/cli-commands)
+with a forced pre-update backup. Hydra refuses to update while a Hermes terminal is still running,
+keeping live processes away from an in-place environment change and avoiding coupling to Hermes'
+internal schema.

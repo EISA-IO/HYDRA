@@ -8,15 +8,14 @@ struct WorkspaceView: View {
         VStack(alignment: .leading, spacing: 12) {
             // ---- toolbar ----
             HStack(spacing: 10) {
-                Picker("", selection: $app.agent) {
+                Picker("", selection: Binding(
+                    get: { app.agent },
+                    set: { app.setAgent($0) }
+                )) {
                     ForEach(app.agentOptions, id: \.self) { Text($0).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 150)
-                .onChange(of: app.agent) {
-                    app.sanitizeLaunchModel()
-                    app.saveSettings()
-                }
+                .frame(width: 235)
                 .help("Choose which CLI the next terminal launches")
 
                 Button {
@@ -62,7 +61,11 @@ struct WorkspaceView: View {
                     VStack(spacing: 10) {
                         Image(systemName: "terminal").font(.system(size: 30)).foregroundStyle(Theme.textFaint)
                         Text("No terminals yet").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.textDim)
-                        Text("Click “New” to start a Claude or Codex session. It runs right here as a tab —\nopen as many as you like and switch between them.")
+                        Text("""
+                        1   First time?  Settings → “Install everything” sets up Claude, Codex, and the tools for you.
+                        2   Pick your agent above — Claude, Codex, or Hermes — and choose a project folder.
+                        3   Click “+ New Terminal”. The session runs right here as a tab — open as many as you like.
+                        """)
                             .font(.system(size: 12)).foregroundStyle(Theme.textFaint)
                             .multilineTextAlignment(.center)
                         Text("H Headroom · R RTK · C Caveman   ·   ⌘T new terminal")
@@ -82,6 +85,7 @@ struct WorkspaceView: View {
     }
 
     func badges() -> [String] {
+        if app.agent == "Hermes" { return [] }
         var b: [String] = []
         if app.headroom { b.append("H") }
         if app.rtkInstalled { b.append("R") }

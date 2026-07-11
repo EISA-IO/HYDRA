@@ -137,6 +137,69 @@ extension AppState {
         runSteps("Installing / updating the Claude CLI", [("Claude CLI", claudeInstallCmd())])
     }
 
+    // Hermes owns its install tree, authentication state and migrations. Keeping these
+    // actions on the official installer/updater is the compatibility boundary that lets
+    // Hydra track new Hermes releases without encoding their internal file layout.
+    func installHermes() {
+        guard hermesPlatformSupported else {
+            alert("Hermes on Intel macOS", "Hermes upstream currently supports Apple Silicon macOS. Hydra will still launch an existing `hermes` command, but it will not run an unsupported installer on this Mac.")
+            return
+        }
+        let cwd = FS.isDir(folder) ? folder : Paths.home
+        runInWorkspace("curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+                       cwd: cwd,
+                       note: "Official Hermes installer / repair. Configure authentication afterward with `hermes model`.",
+                       agentLabel: "Hermes", modelLabel: "Installer", taskLabel: "Install / repair Hermes")
+    }
+
+    func configureHermes() {
+        guard Shell.shared.onPath("hermes") else {
+            alert("Hermes not installed", "Use “Install / repair Hermes” first.")
+            return
+        }
+        runInWorkspace("hermes model", cwd: Paths.home,
+                       note: "Configure Hermes authentication, providers and default models.",
+                       agentLabel: "Hermes", modelLabel: "Configuration", taskLabel: "Configure auth & models")
+    }
+
+    func checkHermesUpdate() {
+        guard Shell.shared.onPath("hermes") else {
+            alert("Hermes not installed", "Use “Install / repair Hermes” first.")
+            return
+        }
+        runInWorkspace("hermes update --check", cwd: Paths.home,
+                       note: "Checking the official Hermes release channel.",
+                       agentLabel: "Hermes", modelLabel: "Updater", taskLabel: "Check Hermes update")
+    }
+
+    func updateHermes() {
+        guard Shell.shared.onPath("hermes") else {
+            installHermes()
+            return
+        }
+        guard !hasRunningHermesTabs else {
+            alert("Close Hermes terminals first", "Hermes updates its managed environment in place. Close every running Hermes tab, then update safely.")
+            return
+        }
+        runInWorkspace("hermes update --backup --yes", cwd: Paths.home,
+                       note: "Backing up Hermes state, then running its supported in-place updater.",
+                       agentLabel: "Hermes", modelLabel: "Updater", taskLabel: "Update Hermes")
+    }
+
+    private var hasRunningHermesTabs: Bool {
+        terminals.tabs.contains { $0.agent == "Hermes" && $0.status != .stoppedOrTokenLimit }
+    }
+
+    func doctorHermes() {
+        guard Shell.shared.onPath("hermes") else {
+            alert("Hermes not installed", "Use “Install / repair Hermes” first.")
+            return
+        }
+        runInWorkspace("hermes doctor", cwd: Paths.home,
+                       note: "Hermes environment and provider diagnostics.",
+                       agentLabel: "Hermes", modelLabel: "Diagnostics", taskLabel: "Hermes doctor")
+    }
+
     func installRtk() {
         runSteps("Installing RTK (input compression)", [("RTK (download + register)", rtkFullScript())]) {
             self.rtkInstalled = Self.isRtkInstalled(); self.rtk = self.rtkInstalled
@@ -290,11 +353,14 @@ extension AppState {
             ("Node.js", nodeEnsureScript()),
             ("Claude CLI", "command -v claude >/dev/null 2>&1 && echo 'Claude CLI already installed — skipping.' || { " + claudeInstallCmd() + "; }"),
             ("Codex CLI", "command -v codex >/dev/null 2>&1 && echo 'Codex CLI already installed — skipping.' || { " + codexInstallCmd() + "; }"),
+            ("Hermes", hermesPlatformSupported
+                ? "command -v hermes >/dev/null 2>&1 && echo 'Hermes already installed — skipping.' || { curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --non-interactive; }"
+                : "echo '(skip Hermes — upstream does not support Intel macOS)'"),
             ("RTK", rtkFullScript()),
             ("Caveman", cavemanCmd() + " || echo '(Caveman needs Node.js — install Node then retry)'"),
             ("Ollama (built-in)", ollamaInstallScript())
         ]
-        runSteps("Installing everything (Node · Claude CLI · RTK · Caveman · Claude Video · Agent Skills · skills · Ollama)", steps) {
+        runSteps("Installing everything (Node · Claude CLI · Hermes · RTK · Caveman · Claude Video · Agent Skills · skills · Ollama)", steps) {
             // bundled skills, quietly (no folder prompt inside the batch flow)
             if let src = self.findSkillsSource() {
                 DispatchQueue.global(qos: .userInitiated).async { self.doInstallSkills(from: src) }
@@ -315,10 +381,14 @@ extension AppState {
 
     // ---- update the core packages in place to their latest versions ----
     func updateCore() {
+        let hermesCommand = hasRunningHermesTabs
+            ? "echo '(skip Hermes — close running Hermes tabs before updating)'"
+            : (Shell.shared.onPath("hermes") ? "hermes update --backup --yes" : "echo '(skip Hermes — not installed; use the Hermes installer button)'")
         let steps: [(String, String)] = [
             ("npm", Shell.shared.onPath("npm") ? "npm install -g npm@latest" : "echo '(skip npm — Node not installed)'"),
             ("Claude CLI", claudeInstallCmd()),
             ("Codex CLI", Shell.shared.onPath("npm") ? codexInstallCmd() : "echo '(skip Codex CLI — Node not installed)'"),
+            ("Hermes", hermesCommand),
             ("RTK", rtkFullScript()),
             ("Caveman", hasNode ? cavemanCmd() : "echo '(skip Caveman — needs Node.js)'")
         ]
@@ -354,13 +424,4 @@ extension AppState {
         ])
     }
 
-    func isARM() -> Bool {
-        var sysinfo = utsname()
-        uname(&sysinfo)
-        let machine = withUnsafeBytes(of: &sysinfo.machine) { raw -> String in
-            let ptr = raw.baseAddress!.assumingMemoryBound(to: CChar.self)
-            return String(cString: ptr)
-        }
-        return machine.contains("arm")
-    }
 }

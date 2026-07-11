@@ -464,17 +464,6 @@ final class SaaSModel: ObservableObject {
         out("Connecting to \(target). Finish any sign-in in the Workspace tab, then come back for step 2.")
     }
 
-    func deployLogin() {
-        guard deployDirValid() else { return }
-        let t = targetTool()
-        var cmd = t.login
-        if target == "Cloud Run", !gcpProject.trimmingCharacters(in: .whitespaces).isEmpty {
-            cmd += " && gcloud config set project \(gcpProject.trimmingCharacters(in: .whitespaces))"
-        }
-        app?.runInWorkspace(cmd, cwd: deployDir(), note: "Sign in to \(target)… a browser may open.")
-        out("Launched \(target) login in a Workspace tab.")
-    }
-
     /// Write the target's config files if they're not already present (so 'Go live' just works).
     private func ensureDeployConfig() {
         let dir = deployDir()

@@ -23,3 +23,7 @@ jobs:
       - name: Build Hydra (SwiftPM)
         run: swift build
         working-directory: MAC
+
+      - name: Run Hydra tests
+        run: swift test
+        working-directory: MAC

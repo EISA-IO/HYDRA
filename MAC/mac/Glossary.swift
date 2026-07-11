@@ -76,10 +76,10 @@ enum Glossary {
         add(K, "Up arrow", "Cycle through previous prompt history.")
 
         let M = "Hydra (this app)"
-        add(M, "⌘1 … ⌘5", "Switch tabs (Launch / Skills / SaaS / Glossary / Setup).")
-        add(M, "⌘L", "Launch a new Claude session in the chosen folder.")
-        add(M, "⌘, ", "Focus the folder field.")
-        add(M, "Recents", "Double-click a recent folder to launch straight into it.")
+        add(M, "⌘1 … ⌘7", "Switch tabs (Workspace / Settings / SaaS / Skills / Glossary / Ollama / MCP).")
+        add(M, "⌘T", "New terminal — a Claude, Codex, or Hermes session in the chosen folder.")
+        add(M, "Recents", "Pick a recent project folder from the Workspace toolbar.")
+        add(M, "Install everything", "Settings → System & updates: one click installs Claude, Codex, and the toolchain.")
 
         let H = "Headroom (token compression)"
         add(H, "headroom proxy", "Start the compression proxy on port 8787.")

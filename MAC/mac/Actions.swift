@@ -20,9 +20,11 @@ extension AppState {
 
     var launchButtonLabel: String {
         var tail = ""
-        if headroom { tail += " +Headroom" }
-        if rtk { tail += " +RTK" }
-        if caveman { tail += " +Caveman" }
+        if agent != "Hermes" {
+            if headroom { tail += " +Headroom" }
+            if rtk { tail += " +RTK" }
+            if caveman { tail += " +Caveman" }
+        }
         let m = model.trimmingCharacters(in: .whitespaces).isEmpty ? "Default" : model
         return "Launch \(agent)  (\(m))\(tail)"
     }
@@ -75,27 +77,16 @@ extension AppState {
         return (name, path)
     }
 
-    private var codexCavemanBlock: String {
-        """
-
-        <!-- claude-manager-caveman-codex -->
-        # Caveman Mode
-
-        Respond terse like smart caveman. Keep all technical substance, code, commands, API names, errors, security warnings, and irreversible-action warnings precise. Drop filler, pleasantries, hedging, and repetition. Use normal technical English for code, commits, diffs, legal/security risk, or when terse fragments could confuse. Resume terse mode after the risky/precise part. Stop only when user says "stop caveman" or "normal mode".
-        <!-- /claude-manager-caveman-codex -->
-        """
-    }
-
     private func ensureCodexCavemanInstructions() {
         try? FileManager.default.createDirectory(atPath: Paths.codexDir, withIntermediateDirectories: true)
-        let start = "<!-- claude-manager-caveman-codex -->"
-        let end = "<!-- /claude-manager-caveman-codex -->"
         let existing = FS.read(Paths.codexAgents) ?? ""
-        if existing.contains(start), let sr = existing.range(of: start), let er = existing.range(of: end, range: sr.upperBound..<existing.endIndex) {
-            let updated = String(existing[..<sr.lowerBound]) + codexCavemanBlock + String(existing[er.upperBound...])
+        if existing.contains(CodexCaveman.startMarker),
+           let sr = existing.range(of: CodexCaveman.startMarker),
+           let er = existing.range(of: CodexCaveman.endMarker, range: sr.upperBound..<existing.endIndex) {
+            let updated = String(existing[..<sr.lowerBound]) + CodexCaveman.block + String(existing[er.upperBound...])
             FS.write(Paths.codexAgents, updated.trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
         } else {
-            FS.write(Paths.codexAgents, (existing.trimmingCharacters(in: .whitespacesAndNewlines) + codexCavemanBlock).trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
+            FS.write(Paths.codexAgents, (existing.trimmingCharacters(in: .whitespacesAndNewlines) + CodexCaveman.block).trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
         }
     }
 
@@ -154,12 +145,30 @@ extension AppState {
 
         let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased())
         let selectedModel = (modelOverride ?? model).trimmingCharacters(in: .whitespaces)
-        let m = cliModelName(selectedModel)
+        let m = selectedAgent == "Hermes" ? HermesIntegration.normalizedModel(selectedModel) : cliModelName(selectedModel)
         let extra = extraArgs.trimmingCharacters(in: .whitespaces)
         var cli: String
         var cleanupPaths: [String] = []
-        if selectedAgent == "Codex" {
-            ensureCodexCompressionForLaunch(useRtk: rtk, useCaveman: caveman)
+        let selectedHermesProvider = HermesIntegration.normalizedProviderID(hermesProvider)
+        if selectedAgent == "Hermes" {
+            guard let command = HermesIntegration.launchCommand(
+                model: m, providerID: selectedHermesProvider, profile: hermesProfile,
+                resume: continueLast, extra: extra, startupPrompt: startupPrompt
+            ) else {
+                alert("Invalid Hermes profile", "Use 1–64 lowercase letters, numbers, underscores or hyphens; the first character must be a letter or number.")
+                return
+            }
+            if selectedHermesProvider == "custom" {
+                guard AppState.portOpen(OllamaPort) || OllamaService.installedExecutable() != nil else {
+                    alert("Ollama not available", "Install the built-in Ollama runtime from Settings, then launch this Hermes backend again.")
+                    return
+                }
+                ollama.start()
+            }
+            cli = command
+        } else if selectedAgent == "Codex" {
+            // Compression is provisioned by Settings. Keep network/plugin installation off
+            // this main-thread button path so a terminal tab appears immediately.
             let profile = writeCodexSessionProfile(id: id)
             cleanupPaths.append(profile.path)
             cli = "codex --profile \(TerminalLauncher.shellQuote(profile.name)) --enable hooks --dangerously-bypass-hook-trust -C \(TerminalLauncher.shellQuote(f))"
@@ -194,11 +203,20 @@ extension AppState {
         env["CODEX_HOME"] = Paths.codexDir
         if headroom && selectedAgent == "Claude" { env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:\(ProxyPort)" }
         applyCreds(to: &env)   // shared tokens/keys (Settings → Access & API keys)
+        if selectedAgent == "Hermes" {
+            for (key, value) in HermesIntegration.environmentOverrides(providerID: selectedHermesProvider) {
+                env[key] = value
+            }
+        }
         let envArr = env.map { "\($0.key)=\($0.value)" }
 
         terminals.spawn(id: id, folder: f, shellCommand: shellCommand, env: envArr,
-                        agent: selectedAgent, model: sessionModelLabel(m), task: taskLabel(startupPrompt: startupPrompt),
-                        headroom: selectedAgent == "Claude" ? headroom : false, rtk: rtk, caveman: caveman,
+                        agent: selectedAgent,
+                        model: selectedAgent == "Hermes" && m == "Default" ? "Hermes default" : sessionModelLabel(m),
+                        task: taskLabel(startupPrompt: startupPrompt),
+                        headroom: selectedAgent == "Claude" ? headroom : false,
+                        rtk: selectedAgent == "Hermes" ? false : rtk,
+                        caveman: selectedAgent == "Hermes" ? false : caveman,
                         cleanupPaths: cleanupPaths)
         saveRecent(f)
         saveSettings()
@@ -275,12 +293,9 @@ extension AppState {
         // Start the proxy in an embedded Workspace tab — controlling Terminal.app via
         // AppleScript would fire a macOS Automation permission prompt.
         runInWorkspace("headroom proxy", cwd: Paths.home, note: "Headroom proxy — leave this tab running.")
-        for _ in 0..<20 {
-            if Self.portOpen(ProxyPort) { proxyRunning = true; return true }
-            usleep(500_000)
-        }
-        alert("Headroom proxy", "Started 'headroom proxy' but port \(ProxyPort) did not come up. Give it a moment and try again.")
-        return false
+        // Never poll from the SwiftUI action handler. Claude does not contact Headroom until
+        // the first prompt, so the proxy can finish booting while both tabs remain responsive.
+        return true
     }
 
     // ---- compression toggles ----

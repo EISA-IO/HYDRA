@@ -1,6 +1,21 @@
 import SwiftUI
 import AppKit
 
+// The one Caveman instruction block Hydra maintains in ~/.codex/AGENTS.md — shared
+// by launch-time refresh (Actions) and first-run provisioning (below).
+enum CodexCaveman {
+    static let startMarker = "<!-- claude-manager-caveman-codex -->"
+    static let endMarker = "<!-- /claude-manager-caveman-codex -->"
+    static let block = """
+
+    <!-- claude-manager-caveman-codex -->
+    # Caveman Mode
+
+    Respond terse like smart caveman. Keep all technical substance, code, commands, API names, errors, security warnings, and irreversible-action warnings precise. Drop filler, pleasantries, hedging, and repetition. Use normal technical English for code, commits, diffs, legal/security risk, or when terse fragments could confuse. Resume terse mode after the risky/precise part. Stop only when user says "stop caveman" or "normal mode".
+    <!-- /claude-manager-caveman-codex -->
+    """
+}
+
 // ============================================================================
 // Native toolchain — makes Claude/Codex CLI, RTK, Caveman (and Headroom) work WITHOUT
 // the user downloading anything. The app ships the binaries it legally can inside
@@ -117,6 +132,16 @@ extension AppState {
         "npm install -g @openai/codex@latest --prefix \"$HOME/.claude-manager\" --cache \"$(mktemp -d)\" --no-fund --no-audit --force"
     }
 
+    /// Register a bundled marketplace with Codex (re-adding repairs stale paths), then add
+    /// the plugin from it. Shared by the caveman / claude-video / agent-skills installs.
+    func ensureCodexMarketplacePlugin(marketplace: String, root: String, plugin: String) {
+        if !codexMarketplaceConfigured(name: marketplace, root: root) {
+            _ = Shell.shared.run("codex", ["plugin", "marketplace", "remove", marketplace], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
+            _ = Shell.shared.run("codex", ["plugin", "marketplace", "add", root], env: ["CODEX_HOME": Paths.codexDir], timeout: 60)
+        }
+        _ = Shell.shared.run("codex", ["plugin", "add", plugin], env: ["CODEX_HOME": Paths.codexDir], timeout: 120)
+    }
+
     func installBundledCavemanForCodexIfPossible() {
         guard let src = toolsSource(), Shell.shared.onPath("codex") else { return }
         let marketplaceRoot = src + "/caveman"
@@ -166,11 +191,7 @@ extension AppState {
         }
 
         if Shell.shared.onPath("codex"), FS.exists(root + "/.agents/plugins/marketplace.json") {
-            if !codexMarketplaceConfigured(name: "claude-video", root: root) {
-                _ = Shell.shared.run("codex", ["plugin", "marketplace", "remove", "claude-video"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
-                _ = Shell.shared.run("codex", ["plugin", "marketplace", "add", root], env: ["CODEX_HOME": Paths.codexDir], timeout: 60)
-            }
-            _ = Shell.shared.run("codex", ["plugin", "add", "watch@claude-video"], env: ["CODEX_HOME": Paths.codexDir], timeout: 120)
+            ensureCodexMarketplacePlugin(marketplace: "claude-video", root: root, plugin: "watch@claude-video")
         }
     }
 
@@ -206,27 +227,14 @@ extension AppState {
         }
 
         if Shell.shared.onPath("codex"), FS.exists(root + "/.agents/plugins/marketplace.json") {
-            if !codexMarketplaceConfigured(name: "agent-skills", root: root) {
-                _ = Shell.shared.run("codex", ["plugin", "marketplace", "remove", "agent-skills"], env: ["CODEX_HOME": Paths.codexDir], timeout: 30)
-                _ = Shell.shared.run("codex", ["plugin", "marketplace", "add", root], env: ["CODEX_HOME": Paths.codexDir], timeout: 60)
-            }
-            _ = Shell.shared.run("codex", ["plugin", "add", "agent-skills@agent-skills"], env: ["CODEX_HOME": Paths.codexDir], timeout: 120)
+            ensureCodexMarketplacePlugin(marketplace: "agent-skills", root: root, plugin: "agent-skills@agent-skills")
         }
     }
 
     private func ensureCodexCavemanInstructionsForProvisioning() {
-        let start = "<!-- claude-manager-caveman-codex -->"
-        if FS.read(Paths.codexAgents)?.contains(start) == true { return }
-        let block = """
-
-        <!-- claude-manager-caveman-codex -->
-        # Caveman Mode
-
-        Respond terse like smart caveman. Keep all technical substance, code, commands, API names, errors, security warnings, and irreversible-action warnings precise. Drop filler, pleasantries, hedging, and repetition. Use normal technical English for code, commits, diffs, legal/security risk, or when terse fragments could confuse. Resume terse mode after the risky/precise part. Stop only when user says "stop caveman" or "normal mode".
-        <!-- /claude-manager-caveman-codex -->
-        """
+        if FS.read(Paths.codexAgents)?.contains(CodexCaveman.startMarker) == true { return }
         let existing = FS.read(Paths.codexAgents) ?? ""
-        FS.write(Paths.codexAgents, (existing.trimmingCharacters(in: .whitespacesAndNewlines) + block).trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
+        FS.write(Paths.codexAgents, (existing.trimmingCharacters(in: .whitespacesAndNewlines) + CodexCaveman.block).trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
     }
 
     // ---- helpers ----

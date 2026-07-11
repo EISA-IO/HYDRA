@@ -71,6 +71,8 @@ final class OllamaService: ObservableObject {
 
     static func installedExecutable() -> String? {
         // Hydra's built-in runtime wins; PATH/system copies are only a compatibility fallback.
+        let bundled = (Bundle.main.resourcePath ?? "") + "/runtime/ollama/ollama"
+        if FileManager.default.isExecutableFile(atPath: bundled) { return bundled }
         if FileManager.default.isExecutableFile(atPath: Paths.ollamaExe) { return Paths.ollamaExe }
         if let executable = Shell.shared.which("ollama") { return executable }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -82,7 +84,7 @@ final class OllamaService: ObservableObject {
     }
 
     static func isEmbedded(_ executable: String) -> Bool {
-        executable.hasPrefix(Paths.ollamaDir + "/")
+        executable.hasPrefix(Paths.ollamaDir + "/") || executable.contains("/Hydra.app/Contents/Resources/runtime/ollama/")
     }
 
     // Context window the built-in server starts with (persisted like the classic

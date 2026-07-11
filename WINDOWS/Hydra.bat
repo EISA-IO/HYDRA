@@ -27,7 +27,7 @@ if defined NEEDBUILD (
             set "RES="
             if exist "%HERE%bot.ico" set "RES=/win32icon:"%HERE%bot.ico" /resource:"%HERE%bot.ico",bot.ico"
             if exist "%HERE%bot.png" set "RES=!RES! /resource:"%HERE%bot.png",bot.png"
-            "!CSC!" /nologo /target:winexe /out:"%EXE%" !RES! /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll "%SRC%"
+            "!CSC!" /nologo /target:winexe /out:"%EXE%" !RES! /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "%SRC%"
         )
     )
 )

@@ -2,20 +2,54 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Executable,
     [string]$Screenshot = (Join-Path $env:TEMP "hydra-windows-ui.png"),
-    [ValidateRange(0, 5)]
-    [int]$Tab = 0
+    [ValidateRange(0, 6)]
+    [int]$Tab = 0,
+    [switch]$DemoLaunch,
+    [switch]$DemoHermes,
+    [switch]$FreshTerminalInput,
+    [ValidateRange(5, 600)]
+    [int]$TimeoutSeconds = 15
 )
 
 $ErrorActionPreference = "Stop"
 Remove-Item $Screenshot -Force -ErrorAction SilentlyContinue
 
+if ($FreshTerminalInput) {
+    $sentinel = Join-Path $env:TEMP ("hydrafreshinput" + [Guid]::NewGuid().ToString("N"))
+    try {
+        $process = Start-Process -FilePath $Executable `
+            -ArgumentList @("--test-fresh-input", $sentinel) `
+            -PassThru
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            throw "Hydra did not finish the fresh-terminal input test within $TimeoutSeconds seconds."
+        }
+        if ($process.ExitCode -ne 0) {
+            $diagnostic = if (Test-Path ($sentinel + ".diag")) { Get-Content -Raw ($sentinel + ".diag") } else { "no focus diagnostic" }
+            throw "Hydra fresh-terminal input test exited with code $($process.ExitCode). $diagnostic"
+        }
+        if (-not (Test-Path $sentinel -PathType Container)) {
+            throw "The first embedded terminal did not receive normal keyboard input."
+        }
+        Write-Output "Hydra first embedded terminal accepted keyboard input."
+        return
+    }
+    finally {
+        Remove-Item $sentinel -Force -ErrorAction SilentlyContinue
+        Remove-Item ($sentinel + ".diag") -Force -ErrorAction SilentlyContinue
+    }
+}
+
+$arguments = @("--screenshot", $Screenshot, "--tab", $Tab)
+if ($DemoLaunch) { $arguments += "--demolaunch" }
+if ($DemoHermes) { $arguments += "--demohermes" }
 $process = Start-Process -FilePath $Executable `
-    -ArgumentList @("--screenshot", $Screenshot, "--tab", $Tab) `
+    -ArgumentList $arguments `
     -PassThru
 
-if (-not $process.WaitForExit(15000)) {
+if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-    throw "Hydra did not finish screenshot mode within 15 seconds."
+    throw "Hydra did not finish screenshot mode within $TimeoutSeconds seconds."
 }
 if ($process.ExitCode -ne 0) {
     throw "Hydra screenshot mode exited with code $($process.ExitCode)."
@@ -60,15 +94,19 @@ try {
     Assert-PixelNear "content canvas" 200 40 @(22, 22, 25)
     Assert-PixelNear "active navigation accent" 8 (139 + 40 * $Tab) @(217, 119, 87) 12
     if ($Tab -eq 0) {
-        Assert-PixelNear "project path field" 620 65 @(43, 43, 51) 12
-        Assert-PixelNear "recent folders control" 755 65 @(40, 40, 45) 12
-        Assert-PixelNear "terminal host" 500 300 @(16, 16, 18) 10
+        if ($DemoLaunch -or $DemoHermes) {
+            Assert-RegionHasInk "new terminal tab" 210 100 500 65 30
+        } else {
+            Assert-PixelNear "project path field" 620 65 @(43, 43, 51) 12
+            Assert-PixelNear "recent folders control" 810 65 @(40, 40, 45) 12
+            Assert-PixelNear "terminal host" 500 300 @(16, 16, 18) 10
+        }
     }
-    if ($Tab -eq 1) { Assert-PixelNear "Settings dropdown arrow" 930 165 @(43, 43, 51) 12 }
+    if ($Tab -eq 1) { Assert-RegionHasInk "Settings section navigation" 210 108 500 40 30 }
     if ($Tab -eq 2) { Assert-PixelNear "SaaS dropdown arrow" 930 135 @(43, 43, 51) 12 }
     Assert-RegionHasInk "sidebar brand" 48 48 100 42 20
     Assert-RegionHasInk "Ollama action" 34 408 135 24 18
-    Assert-RegionHasInk "sidebar footer" 14 618 164 46 15
+    if (-not $DemoLaunch -and -not $DemoHermes) { Assert-RegionHasInk "sidebar footer" 14 655 164 52 15 }
     Write-Output "Hydra Windows tab $Tab rendered: $($image.Width)x$($image.Height), $((Get-Item $Screenshot).Length) bytes"
 }
 finally {

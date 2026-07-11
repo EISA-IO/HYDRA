@@ -81,6 +81,73 @@ if [ -d "$TOOLS_SRC" ]; then
   echo "  bundled tools: $(ls -1 "$RES/tools" 2>/dev/null | tr '\n' ' ')"
 fi
 
+# ---- full offline runtime: Node + Claude Code + Codex + Ollama -----------------
+# Set HYDRA_THIN_BUILD=1 only for a developer build. Release builds intentionally
+# carry the complete architecture-matched runtime and can be several gigabytes.
+if [ "${HYDRA_THIN_BUILD:-0}" != "1" ]; then
+  echo "› Bundling complete offline CLI/runtime payload…"
+  RUNTIME="$RES/runtime"; RBIN="$RUNTIME/bin"; RAPP="$RUNTIME/app"
+  rm -rf "$RUNTIME"; mkdir -p "$RBIN" "$RAPP" "$RUNTIME/ollama"
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    arm64) NODE_ARCH="arm64"; RTK_PATTERN='darwin.*(aarch64|arm64)|(aarch64|arm64).*darwin' ;;
+    x86_64) NODE_ARCH="x64"; RTK_PATTERN='darwin.*x86_64|x86_64.*darwin' ;;
+    *) echo "Unsupported macOS architecture: $ARCH" >&2; exit 1 ;;
+  esac
+  TMP_RUNTIME="$(mktemp -d)"
+  trap 'rm -rf "$TMP_RUNTIME"' EXIT
+  NODE_VER="$(curl -fsSL https://nodejs.org/dist/index.json | /usr/bin/python3 -c 'import json,sys; print(next(x["version"] for x in json.load(sys.stdin) if x["lts"]))')"
+  curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-darwin-$NODE_ARCH.tar.gz" -o "$TMP_RUNTIME/node.tgz"
+  tar -xzf "$TMP_RUNTIME/node.tgz" -C "$TMP_RUNTIME"
+  cp -R "$TMP_RUNTIME/node-$NODE_VER-darwin-$NODE_ARCH/." "$RBIN/"
+  ln -sf bin/node "$RBIN/node"; ln -sf bin/npm "$RBIN/npm"; ln -sf bin/npx "$RBIN/npx"
+  "$RBIN/npm" install --prefix "$RAPP" --omit=dev --no-fund --no-audit \
+    @anthropic-ai/claude-code@latest @openai/codex@latest
+  cat > "$RBIN/claude" <<'SH'
+#!/bin/sh
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+export PATH="$HERE:$PATH"
+exec "$HERE/../app/node_modules/.bin/claude" "$@"
+SH
+  cat > "$RBIN/codex" <<'SH'
+#!/bin/sh
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+export PATH="$HERE:$PATH"
+exec "$HERE/../app/node_modules/.bin/codex" "$@"
+SH
+  chmod +x "$RBIN/claude" "$RBIN/codex" "$RBIN/bin/node" "$RBIN/bin/npm" "$RBIN/bin/npx"
+  curl -fsSL https://ollama.com/download/ollama-darwin.tgz -o "$TMP_RUNTIME/ollama.tgz"
+  tar -xzf "$TMP_RUNTIME/ollama.tgz" -C "$RUNTIME/ollama"
+  OLLAMA_BIN="$(find "$RUNTIME/ollama" -type f -name ollama | head -1)"
+  [ -n "$OLLAMA_BIN" ] || { echo "Ollama runtime missing from archive" >&2; exit 1; }
+  if [ "$OLLAMA_BIN" != "$RUNTIME/ollama/ollama" ]; then
+    OLLAMA_REL="${OLLAMA_BIN#"$RUNTIME/ollama/"}"
+    cat > "$RUNTIME/ollama/ollama" <<SH
+#!/bin/sh
+HERE="\$(CDPATH= cd -- "\$(dirname -- "\$0")" && pwd)"
+exec "\$HERE/$OLLAMA_REL" "\$@"
+SH
+  fi
+  chmod +x "$RUNTIME/ollama/ollama"
+  SLOT="$RES/tools/$([ "$ARCH" = arm64 ] && echo mac-arm64 || echo mac-x64)"
+  mkdir -p "$SLOT"
+  if [ ! -x "$SLOT/rtk" ]; then
+    RTK_URL="$(curl -fsSL https://api.github.com/repos/rtk-ai/rtk/releases/latest | /usr/bin/python3 -c 'import json,re,sys; d=json.load(sys.stdin); p=re.compile(sys.argv[1],re.I); print(next((a["browser_download_url"] for a in d["assets"] if p.search(a["name"]) and (a["name"].endswith(".tar.gz") or a["name"].endswith(".zip"))), ""))' "$RTK_PATTERN")"
+    [ -n "$RTK_URL" ] || { echo "RTK release for $ARCH not found" >&2; exit 1; }
+    curl -fsSL "$RTK_URL" -o "$TMP_RUNTIME/rtk.archive"
+    case "$RTK_URL" in *.zip) unzip -q "$TMP_RUNTIME/rtk.archive" -d "$TMP_RUNTIME/rtk";; *) mkdir -p "$TMP_RUNTIME/rtk"; tar -xzf "$TMP_RUNTIME/rtk.archive" -C "$TMP_RUNTIME/rtk";; esac
+    RTK_BIN="$(find "$TMP_RUNTIME/rtk" -type f -name rtk | head -1)"
+    [ -n "$RTK_BIN" ] || { echo "RTK binary missing from archive" >&2; exit 1; }
+    cp "$RTK_BIN" "$SLOT/rtk"; chmod +x "$SLOT/rtk"
+  fi
+  "$RBIN/claude" --version
+  "$RBIN/codex" --version
+  "$RBIN/node" --version
+  "$RUNTIME/ollama/ollama" --version
+  "$SLOT/rtk" --version
+  echo "  offline runtime bundled for $ARCH"
+fi
+
 # ---- bundle the logo + build an .icns app icon from bot.png ----
 if [ -f "$HERE/bot.png" ]; then
   cp "$HERE/bot.png" "$RES/bot.png"

@@ -25,15 +25,21 @@ jobs:
         run: |
           $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
           if (-not (Test-Path $csc)) { $csc = "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\csc.exe" }
-          & $csc /nologo /target:winexe /out:WINDOWS\Hydra-ci.exe /win32icon:WINDOWS\bot.ico /resource:WINDOWS\bot.ico,bot.ico /resource:WINDOWS\bot.png,bot.png /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll WINDOWS\Hydra.cs
+          & $csc /nologo /target:winexe /out:WINDOWS\Hydra-ci.exe /win32icon:WINDOWS\bot.ico /resource:WINDOWS\bot.ico,bot.ico /resource:WINDOWS\bot.png,bot.png /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll WINDOWS\Hydra.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Render and validate UI
         shell: pwsh
         run: |
-          foreach ($tab in 0..5) {
+          foreach ($tab in 0..6) {
             .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\WINDOWS\Hydra-ci.exe) -Tab $tab -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-windows-ui-$tab.png")
           }
+
+      - name: Validate agent config editors
+        shell: pwsh
+        run: |
+          $test = Start-Process -FilePath (Resolve-Path .\WINDOWS\Hydra-ci.exe) -ArgumentList "--test-agent-config" -Wait -PassThru
+          if ($test.ExitCode -ne 0) { throw "Agent config editor self-test failed." }
 
       - name: Upload Windows UI screenshot
         uses: actions/upload-artifact@v6

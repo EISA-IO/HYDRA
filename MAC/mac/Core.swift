@@ -34,6 +34,9 @@ enum Paths {
     static let disabledDir  = home + "/.claude/skills-disabled"
     static let codexSkillsDir = home + "/.agents/skills"
     static let codexDisabledDir = home + "/.agents/skills-disabled"
+    static let hermesHome = (ProcessInfo.processInfo.environment["HERMES_HOME"]?.isEmpty == false)
+        ? ProcessInfo.processInfo.environment["HERMES_HOME"]!
+        : home + "/.hermes"
     static let pluginsFile  = home + "/.claude/plugins/installed_plugins.json"
     static let claudeSettings = home + "/.claude/settings.json"
     static let claudeJson   = home + "/.claude.json"
@@ -41,6 +44,7 @@ enum Paths {
         ? ProcessInfo.processInfo.environment["CODEX_HOME"]!
         : home + "/.codex"
     static let codexAgents  = codexDir + "/AGENTS.md"
+    static let codexConfig  = codexDir + "/config.toml"
     static let codexRtk     = codexDir + "/RTK.md"
     // Ollama is built into Hydra: a portable runtime (no installer, no login item,
     // no system service) in Hydra's own state dir, with models kept alongside it.
@@ -54,6 +58,11 @@ enum Paths {
         for d in [stateDir, eventsDir, sessDir, codexDir, codexSkillsDir] {
             try? FileManager.default.createDirectory(atPath: d, withIntermediateDirectories: true)
         }
+    }
+
+    static func hermesProfileHome(_ profile: String) -> String {
+        let clean = profile.trimmingCharacters(in: .whitespacesAndNewlines)
+        return clean.isEmpty || !HermesIntegration.validProfile(clean) ? hermesHome : hermesHome + "/profiles/" + clean
     }
 }
 
@@ -102,6 +111,11 @@ final class Shell {
         let managed = home + "/.claude-manager/bin"
         parts.removeAll { $0 == managed }
         parts.insert(managed, at: 0)
+        if let resources = Bundle.main.resourcePath {
+            let bundled = resources + "/runtime/bin"
+            parts.removeAll { $0 == bundled }
+            parts.insert(bundled, at: min(1, parts.count))
+        }
         // Always include the standard install locations even if they don't exist yet — an
         // installer (Node pkg, RTK, npm -g) may create them mid-session, and the next step
         // must be able to find the freshly-installed binary.
@@ -109,7 +123,8 @@ final class Shell {
             "/opt/homebrew/bin", "/opt/homebrew/sbin",
             "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin",
             home + "/.local/bin", home + "/.npm-global/bin", home + "/bin",
-            home + "/.bun/bin", home + "/.deno/bin"
+            home + "/.bun/bin", home + "/.deno/bin",
+            home + "/.hermes/hermes-agent/venv/bin"
         ]
         for e in extras where !parts.contains(e) { parts.append(e) }
         self.path = parts.joined(separator: ":")
@@ -206,139 +221,12 @@ final class Shell {
 }
 
 // ============================================================================
-// Terminal — open a real Terminal.app (or iTerm2) tab running a command in a
-// folder. This is the native Mac analogue of the Windows embedded conhost tab.
+// Shell quoting — every session runs as an embedded PTY tab (EmbeddedTerminal),
+// so this is all that survives of the old external Terminal.app/iTerm launcher.
 // ============================================================================
 enum TerminalLauncher {
-    static func usesITerm() -> Bool { FileManager.default.fileExists(atPath: "/Applications/iTerm.app") }
-
     static func shellQuote(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-    private static func osaEsc(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-    }
-
-    /// Open a titled Claude session in a native terminal window/tab. `title` lets us
-    /// later Focus or Close exactly this session from the app.
-    static func open(command: String, cwd: String, title: String) {
-        let full = "cd \(shellQuote(cwd)) && clear && \(command)"
-        runOSA(usesITerm() ? itermOpen(full, title) : terminalOpen(full, title))
-    }
-    // Back-compat convenience for one-off launches that don't need tracking.
-    static func open(command: String, cwd: String) {
-        open(command: command, cwd: cwd, title: "Claude")
-    }
-
-    static func focus(title: String) { runOSA(usesITerm() ? itermFocus(title) : terminalFocus(title)) }
-    static func close(title: String) { runOSA(usesITerm() ? itermClose(title) : terminalClose(title)) }
-
-    // ---- Terminal.app: each session is a new window we title; no accessibility needed ----
-    private static func terminalOpen(_ cmd: String, _ title: String) -> String {
-        """
-        tell application "Terminal"
-          activate
-          set t to do script "\(osaEsc(cmd))"
-          set custom title of t to "\(osaEsc(title))"
-        end tell
-        """
-    }
-    private static func terminalFocus(_ title: String) -> String {
-        """
-        tell application "Terminal"
-          activate
-          repeat with w in windows
-            repeat with t in tabs of w
-              try
-                if custom title of t is "\(osaEsc(title))" then
-                  set index of w to 1
-                  set selected of t to true
-                  return
-                end if
-              end try
-            end repeat
-          end repeat
-        end tell
-        """
-    }
-    private static func terminalClose(_ title: String) -> String {
-        """
-        tell application "Terminal"
-          repeat with w in windows
-            repeat with t in tabs of w
-              try
-                if custom title of t is "\(osaEsc(title))" then
-                  close w saving no
-                  return
-                end if
-              end try
-            end repeat
-          end repeat
-        end tell
-        """
-    }
-
-    // ---- iTerm2: native tabs via its own API (no accessibility needed) ----
-    private static func itermOpen(_ cmd: String, _ title: String) -> String {
-        """
-        tell application "iTerm"
-          activate
-          if (count of windows) is 0 then
-            set w to (create window with default profile)
-          else
-            set w to current window
-            tell w to create tab with default profile
-          end if
-          tell current session of current tab of w
-            set name to "\(osaEsc(title))"
-            write text "\(osaEsc(cmd))"
-          end tell
-        end tell
-        """
-    }
-    private static func itermFocus(_ title: String) -> String {
-        """
-        tell application "iTerm"
-          activate
-          repeat with w in windows
-            repeat with t in tabs of w
-              repeat with s in sessions of t
-                if name of s contains "\(osaEsc(title))" then
-                  select w
-                  tell w to select t
-                  return
-                end if
-              end repeat
-            end repeat
-          end repeat
-        end tell
-        """
-    }
-    private static func itermClose(_ title: String) -> String {
-        """
-        tell application "iTerm"
-          repeat with w in windows
-            repeat with t in tabs of w
-              repeat with s in sessions of t
-                if name of s contains "\(osaEsc(title))" then
-                  close t
-                  return
-                end if
-              end repeat
-            end repeat
-          end repeat
-        end tell
-        """
-    }
-
-    private static func runOSA(_ script: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            p.arguments = ["-e", script]
-            try? p.run()
-            p.waitUntilExit()
-        }
     }
 }
 
