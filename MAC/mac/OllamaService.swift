@@ -133,9 +133,11 @@ final class OllamaService: ObservableObject {
         try? String(v).write(toFile: Paths.ollamaCtxFile, atomically: true, encoding: .utf8)
     }
 
-    /// Tuned like the classic OLLAMA MANAGER: persisted context window, warm keep-alive,
-    /// flash attention, single queue, quantized KV cache. The built-in runtime also keeps
-    /// its models inside Hydra's dir.
+    /// Persisted context window, warm keep-alive, single queue. Correctness note:
+    /// OLLAMA_KV_CACHE_TYPE=q8_0 + OLLAMA_FLASH_ATTENTION=1 corrupt long generations
+    /// on several model architectures (duplicated/mangled fragments — seen live with
+    /// ornith:9b under Hermes), so both stay at Ollama's f16 defaults. Costs VRAM,
+    /// buys correct output. The built-in runtime also keeps its models in Hydra's dir.
     static func serverEnvironment(executable: String) -> [String: String] {
         var env: [String: String] = [
             "OLLAMA_HOST": "127.0.0.1:\(OllamaPort)",
@@ -144,9 +146,7 @@ final class OllamaService: ObservableObject {
             "OLLAMA_ORIGINS": "*",
             "OLLAMA_NUM_CTX": String(contextLength()),
             "OLLAMA_KEEP_ALIVE": "30m",
-            "OLLAMA_FLASH_ATTENTION": "1",
-            "OLLAMA_NUM_PARALLEL": "1",
-            "OLLAMA_KV_CACHE_TYPE": "q8_0"
+            "OLLAMA_NUM_PARALLEL": "1"
         ]
         if isEmbedded(executable) {
             try? FileManager.default.createDirectory(atPath: Paths.ollamaModelsDir, withIntermediateDirectories: true)

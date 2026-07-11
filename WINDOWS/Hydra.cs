@@ -643,10 +643,11 @@ class Hydra : Form
 
     // The one tuned Ollama environment, shared by the owned server and every embedded
     // Ollama terminal. OLLAMA_ORIGINS=* stays localhost-bound (nothing from the network
-    // can reach it) but lets any app or web origin on THIS machine call the API. The
-    // rest mirrors the classic OLLAMA MANAGER: persisted context window, warm keep-alive,
-    // flash attention, single queue, quantized KV cache. The built-in runtime also keeps
-    // its models inside Hydra's dir.
+    // can reach it) but lets any app or web origin on THIS machine call the API.
+    // Correctness note: OLLAMA_KV_CACHE_TYPE=q8_0 + OLLAMA_FLASH_ATTENTION=1 corrupt
+    // long generations on several model architectures (duplicated/mangled fragments —
+    // seen live with ornith:9b under Hermes), so both stay at Ollama's f16 defaults.
+    // Costs VRAM, buys correct output.
     List<KeyValuePair<string, string>> OllamaEnvPairs(string executable)
     {
         var env = new List<KeyValuePair<string, string>> {
@@ -654,9 +655,7 @@ class Hydra : Form
             new KeyValuePair<string, string>("OLLAMA_ORIGINS", "*"),
             new KeyValuePair<string, string>("OLLAMA_NUM_CTX", OllamaCtx().ToString()),
             new KeyValuePair<string, string>("OLLAMA_KEEP_ALIVE", "30m"),
-            new KeyValuePair<string, string>("OLLAMA_FLASH_ATTENTION", "1"),
-            new KeyValuePair<string, string>("OLLAMA_NUM_PARALLEL", "1"),
-            new KeyValuePair<string, string>("OLLAMA_KV_CACHE_TYPE", "q8_0")
+            new KeyValuePair<string, string>("OLLAMA_NUM_PARALLEL", "1")
         };
         if (IsUnder(executable, OllamaDir))
         {
