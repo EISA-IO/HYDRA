@@ -265,7 +265,8 @@ struct OllamaTabView: View {
 
     private var runtimeLine: String {
         let up = AppState.portOpen(OllamaPort)
-        return "Runtime \(app.ollamaBuiltIn ? "OK" : "—")   Server \(up ? "UP on 127.0.0.1:\(OllamaPort)" : "off")   Context \(OllamaService.contextLength())"
+        let version = OllamaService.runtimeVersion().map { " v" + $0 } ?? ""
+        return "Runtime \(app.ollamaBuiltIn ? "OK" : "—")\(version)   Server \(up ? "UP on 127.0.0.1:\(OllamaPort)" : "off")   Context \(OllamaService.contextLength())"
     }
 }
 

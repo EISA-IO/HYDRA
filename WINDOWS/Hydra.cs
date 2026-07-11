@@ -831,13 +831,22 @@ class Hydra : Form
         try { if (tray != null) { tray.Visible = false; tray.Dispose(); } } catch { }
     }
 
-    // Belt and braces on exit: no ollama.exe from Hydra's own runtime dir may outlive
+    // Belt and braces on exit: no process from Hydra's own runtime dir may outlive
     // the app — Ollama runs strictly as part of Hydra. Foreign installs untouched.
+    // Covers both ollama.exe and the llama-server.exe runner it spawns.
+    static Process[] EmbeddedOllamaProcessCandidates()
+    {
+        var all = new List<Process>();
+        try { all.AddRange(Process.GetProcessesByName("ollama")); } catch { }
+        try { all.AddRange(Process.GetProcessesByName("llama-server")); } catch { }
+        return all.ToArray();
+    }
+
     void KillEmbeddedOllamaStragglers()
     {
         try
         {
-            foreach (var p in Process.GetProcessesByName("ollama"))
+            foreach (var p in EmbeddedOllamaProcessCandidates())
             {
                 string path = null;
                 try { path = p.MainModule != null ? p.MainModule.FileName : null; } catch { }
@@ -3489,15 +3498,36 @@ class Hydra : Form
         RefreshOllamaModels();
     }
 
+    string ollamaRuntimeVersion;   // cached "0.31.2"-style version of the built-in runtime
+
     void UpdateOllamaTab()
     {
         if (ollamaRuntimeStatus == null) return;
         bool builtIn = File.Exists(OllamaEmbeddedExe);
         bool up = TestPort(OllamaPort);
-        ollamaRuntimeStatus.Text = "Runtime " + Mark(builtIn) + "   Server " + (up ? "UP on 127.0.0.1:" + OllamaPort : "off")
+        string version = string.IsNullOrEmpty(ollamaRuntimeVersion) ? "" : " v" + ollamaRuntimeVersion;
+        ollamaRuntimeStatus.Text = "Runtime " + Mark(builtIn) + version + "   Server " + (up ? "UP on 127.0.0.1:" + OllamaPort : "off")
             + "   Context " + OllamaCtx() + "   Models " + OllamaModelsGb() + " GB";
         if (ollamaBuildBtn != null)
             ollamaBuildBtn.Text = builtIn ? "✓ Runtime built-in — re-check" : "Build runtime into Hydra";
+        if (builtIn && ollamaRuntimeVersion == null)
+        {
+            ollamaRuntimeVersion = "";   // fetch once, off the UI thread
+            ThreadPool.QueueUserWorkItem(_ => {
+                string v = "";
+                try
+                {
+                    int rc;
+                    string text = RunCapturedCore(CmdQ(OllamaEmbeddedExe) + " --version", true, out rc) ?? "";
+                    var match = Regex.Match(text, "version is ([0-9]+(?:\\.[0-9]+)*)");
+                    if (!match.Success) match = Regex.Match(text, "[0-9]+\\.[0-9]+(?:\\.[0-9]+)?");
+                    v = match.Success ? (match.Groups.Count > 1 && match.Groups[1].Value.Length > 0 ? match.Groups[1].Value : match.Value) : "";
+                }
+                catch { }
+                ollamaRuntimeVersion = v;
+                try { BeginInvoke((Action)UpdateOllamaTab); } catch { }
+            });
+        }
     }
 
     // ================= Hermes tab: LLM mapping · lifecycle · skills hub · agent state =================
@@ -3613,6 +3643,28 @@ class Hydra : Form
         // Run in a visible Workspace terminal so progress and prompts are on screen.
         string args = "skills " + verb + " " + CmdQ(skillRef) + (verb == "install" ? " --yes" : "");
         NewHermesUtilityTerminal(args, taskLabel);
+    }
+
+    // Derive "<tag>-hydra" from a local Ollama model with repeat_penalty neutralized
+    // (1.0). `ollama create` from a local parent only links blobs, so this is fast and
+    // idempotent. Falls back to the original tag if anything goes wrong.
+    string EnsureCodeSafeOllamaModel(string tag)
+    {
+        string clean = (tag ?? "").Trim();
+        if (clean.Length == 0 || string.Equals(clean, "Default", StringComparison.OrdinalIgnoreCase)) return tag;
+        if (clean.EndsWith("-hydra", StringComparison.OrdinalIgnoreCase)) return clean;
+        string exe = FindOllamaExecutable();
+        if (exe == null || !TestPort(OllamaPort)) return clean;
+        try
+        {
+            string variant = clean + "-hydra";
+            string modelfile = Path.Combine(OllamaDir, "Modelfile.hydra");
+            File.WriteAllText(modelfile, "FROM " + clean + "\nPARAMETER repeat_penalty 1.0\n");
+            int rc;
+            RunCapturedCore("set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\" && " + CmdQ(exe) + " create " + CmdQ(variant) + " -f " + CmdQ(modelfile), true, out rc);
+            return rc == 0 ? variant : clean;
+        }
+        catch { return clean; }
     }
 
     const int HermesDashboardPort = 9119;
@@ -4860,6 +4912,18 @@ try {
         int cx = RunLoggedCmd(CodexInstallCmd());
         SetupLog(cx == 0 ? "OK  Codex CLI up to date." : "Codex CLI update exit " + cx + ".");
         if (HasHermes()) UpdateHermes();
+        // The built-in Ollama runtime is only ever downloaded once; new local models
+        // need current inference code (an old runtime "runs" a new architecture with
+        // subtly broken attention — output degenerates). Refresh it with the rest.
+        if (File.Exists(OllamaEmbeddedExe))
+        {
+            SetupLog("Refreshing the built-in Ollama runtime to the latest release…");
+            StopOwnedOllama();
+            KillEmbeddedOllamaStragglers();   // llama-server.exe would hold files mid-extract
+            Thread.Sleep(1500);
+            RunPowerShellScript(OllamaPortableScript());
+            try { BeginInvoke((Action)QueueOllamaRefresh); } catch { }
+        }
         // RTK: pull the latest release binary again, then re-register the hook
         SetupLog("Updating RTK to the latest release…");
         RunPowerShellScript(RtkDownloadScript());
@@ -5605,6 +5669,11 @@ try {
                 }
             }
             RemoveMirroredSkillsFromHermes();   // Hermes runs on its own skills ecosystem
+            // Ollama's default repeat_penalty (1.1) corrupts long repetitive code —
+            // CSS/HTML eventually has the CORRECT next token forbidden, producing
+            // split words, doubled fragments, and orphan braces (verified live with
+            // ornith:9b). Local sessions run a derived tag with the penalty off.
+            if (provider == "custom") model = EnsureCodeSafeOllamaModel(model);
             cmd = "hermes";
             if (profile.Length > 0) cmd += " -p " + CmdQ(profile);
             cmd += " --tui --yolo";   // full access: skip Hermes' per-command approval prompts

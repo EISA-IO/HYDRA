@@ -116,6 +116,23 @@ final class OllamaService: ObservableObject {
         return appExecutables.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    private static var cachedRuntimeVersion: String??
+
+    /// Version of the installed runtime ("0.31.2"), fetched once per app run.
+    static func runtimeVersion() -> String? {
+        if let cached = cachedRuntimeVersion { return cached }
+        var version: String?
+        if let exe = installedExecutable() {
+            let result = Shell.shared.run(exe, ["--version"], timeout: 10)
+            let text = result.out + "\n" + result.err
+            if let range = text.range(of: #"[0-9]+\.[0-9]+(\.[0-9]+)?"#, options: .regularExpression) {
+                version = String(text[range])
+            }
+        }
+        cachedRuntimeVersion = .some(version)
+        return version
+    }
+
     static func isEmbedded(_ executable: String) -> Bool {
         executable.hasPrefix(Paths.ollamaDir + "/") || executable.contains("/Hydra.app/Contents/Resources/runtime/ollama/")
     }

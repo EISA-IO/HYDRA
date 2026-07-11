@@ -256,6 +256,24 @@ extension AppState {
         """
     }
 
+    /// Same download, but replaces an existing runtime: stops the owned server first
+    /// and skips the already-built-in early exit. Used by "Update core packages".
+    func ollamaInstallScriptForced() -> String {
+        """
+        DIR="$HOME/.claude-manager/ollama"
+        pkill -f "$DIR/" 2>/dev/null; sleep 1
+        mkdir -p "$DIR/models"
+        echo "Refreshing the portable Ollama runtime to the latest release…"
+        TMP=$(mktemp -d)
+        TGZ="$TMP/ollama-darwin.tgz"
+        curl -fsSL "https://ollama.com/download/ollama-darwin.tgz" -o "$TGZ" || { echo "ERR Ollama runtime download failed (network?)."; exit 1; }
+        tar -xzf "$TGZ" -C "$DIR" || { echo "ERR could not unpack the runtime."; exit 1; }
+        rm -rf "$TMP"
+        chmod +x "$DIR/ollama" 2>/dev/null || true
+        "$DIR/ollama" --version 2>/dev/null || echo "ERR runtime binary not found after unpack."
+        """
+    }
+
     func installOllama() {
         if FileManager.default.isExecutableFile(atPath: Paths.ollamaExe) {
             log("Ollama runtime already built into Hydra."); return
@@ -390,7 +408,13 @@ extension AppState {
             ("Codex CLI", Shell.shared.onPath("npm") ? codexInstallCmd() : "echo '(skip Codex CLI — Node not installed)'"),
             ("Hermes", hermesCommand),
             ("RTK", rtkFullScript()),
-            ("Caveman", hasNode ? cavemanCmd() : "echo '(skip Caveman — needs Node.js)'")
+            ("Caveman", hasNode ? cavemanCmd() : "echo '(skip Caveman — needs Node.js)'"),
+            // The built-in Ollama runtime is only ever downloaded once; new local models
+            // need current inference code (an old runtime "runs" a new architecture with
+            // subtly broken attention — output degenerates). Refresh it with the rest.
+            ("Ollama runtime", FileManager.default.isExecutableFile(atPath: Paths.ollamaExe)
+                ? ollamaInstallScriptForced()
+                : "echo '(skip Ollama runtime — not built in)'")
         ]
         runSteps("Updating core packages to latest", steps) {
             self.rtkInstalled = Self.isRtkInstalled(); self.rtk = self.rtkInstalled

@@ -151,8 +151,13 @@ extension AppState {
         var cleanupPaths: [String] = []
         let selectedHermesProvider = HermesIntegration.normalizedProviderID(hermesProvider)
         if selectedAgent == "Hermes" {
+            // Ollama's default repeat_penalty (1.1) corrupts long repetitive code —
+            // local sessions run a "<tag>-hydra" variant with the penalty off. When the
+            // server isn't up yet, the wait-for-API path re-enters launch and derives it then.
+            let hermesModel = selectedHermesProvider == "custom" && AppState.portOpen(OllamaPort)
+                ? ollamaCodeSafeModel(m) : m
             guard let command = HermesIntegration.launchCommand(
-                model: m, providerID: selectedHermesProvider, profile: hermesProfile,
+                model: hermesModel, providerID: selectedHermesProvider, profile: hermesProfile,
                 resume: continueLast, extra: extra, startupPrompt: startupPrompt
             ) else {
                 alert("Invalid Hermes profile", "Use 1–64 lowercase letters, numbers, underscores or hyphens; the first character must be a letter or number.")
@@ -461,6 +466,22 @@ extension AppState {
     }
 
     // ---- alerts ----
+    // Derive "<tag>-hydra" from a local Ollama model with repeat_penalty neutralized
+    // (verified live: the 1.1 default eventually forbids the CORRECT token in repetitive
+    // CSS/HTML, mangling output). `ollama create` from a local parent only links blobs —
+    // fast and idempotent. Falls back to the original tag on any failure.
+    func ollamaCodeSafeModel(_ tag: String) -> String {
+        let clean = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, clean.caseInsensitiveCompare("Default") != .orderedSame,
+              !clean.lowercased().hasSuffix("-hydra"),
+              let exe = OllamaService.installedExecutable() else { return tag }
+        let modelfile = Paths.ollamaDir + "/Modelfile.hydra"
+        FS.write(modelfile, "FROM \(clean)\nPARAMETER repeat_penalty 1.0\n")
+        let result = Shell.shared.run(exe, ["create", clean + "-hydra", "-f", modelfile],
+                                      env: ["OLLAMA_HOST": "127.0.0.1:\(OllamaPort)"], timeout: 60)
+        return result.code == 0 ? clean + "-hydra" : clean
+    }
+
     func alert(_ title: String, _ msg: String) {
         DispatchQueue.main.async {
             let a = NSAlert()
