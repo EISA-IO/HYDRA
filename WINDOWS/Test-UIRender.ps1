@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Executable,
     [string]$Screenshot = (Join-Path $env:TEMP "hydra-windows-ui.png"),
-    [ValidateRange(0, 6)]
+    [ValidateRange(0, 7)]
     [int]$Tab = 0,
     [switch]$DemoLaunch,
     [switch]$DemoHermes,
@@ -122,7 +122,7 @@ try {
     if ($Tab -eq 1) { Assert-RegionHasInk "Settings section navigation" 210 108 500 40 30 }
     if ($Tab -eq 2) { Assert-RegionMostly "SaaS dropdown" 905 129 28 12 @(43, 43, 51) }
     Assert-RegionHasInk "sidebar brand" 48 48 100 42 20
-    Assert-RegionHasInk "Ollama action" 34 408 135 24 18
+    Assert-RegionHasInk "Ollama action" 34 448 135 24 18
     if (-not $DemoLaunch -and -not $DemoHermes) { Assert-RegionHasInk "sidebar footer" 14 655 164 52 15 }
     Write-Output "Hydra Windows tab $Tab rendered: $($image.Width)x$($image.Height), $((Get-Item $Screenshot).Length) bytes"
 }

@@ -8,10 +8,6 @@ extension AppState {
         let profile = hermesProfile.trimmingCharacters(in: .whitespacesAndNewlines)
         return profile.isEmpty || !HermesIntegration.validProfile(profile) ? [] : ["-p", profile]
     }
-    private var hermesProfileCommand: String {
-        let profile = hermesProfile.trimmingCharacters(in: .whitespacesAndNewlines)
-        return profile.isEmpty || !HermesIntegration.validProfile(profile) ? "hermes" : "hermes -p " + TerminalLauncher.shellQuote(profile)
-    }
 
     func openManagedText(_ path: String, initial: String = "") {
         let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
@@ -139,14 +135,56 @@ extension AppState {
         }
     }
 
-    func runHermesMemory(_ arguments: String, task: String) {
-        guard Shell.shared.onPath("hermes") else { alert("Hermes not installed", "Install Hermes from Settings first."); return }
-        runInWorkspace(hermesProfileCommand + " " + arguments, cwd: folder,
-                       note: task, agentLabel: "Hermes", modelLabel: "Memory", taskLabel: task)
+    /// Captured CLI inventory for the Hermes tab (skills / memory / sessions / cron / status).
+    func hermesInventoryText(_ arguments: [String]) -> String {
+        guard Shell.shared.onPath("hermes") else {
+            return "Hermes is not installed yet — click Install / repair above."
+        }
+        let result = Shell.shared.run("hermes", hermesProfileArguments + arguments, timeout: 30)
+        var text = result.out
+        if !result.err.isEmpty { text += (text.isEmpty ? "" : "\n") + result.err }
+        text = text.replacingOccurrences(of: "\u{1B}\\[[0-?]*[ -/]*[@-~]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? "(no output)" : text
     }
 
-    func manageHermesSkills(_ command: String = "skills") {
-        runHermesMemory(command, task: "Manage Hermes skills")
+    func hermesSkillCommandText(_ verb: String, ref: String) -> String {
+        let clean = ref.trimmingCharacters(in: .whitespaces)
+        guard HermesIntegration.validSkillRef(clean) else {
+            return "Enter a skill ID (e.g. official/security/1password) or a direct SKILL.md URL first."
+        }
+        var arguments = ["skills", verb, clean]
+        if verb == "install" { arguments.append("--yes") }
+        return hermesInventoryText(arguments)
+    }
+
+    func openHermesDashboard() {
+        guard Shell.shared.onPath("hermes") else {
+            alert("Hermes not installed", "Install or repair Hermes first.")
+            return
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["hermes"] + hermesProfileArguments + ["dashboard"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = Shell.shared.path
+        process.environment = environment
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() }
+        catch { alert("Hermes dashboard", "Could not start the full GUI: \(error.localizedDescription)") }
+    }
+
+    func useHermesBuiltinMemory() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = self.hermesInventoryText(["memory", "off"])
+            DispatchQueue.main.async { [weak self] in self?.alert("Hermes memory", result) }
+        }
+    }
+
+    func openHermesSkillsFolder() {
+        openManagedFolder(Paths.hermesProfileHome(hermesProfile) + "/skills")
     }
 
     func refreshAgentControls() {
@@ -279,43 +317,12 @@ struct LaunchSettingsPane: View {
             }
             Card {
                 VStack(alignment: .leading, spacing: 12) {
-                    SectionCap(text: "3  Map Hermes to an LLM")
-                    Text("Choose where Hermes authenticates, then choose or type the model that provider should run.")
-                        .font(.system(size: 11)).foregroundStyle(Theme.textFaint).fixedSize(horizontal: false, vertical: true)
-                    HStack(alignment: .top, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 7) {
-                            FieldLabel(text: "Provider / account")
-                            DarkPicker(options: app.hermesProviderOptions, selection: Binding(
-                                get: { HermesIntegration.providerLabel(forID: app.hermesProvider) },
-                                set: { app.setHermesProviderLabel($0) }))
-                        }
-                        VStack(alignment: .leading, spacing: 7) {
-                            FieldLabel(text: "Hermes model ID")
-                            HStack(spacing: 6) {
-                                DarkField(placeholder: "Default", text: Binding(
-                                    get: { app.defaultModel(for: "Hermes") },
-                                    set: { app.setDefaultModel($0, for: "Hermes") }), mono: true)
-                                Menu("Suggestions") {
-                                    ForEach(HermesIntegration.modelSuggestions(forProviderID: app.hermesProvider), id: \.self) { model in
-                                        Button(model) { app.setDefaultModel(model, for: "Hermes") }
-                                    }
-                                }.menuStyle(.borderlessButton)
-                            }
-                        }
-                        VStack(alignment: .leading, spacing: 7) {
-                            FieldLabel(text: "Profile (optional)")
-                            DarkField(placeholder: "default", text: $app.hermesProfile, mono: true)
-                                .onChange(of: app.hermesProfile) { app.saveSettings(); app.loadSkills() }
-                        }
+                    SectionCap(text: "3  Hermes")
+                    HStack(spacing: 12) {
+                        Text("Provider mapping, install & updates, and the skills hub moved to the Hermes tab.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.textDim)
+                        Button("Open Hermes tab") { app.pendingTab = 6 }.ghostButton()
                     }
-                    Text("Hermes will use  \(HermesIntegration.providerLabel(forID: app.hermesProvider))  →  \(app.defaultModel(for: "Hermes") == "Default" ? "provider default model" : app.defaultModel(for: "Hermes"))")
-                        .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(Theme.accentHi)
-                    FlowButtons { [
-                        AnyView(Button("Configure Hermes accounts") { app.configureHermes() }.accentButton()),
-                        AnyView(Button("Install / repair") { app.installHermes() }.ghostButton()),
-                        AnyView(Button("Doctor") { app.doctorHermes() }.ghostButton()),
-                        AnyView(Button("Check update") { app.checkHermesUpdate() }.ghostButton())
-                    ] }
                 }
             }
             Card {
@@ -388,9 +395,9 @@ struct MemoryContextPane: View {
                         Button("Apply") { app.applyHermesThreshold() }.accentButton()
                     }
                     FlowButtons { [
-                        AnyView(Button("Memory setup") { app.runHermesMemory("memory setup", task: "Configure Hermes memory") }.ghostButton()),
-                        AnyView(Button("Memory status") { app.runHermesMemory("memory status", task: "Hermes memory status") }.ghostButton()),
-                        AnyView(Button("Built-in only") { app.runHermesMemory("memory off", task: "Use built-in Hermes memory") }.ghostButton()),
+                        AnyView(Button("Provider settings GUI") { app.openHermesDashboard() }.ghostButton()),
+                        AnyView(Button("Memory manager") { app.pendingTab = 6 }.ghostButton()),
+                        AnyView(Button("Built-in only") { app.useHermesBuiltinMemory() }.ghostButton()),
                         AnyView(Button("MEMORY.md") { app.openManagedText(Paths.hermesProfileHome(app.hermesProfile) + "/memories/MEMORY.md", initial: "# Long-term memory\n") }.ghostButton()),
                         AnyView(Button("USER.md") { app.openManagedText(Paths.hermesProfileHome(app.hermesProfile) + "/memories/USER.md", initial: "# User preferences\n") }.ghostButton()),
                         AnyView(Button("Project .hermes.md") { app.openManagedText(app.folder + "/.hermes.md", initial: "# Project context for Hermes\n") }.ghostButton())
@@ -471,7 +478,7 @@ struct MCPView: View {
                 Button(app.mcpBusy ? "Checking…" : "Refresh all") { app.refreshMCP() }.accentButton().disabled(app.mcpBusy)
                 Button("Claude MCP help") { app.runInWorkspace("claude mcp --help", cwd: app.folder, note: "Claude MCP commands", agentLabel: "Claude", modelLabel: "MCP", taskLabel: "Claude MCP help") }.ghostButton()
                 Button("Codex config") { app.openManagedText(Paths.codexConfig) }.ghostButton()
-                Button("Hermes MCP manager") { app.runHermesMemory("mcp", task: "Hermes MCP manager") }.ghostButton()
+                Button("Hermes MCP manager") { app.openHermesDashboard() }.ghostButton()
                 Text(app.mcpStatus).font(.system(size: 10.5)).foregroundStyle(Theme.textFaint).lineLimit(1)
             }
             ScrollView {

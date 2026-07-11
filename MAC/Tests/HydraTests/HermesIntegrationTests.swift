@@ -22,6 +22,15 @@ func hermesProviderMapping() {
     #expect(HermesIntegration.modelSuggestions(forProviderID: "openrouter").allSatisfy { $0.contains("/") })
 }
 
+@Test("Hermes skill references accept hub IDs and SKILL.md URLs, reject shell metacharacters")
+func hermesSkillRefValidation() {
+    #expect(HermesIntegration.validSkillRef("official/security/1password"))
+    #expect(HermesIntegration.validSkillRef("https://example.com/SKILL.md"))
+    #expect(!HermesIntegration.validSkillRef(""))
+    #expect(!HermesIntegration.validSkillRef("skill; rm -rf /"))
+    #expect(!HermesIntegration.validSkillRef("skill name with spaces"))
+}
+
 @Test("Hermes profiles follow the upstream portable profile-name contract")
 func hermesProfileValidation() {
     #expect(HermesIntegration.validProfile(""))

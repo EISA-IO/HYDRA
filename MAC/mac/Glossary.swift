@@ -64,6 +64,38 @@ enum Glossary {
         add(X, "rtk init -g --codex", "Install RTK guidance for Codex so shell commands use token-filtered rtk output.")
         add(X, "CODEX_HOME", "Points Codex at its config/state directory; Hydra sets it to ~/.codex.")
 
+        let HP = "Hermes Agent — popular"
+        add(HP, "★ hermes --tui", "Start the modern interactive agent UI; Hydra uses this for normal Hermes sessions.")
+        add(HP, "★ hermes skills browse", "Explore the skills hub and install reviewed skills by registry identifier.")
+        add(HP, "★ hermes -p <profile>", "Run an isolated profile with separate auth, skills, memory, and configuration.")
+        add(HP, "★ hermes cron create", "Schedule recurring agent or script tasks with skills and project context.")
+        add(HP, "★ hermes sessions browse", "Search, resume, rename, export, prune, or delete conversation history.")
+        add(HP, "★ hermes dashboard", "Open the local GUI for config, auth, sessions, schedules, profiles, skills, tools, analytics, and plugins.")
+        add(HP, "★ hermes memory status", "Inspect built-in and external memory state.")
+        add(HP, "hermes model / fallback", "Choose the primary model and ordered failover provider chain.")
+        add(HP, "hermes status --all", "Show component, provider, gateway, schedule, and tool health.")
+        add(HP, "hermes doctor --fix", "Diagnose and repair configuration, dependencies, providers, skills, and tooling.")
+
+        let HF = "Hermes Agent — full reference"
+        add(HF, "hermes auth", "Manage pooled provider credentials.")
+        add(HF, "hermes skills search / inspect / config", "Search, review, enable, disable, install, update, audit, and remove skills.")
+        add(HF, "hermes plugins / curator", "Manage runtime plugins and background skill maintenance.")
+        add(HF, "hermes tools", "Choose toolsets for the CLI, gateway platforms, and scheduled jobs.")
+        add(HF, "hermes cron list --all", "List, edit, pause, resume, run, or remove scheduled jobs.")
+        add(HF, "hermes kanban", "Manage durable multi-profile tasks, dependencies, comments, retries, and workers.")
+        add(HF, "hermes webhook subscribe", "React to supported external events such as GitHub issues and pull requests.")
+        add(HF, "hermes gateway / whatsapp / slack", "Run and configure connected messaging platforms.")
+        add(HF, "hermes mcp", "Manage MCP servers or expose Hermes itself as an MCP server.")
+        add(HF, "hermes computer-use", "Manage the Computer Use backend where supported.")
+        add(HF, "hermes checkpoints / hooks", "Manage saved tool checkpoints and approved project hooks.")
+        add(HF, "hermes backup / import", "Back up and restore the Hermes home through supported commands.")
+        add(HF, "hermes logs --since 1h", "Filter agent, error, gateway, cron, and component logs.")
+        add(HF, "hermes insights", "Review usage insights and analytics.")
+        add(HF, "hermes config / proxy", "Manage configuration and the local OpenAI-compatible OAuth proxy.")
+        add(HF, "hermes lsp / acp", "Manage language servers or run an Agent Client Protocol server.")
+        add(HF, "hermes update --backup", "Back up the active home, then update Hermes.")
+        add(HF, "hermes dump / debug share", "Create a redacted support summary or diagnostic report.")
+
         let K = "Keyboard & prompt tips"
         add(K, "Esc", "Interrupt Claude / cancel the current action.")
         add(K, "Esc  Esc", "Rewind — edit a previous message and branch.")
@@ -76,7 +108,7 @@ enum Glossary {
         add(K, "Up arrow", "Cycle through previous prompt history.")
 
         let M = "Hydra (this app)"
-        add(M, "⌘1 … ⌘7", "Switch tabs (Workspace / Settings / SaaS / Skills / Glossary / Ollama / MCP).")
+        add(M, "⌘1 … ⌘8", "Switch tabs (Workspace / Settings / SaaS / Skills / Glossary / Ollama / Hermes / MCP).")
         add(M, "⌘T", "New terminal — a Claude, Codex, or Hermes session in the chosen folder.")
         add(M, "Recents", "Pick a recent project folder from the Workspace toolbar.")
         add(M, "Install everything", "Settings → System & updates: one click installs Claude, Codex, and the toolchain.")

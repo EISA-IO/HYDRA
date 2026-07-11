@@ -31,7 +31,7 @@ jobs:
       - name: Render and validate UI
         shell: pwsh
         run: |
-          foreach ($tab in 0..6) {
+          foreach ($tab in 0..7) {
             .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\WINDOWS\Hydra-ci.exe) -Tab $tab -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-windows-ui-$tab.png")
           }
 
@@ -40,6 +40,17 @@ jobs:
         run: |
           $test = Start-Process -FilePath (Resolve-Path .\WINDOWS\Hydra-ci.exe) -ArgumentList "--test-agent-config" -Wait -PassThru
           if ($test.ExitCode -ne 0) { throw "Agent config editor self-test failed." }
+
+      - name: Validate Hermes local-backend preflight
+        shell: pwsh
+        run: |
+          $test = Start-Process -FilePath (Resolve-Path .\WINDOWS\Hydra-ci.exe) -ArgumentList "--test-hermes-preflight" -Wait -PassThru
+          if ($test.ExitCode -ne 0) { throw "Hermes local-backend preflight self-test failed." }
+
+      - name: Validate first terminal keyboard focus
+        shell: pwsh
+        run: |
+          .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\WINDOWS\Hydra-ci.exe) -FreshTerminalInput -TimeoutSeconds 20
 
       - name: Upload Windows UI screenshot
         uses: actions/upload-artifact@v6

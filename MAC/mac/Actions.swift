@@ -163,7 +163,33 @@ extension AppState {
                     alert("Ollama not available", "Install the built-in Ollama runtime from Settings, then launch this Hermes backend again.")
                     return
                 }
-                ollama.start()
+                if !AppState.portOpen(OllamaPort) {
+                    guard !hermesLocalLaunchPending else {
+                        alert("Hermes is waiting for Ollama", "Hydra is still starting the local API. The Hermes session will open automatically when it is ready.")
+                        return
+                    }
+                    hermesLocalLaunchPending = true
+                    ollama.start()
+                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                        var ready = false
+                        for _ in 0..<75 {
+                            if AppState.portOpen(OllamaPort) { ready = true; break }
+                            Thread.sleep(forTimeInterval: 0.2)
+                        }
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self else { return }
+                            self.hermesLocalLaunchPending = false
+                            self.ollama.refresh()
+                            guard ready else {
+                                self.alert("Hermes + Ollama", "Hydra started Ollama, but its local API did not become ready within 15 seconds. Hermes was not launched, so it will not burn through three failed API retries.")
+                                return
+                            }
+                            self.launch(folder: f, startupPrompt: startupPrompt,
+                                        modelOverride: modelOverride, agentOverride: selectedAgent)
+                        }
+                    }
+                    return
+                }
             }
             HermesIntegration.removeMirroredSkills(profile: hermesProfile)   // Hermes runs on its own skills ecosystem
             cli = command

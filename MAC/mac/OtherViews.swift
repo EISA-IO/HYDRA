@@ -22,8 +22,8 @@ struct SkillsView: View {
                     Button("Import…") { app.addSkills() }.ghostButton()
                     Button("Open shared folder") { app.openSkillsFolder() }.ghostButton()
                 } else {
-                    Button("Browse / install") { app.manageHermesSkills() }.accentButton()
-                    Button("Check updates & audit") { app.manageHermesSkills("skills check") }.ghostButton()
+                    Button("Browse / install in GUI") { app.openHermesDashboard() }.accentButton()
+                    Button("Open Hermes manager") { app.pendingTab = 6 }.ghostButton()
                     Button("Open Hermes folder") { app.openManagedFolder(Paths.hermesProfileHome(app.hermesProfile) + "/skills") }.ghostButton()
                 }
             }

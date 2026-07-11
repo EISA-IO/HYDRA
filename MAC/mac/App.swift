@@ -43,7 +43,7 @@ struct ContentView: View {
     static func initialTab() -> Int {
         // Allow `open -n "Hydra.app" --args --tab 3` to preselect a tab (used for QA).
         let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--tab"), i + 1 < args.count, let n = Int(args[i + 1]), (0...6).contains(n) {
+        if let i = args.firstIndex(of: "--tab"), i + 1 < args.count, let n = Int(args[i + 1]), (0...7).contains(n) {
             return n
         }
         return 0
@@ -56,7 +56,8 @@ struct ContentView: View {
         NavItem(id: 3, title: "Skills", icon: "puzzlepiece.extension.fill"),
         NavItem(id: 4, title: "Glossary", icon: "book.fill"),
         NavItem(id: 5, title: "Ollama", icon: "cpu.fill"),
-        NavItem(id: 6, title: "MCP", icon: "point.3.connected.trianglepath.dotted")
+        NavItem(id: 6, title: "Hermes", icon: "sparkles"),
+        NavItem(id: 7, title: "MCP", icon: "point.3.connected.trianglepath.dotted")
     ]
 
     var body: some View {
@@ -93,6 +94,8 @@ struct ContentView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     app.folder = dir
                     app.setAgent("Hermes")
+                    app.hermesProvider = "auto"   // isolate multi-PTY QA from local Ollama startup timing
+                    app.setDefaultModel("Default", for: "Hermes")
                     app.launch(folder: dir)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         app.launch(folder: dir)
@@ -125,7 +128,8 @@ struct ContentView: View {
         case 3: SkillsView()
         case 4: GlossaryView()
         case 5: OllamaTabView()
-        case 6: MCPView()
+        case 6: HermesView()
+        case 7: MCPView()
         default: WorkspaceView()
         }
     }

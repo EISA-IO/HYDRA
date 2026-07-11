@@ -36,6 +36,7 @@ final class AppState: ObservableObject {
     @Published var caveman = false
     @Published var continueLast = false
     @Published var extraArgs = ""
+    @Published var hermesLocalLaunchPending = false
 
     // Live status
     @Published var proxyRunning = false

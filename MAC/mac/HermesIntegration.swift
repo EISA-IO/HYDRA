@@ -81,6 +81,16 @@ enum HermesIntegration {
         return regex.firstMatch(in: trimmed, range: range)?.range == range ? trimmed : "Default"
     }
 
+    /// Skill IDs and direct SKILL.md URLs share one safe charset (same as model IDs).
+    static func validSkillRef(_ value: String) -> Bool {
+        guard !value.isEmpty, value.count <= 200,
+              let regex = try? NSRegularExpression(pattern: "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,199}$") else {
+            return false
+        }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return regex.firstMatch(in: value, range: range)?.range == range
+    }
+
     static func validProfile(_ value: String) -> Bool {
         if value.isEmpty { return true }
         guard value.count <= 64,

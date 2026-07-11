@@ -34,8 +34,8 @@ Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossar
   Selecting Codex switches the model selector to current Codex models, including **gpt-5.6-sol**,
   and Codex terminals always start in YOLO mode (`--dangerously-bypass-approvals-and-sandbox`).
   Hermes adds an editable model ID plus backends for ChatGPT/Codex OAuth, Claude/Anthropic,
-  local Ollama, and OpenRouter. Its install, auth/model setup, update check, update, and doctor
-  commands run in normal embedded terminals.
+  local Ollama, and OpenRouter. Its dedicated tab opens the full local dashboard and runs inventory,
+  skills, update, and doctor actions without turning the manager into a mini terminal.
 - **SaaS** — capture a product vision, scaffold Open SaaS (Wasp), then hand it to Claude or
   ChatGPT to build. Generates `VISION.md` and a verified `PAYMENTS.md` (incl. the Tap vs Moyasar
   amount-unit gotcha for KSA).
@@ -44,8 +44,8 @@ Nav tabs (same as Windows): **Workspace · Settings · SaaS · Skills · Glossar
   the selected profile with direct `hermes skills` management actions.
 - **MCP** — dedicated native inventories for Claude, Codex, and the selected Hermes profile, with
   refresh and manager/config actions.
-- **Glossary** — searchable reference: slash commands, CLI flags, keyboard tips, and the
-  RTK / Caveman / Headroom command sets.
+- **Glossary** — searchable reference: slash commands, CLI flags, keyboard tips, the
+  RTK / Caveman / Headroom command sets, and popular-first/full-reference Hermes sections.
 
 ## Build
 

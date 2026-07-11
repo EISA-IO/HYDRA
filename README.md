@@ -103,7 +103,7 @@ compact workspace toolbar, task/model terminal chips, status colors and composed
   a fallback.
 - **Settings** — four focused pages for **Launch & agents**, **Memory & context**, **Compression**, and
   **System & updates**. Launch & agents shows independent Claude and Codex default models at the
-  same time, plus an explicit Hermes **provider/account → model ID** mapping. Control Claude
+  same time. Control Claude
   auto-memory and `CLAUDE.md`; Codex memories, context window,
   compaction threshold, and `AGENTS.md`; and Hermes built-in/external memory plus context compression.
   Also choose the default agent, launch defaults, token-compression toggles, one-click
@@ -125,15 +125,27 @@ compact workspace toolbar, task/model terminal chips, status colors and composed
   `hermes skills` for browsing, installation, updates, and audits.
   The built-in Agent Skills pack adds workflows for spec, plan, build, test, review, performance,
   security, documentation, launch readiness, and more.
-- **Glossary** — reference for the whole toolchain.
+- **Hermes** — a dedicated Hermes control center: the explicit **provider/account → model ID → profile**
+  mapping (ChatGPT/Codex OAuth, Claude/Anthropic, local Ollama, the curated OpenRouter list, or Hermes'
+  default), official install/update/doctor actions, full **skills-hub** integration (`hermes skills` —
+  browse, install by ID or SKILL.md URL, inspect, enable/disable, update, uninstall, or open the folder
+  to edit by hand), structured agent-state inventories, in-app `MEMORY.md` / `USER.md` / project-context
+  editors, native create forms for schedules and Kanban tasks, Kanban actions, and one-click access to
+  Hermes' full local dashboard for models, auth, sessions/contexts, schedules, profiles, tools,
+  analytics, and plugins. The popular workflows lead an expanded full-command glossary. Hermes keeps
+  its own skills ecosystem — Hydra never mixes the shared Claude/Codex skills into it.
+- **Glossary** — searchable reference for the whole toolchain, including popular-first and full-reference
+  Hermes sections.
 - **MCP** — a dedicated, refreshable inventory for Claude, Codex, and the selected Hermes profile.
   Hydra calls each CLI's native `mcp list`, so project/user/plugin/profile sources and health status
   remain authoritative; native manager/config actions sit beside the results.
 
 ## Hermes compatibility boundary
 
-Hydra never rewrites Hermes' `~/.hermes/config.yaml` or `.env` itself; memory/context changes go
-through supported `hermes memory` and `hermes config set` commands. New terminals receive
+Hydra never rewrites Hermes' `~/.hermes/config.yaml` or `.env` itself; provider/context changes go
+through supported `hermes memory` and `hermes config set` commands. The built-in memory editors only
+edit Hermes' documented `memories/MEMORY.md` and `memories/USER.md` content files, with a `.hydra.bak`
+save point. New terminals receive
 documented per-launch `--provider`, `--model`, `-p`, `--tui`, and `--continue` arguments. Ollama is
 connected through its localhost OpenAI-compatible endpoint only in the selected terminal's process
 environment. Authentication remains in `hermes model`, installation uses the
@@ -142,3 +154,9 @@ upgrades use the [official `hermes update` workflow](https://hermes-agent.nousre
 with a forced pre-update backup. Hydra refuses to update while a Hermes terminal is still running,
 keeping live processes away from an in-place environment change and avoiding coupling to Hermes'
 internal schema.
+
+For the local Ollama backend, Hydra starts the owned runtime and waits up to 15 seconds for its
+OpenAI-compatible API to accept connections before launching Hermes. If readiness fails, Hydra keeps
+Hermes closed and shows a repair path instead of allowing Hermes to exhaust three connection retries.
+On Windows, the first embedded console also receives a verified cross-process focus handoff; this is
+covered by an executable-level keyboard-input regression test in CI.
