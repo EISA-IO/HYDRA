@@ -231,6 +231,7 @@ extension AppState {
             cleanupPaths.append(profile.path)
             cli = "codex --profile \(TerminalLauncher.shellQuote(profile.name)) --enable hooks --dangerously-bypass-hook-trust -C \(TerminalLauncher.shellQuote(f))"
             if !m.isEmpty && m != "Default" { cli += " --model \(TerminalLauncher.shellQuote(m))" }
+            if codexEffort != "Default" { cli += " -c model_reasoning_effort=\\\"\(codexEffort.lowercased())\\\"" }
             cli += codexPermissionFlags()
             if !extra.isEmpty { cli += " " + extra }
             if continueLast {
@@ -244,6 +245,7 @@ extension AppState {
             cleanupPaths.append(settings)
             cli = "claude --settings \(TerminalLauncher.shellQuote(settings))"
             if !m.isEmpty && m != "Default" { cli += " --model \(m)" }
+            if claudeEffort != "Default" { cli += " --effort \(claudeEffort.lowercased())" }
             cli += permissionFlag()
             if continueLast { cli += " --continue" }
             if !extra.isEmpty { cli += " " + extra }

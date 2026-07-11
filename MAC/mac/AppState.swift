@@ -97,6 +97,11 @@ final class AppState: ObservableObject {
     let claudeModelOptions = ModelCatalog.claude
     let chatGPTModelOptions = ModelCatalog.codex
     let agentOptions = ["Claude", "Codex", "Hermes"]
+    // Reasoning effort per agent: Default = the CLI's own choice; higher = deeper
+    // reasoning, slower + more tokens. Claude gets --effort, Codex model_reasoning_effort.
+    @Published var claudeEffort = "Default"
+    @Published var codexEffort = "Default"
+    let effortOptions = ["Default", "Low", "Medium", "High"]
     let hermesProviderOptions = HermesIntegration.providerOptions
     let permissionOptions = ["Bypass – skip all prompts", "Plan mode (read-only)",
                              "Accept edits automatically", "Ask for each action"]
@@ -247,6 +252,14 @@ final class AppState: ObservableObject {
                 let v = String(l.dropFirst(14)).trimmingCharacters(in: .whitespacesAndNewlines)
                 if HermesIntegration.validProfile(v) { hermesProfile = v }
             }
+            else if l.hasPrefix("claudeEffort=") {
+                let v = String(l.dropFirst(13)).trimmingCharacters(in: .whitespaces)
+                if effortOptions.contains(v) { claudeEffort = v }
+            }
+            else if l.hasPrefix("codexEffort=") {
+                let v = String(l.dropFirst(12)).trimmingCharacters(in: .whitespaces)
+                if effortOptions.contains(v) { codexEffort = v }
+            }
             else if l.hasPrefix("headroom=") { headroom = l.dropFirst(9).trimmingCharacters(in: .whitespaces) == "1" }
             else if l.hasPrefix("cont=") { continueLast = l.dropFirst(5).trimmingCharacters(in: .whitespaces) == "1" }
             else if l.hasPrefix("extra=") { extraArgs = String(l.dropFirst(6)) }
@@ -283,6 +296,8 @@ final class AppState: ObservableObject {
             "hermesModel=" + hermesLaunchModel,
             "hermesProvider=" + HermesIntegration.normalizedProviderID(hermesProvider),
             "hermesProfile=" + (HermesIntegration.validProfile(hermesProfile) ? hermesProfile : ""),
+            "claudeEffort=" + claudeEffort,
+            "codexEffort=" + codexEffort,
             "headroom=" + (headroom ? "1" : "0"),
             "perm=" + permission,
             "cont=" + (continueLast ? "1" : "0"),

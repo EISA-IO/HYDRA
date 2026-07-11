@@ -344,6 +344,20 @@ struct LaunchSettingsPane: View {
                                 set: { app.setDefaultModel($0, for: "Codex") }))
                         }
                     }
+                    Text("Reasoning effort — Default lets each CLI decide; higher = deeper reasoning, slower + more tokens.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.textFaint)
+                    HStack(alignment: .top, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            FieldLabel(text: "Claude effort (--effort)")
+                            DarkPicker(options: app.effortOptions, selection: $app.claudeEffort)
+                                .onChange(of: app.claudeEffort) { app.saveSettings() }
+                        }
+                        VStack(alignment: .leading, spacing: 7) {
+                            FieldLabel(text: "Codex effort (model_reasoning_effort)")
+                            DarkPicker(options: app.effortOptions, selection: $app.codexEffort)
+                                .onChange(of: app.codexEffort) { app.saveSettings() }
+                        }
+                    }
                 }
             }
             Card {

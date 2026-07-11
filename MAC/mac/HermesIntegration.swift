@@ -113,6 +113,14 @@ enum HermesIntegration {
         let provider = normalizedProviderID(providerID)
         if provider != "auto" { command += " --provider " + TerminalLauncher.shellQuote(provider) }
 
+        // Local small models get a lean toolset: delegation/cron/browser machinery
+        // injects subagent markers ("[DONE]" turns, long waits) that derail them
+        // mid-task. Power users can override with their own -t in extra flags.
+        let cleanExtraForToolsets = extra.lowercased()
+        if provider == "custom", !cleanExtraForToolsets.contains("--toolsets"), !cleanExtraForToolsets.contains("-t ") {
+            command += " -t " + TerminalLauncher.shellQuote("web,terminal,file,code_execution,skills,todo,memory,clarify")
+        }
+
         let cleanModel = normalizedModel(model)
         if cleanModel != "Default" { command += " --model " + TerminalLauncher.shellQuote(cleanModel) }
         if resume { command += " --continue" }

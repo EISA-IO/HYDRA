@@ -102,6 +102,8 @@ class Hydra : Form
     TextBox pathBox, extraBox, glossarySearch;
     ComboBox agentCombo, permCombo, hermesProviderCombo;
     ComboBox claudeDefaultModelCombo, codexDefaultModelCombo, hermesDefaultModelCombo;
+    ComboBox claudeEffortCombo, codexEffortCombo;
+    string claudeEffort = "Default", codexEffort = "Default";
     TextBox hermesProfileBox;
     Label hermesStatus;
     Label hermesMappingSummary;
@@ -1082,6 +1084,8 @@ class Hydra : Form
                 else if (line.StartsWith("hermesModel=")) { var v = line.Substring(12); if (v.Length > 0) { hermesLaunchModel = v; foundHermesModel = true; } }
                 else if (line.StartsWith("hermesProvider=")) { hermesProvider = line.Substring(15).Trim(); if (hermesProviderCombo != null) hermesProviderCombo.SelectedItem = HermesProviderLabel(hermesProvider); }
                 else if (line.StartsWith("hermesProfile=")) { hermesProfile = line.Substring(14).Trim(); if (hermesProfileBox != null) hermesProfileBox.Text = hermesProfile; }
+                else if (line.StartsWith("claudeEffort=")) { claudeEffort = line.Substring(13).Trim(); if (claudeEffortCombo != null) claudeEffortCombo.SelectedItem = claudeEffort; }
+                else if (line.StartsWith("codexEffort=")) { codexEffort = line.Substring(12).Trim(); if (codexEffortCombo != null) codexEffortCombo.SelectedItem = codexEffort; }
                 else if (line.StartsWith("headroom=")) hrCheck.Checked = line.Substring(9).Trim() == "1";
                 else if (line.StartsWith("cont=")) continueChk.Checked = line.Substring(5).Trim() == "1";
                 else if (line.StartsWith("extra=")) { if (extraBox != null) extraBox.Text = line.Substring(6); }
@@ -1124,6 +1128,8 @@ class Hydra : Form
                 "hermesModel=" + hermesLaunchModel,
                 "hermesProvider=" + hermesProvider,
                 "hermesProfile=" + hermesProfile,
+                "claudeEffort=" + claudeEffort,
+                "codexEffort=" + codexEffort,
                 "headroom=" + ((hrCheck != null && hrCheck.Checked) ? "1" : "0"),
                 "perm=" + perm,
                 "cont=" + ((continueChk != null && continueChk.Checked) ? "1" : "0"),
@@ -2686,6 +2692,23 @@ class Hydra : Form
         codexDefaultModelCombo.SelectedIndexChanged += (s, e) => { if (!refreshingModelChoices) { RememberVisibleModelForAgent("Codex"); UpdateLaunchText(); if (!loadingSettings && IsHandleCreated) SaveSettings(); } };
         modelGrid.Controls.Add(claudeDefaultModelCombo, 0, 2); modelGrid.Controls.Add(codexDefaultModelCombo, 1, 2);
         row(modelGrid, 76);
+
+        // Reasoning effort: how hard each agent thinks per turn. Default = the CLI's
+        // own choice; higher = deeper reasoning, slower + more tokens.
+        var effortGrid = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
+        effortGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f)); effortGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+        effortGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f)); effortGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32f));
+        effortGrid.Controls.Add(RowCap("Claude reasoning effort (--effort)"), 0, 0);
+        effortGrid.Controls.Add(RowCap("Codex reasoning effort (model_reasoning_effort)"), 1, 0);
+        object[] effortChoices = { "Default", "Low", "Medium", "High" };
+        claudeEffortCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(0, 1, 8, 1) };
+        claudeEffortCombo.Items.AddRange(effortChoices); claudeEffortCombo.SelectedItem = "Default";
+        codexEffortCombo = new DarkComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Margin = new Padding(8, 1, 0, 1) };
+        codexEffortCombo.Items.AddRange(effortChoices); codexEffortCombo.SelectedItem = "Default";
+        claudeEffortCombo.SelectedIndexChanged += (s, e) => { claudeEffort = (claudeEffortCombo.SelectedItem ?? "Default").ToString(); UpdateLaunchText(); if (!loadingSettings && IsHandleCreated) SaveSettings(); };
+        codexEffortCombo.SelectedIndexChanged += (s, e) => { codexEffort = (codexEffortCombo.SelectedItem ?? "Default").ToString(); UpdateLaunchText(); if (!loadingSettings && IsHandleCreated) SaveSettings(); };
+        effortGrid.Controls.Add(claudeEffortCombo, 0, 1); effortGrid.Controls.Add(codexEffortCombo, 1, 1);
+        row(effortGrid, 56);
 
         // 3. Hermes has a dedicated tab now — leave a pointer where the section used to be.
         row(SectionCap("3  Hermes"), 32);
@@ -5612,6 +5635,7 @@ try {
             string profile = WriteCodexSessionProfile(id, out codexProfilePath);
             cmd = "codex --profile " + CmdQ(profile) + " --enable hooks --dangerously-bypass-hook-trust -C " + CmdQ(folder);
             if (model.Length > 0 && model != "Default") cmd += " --model " + CmdQ(model);
+            if (codexEffort != "Default") cmd += " -c model_reasoning_effort=\"" + codexEffort.ToLowerInvariant() + "\"";
             cmd += CodexPermFlag();
             if (extra.Length > 0) cmd += " " + extra;
             if (continueChk.Checked) cmd += " resume --last";
@@ -5678,6 +5702,12 @@ try {
             if (profile.Length > 0) cmd += " -p " + CmdQ(profile);
             cmd += " --tui --yolo";   // full access: skip Hermes' per-command approval prompts
             if (provider != "auto") cmd += " --provider " + CmdQ(provider);
+            // Local small models get a lean toolset: delegation/cron/browser machinery
+            // injects subagent markers ("[DONE]" turns, long waits) that derail them
+            // mid-task. Power users can override with their own -t in extra flags.
+            if (provider == "custom" && extra.IndexOf("--toolsets", StringComparison.OrdinalIgnoreCase) < 0
+                && extra.IndexOf("-t ", StringComparison.OrdinalIgnoreCase) < 0)
+                cmd += " -t " + CmdQ("web,terminal,file,code_execution,skills,todo,memory,clarify");
             if (model.Length > 0 && model != "Default") cmd += " --model " + CmdQ(model);
             if (continueChk.Checked) cmd += " --continue";
             if (extra.Length > 0) cmd += " " + extra;
@@ -5687,6 +5717,7 @@ try {
             string settings = WriteSessionSettings(id, useRtk, useCaveman);
             cmd = "claude --settings \"" + settings + "\"";
             if (model.Length > 0 && model != "Default") cmd += " --model " + model;
+            if (claudeEffort != "Default") cmd += " --effort " + claudeEffort.ToLowerInvariant();
             cmd += PermFlag();
             if (continueChk.Checked) cmd += " --continue";
             if (extra.Length > 0) cmd += " " + extra;
