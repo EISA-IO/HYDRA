@@ -294,6 +294,7 @@ class Hydra : Form
     {
         Shown += (s, e) => {
             SelectNav(Math.Max(0, Math.Min(6, tab)));
+            ActiveControl = null;   // no focused TextBox: a selection highlight would corrupt asserted pixels
             var timer = new System.Windows.Forms.Timer { Interval = tab == 6 ? 7000 : 750 };
             timer.Tick += (a, b) => {
                 timer.Stop();
@@ -305,6 +306,7 @@ class Hydra : Form
                         foreach (var session in sessions) if (session.Agent == "Hermes") hermesTabs++;
                         if (hermesTabs < 2) throw new InvalidOperationException("Hermes multi-terminal demo opened " + hermesTabs + " tabs; expected 2.");
                     }
+                    ActiveControl = null;
                     Refresh();
                     Application.DoEvents();
                     string directory = Path.GetDirectoryName(Path.GetFullPath(path));
