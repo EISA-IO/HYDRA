@@ -3737,54 +3737,6 @@ class Hydra : Form
         NewHermesUtilityTerminal(args, taskLabel);
     }
 
-    // Small local models close long single tool-call arguments early (the model even
-    // says "I keep getting cut off") — a whole HTML file inside ONE write_file /
-    // execute_code argument is beyond a 9B. Seed the project's .hermes.md (Hermes'
-    // supported per-project context) with chunked-write guidance so local sessions
-    // split long files into small pieces. Marker-guarded and append-only.
-    void EnsureHermesLocalModelGuidance(string folder)
-    {
-        try
-        {
-            string path = Path.Combine(folder, ".hermes.md");
-            string marker = "<!-- hydra-local-model-guidance -->";
-            string existing = File.Exists(path) ? File.ReadAllText(path) : "";
-            if (existing.Contains(marker)) return;
-            string block = (existing.Length > 0 ? existing.TrimEnd() + "\r\n\r\n" : "# Project context for Hermes\r\n\r\n")
-                + marker + "\r\n"
-                + "## Local model guidance (added by Hydra)\r\n"
-                + "This session runs on a LOCAL model. Long single tool-call arguments get cut off, so:\r\n"
-                + "- Write long files in CHUNKS: create the file with the first ~40 lines, then append the rest in ~40-line pieces (patch/append). Never put more than ~60 lines in one tool call.\r\n"
-                + "- After the final chunk, read the file back and repair anything malformed before declaring it done.\r\n"
-                + "- Prefer several small writes over one big rewrite.\r\n"
-                + "<!-- /hydra-local-model-guidance -->\r\n";
-            File.WriteAllText(path, block, new UTF8Encoding(false));
-        }
-        catch { }
-    }
-
-    // Derive "<tag>-hydra" from a local Ollama model with repeat_penalty neutralized
-    // (1.0). `ollama create` from a local parent only links blobs, so this is fast and
-    // idempotent. Falls back to the original tag if anything goes wrong.
-    string EnsureCodeSafeOllamaModel(string tag)
-    {
-        string clean = (tag ?? "").Trim();
-        if (clean.Length == 0 || string.Equals(clean, "Default", StringComparison.OrdinalIgnoreCase)) return tag;
-        if (clean.EndsWith("-hydra", StringComparison.OrdinalIgnoreCase)) return clean;
-        string exe = FindOllamaExecutable();
-        if (exe == null || !TestPort(OllamaPort)) return clean;
-        try
-        {
-            string variant = clean + "-hydra";
-            string modelfile = Path.Combine(OllamaDir, "Modelfile.hydra");
-            File.WriteAllText(modelfile, "FROM " + clean + "\nPARAMETER repeat_penalty 1.0\n");
-            int rc;
-            RunCapturedCore("set \"OLLAMA_HOST=127.0.0.1:" + OllamaPort + "\" && " + CmdQ(exe) + " create " + CmdQ(variant) + " -f " + CmdQ(modelfile), true, out rc);
-            return rc == 0 ? variant : clean;
-        }
-        catch { return clean; }
-    }
-
     const int HermesDashboardPort = 9119;
 
     // The big Hermes-tab button: if the dashboard already serves, jump straight to the
@@ -5855,65 +5807,25 @@ try {
             }
             string provider = HermesProviderId(hermesProviderCombo != null && hermesProviderCombo.SelectedItem != null ? hermesProviderCombo.SelectedItem.ToString() : HermesProviderLabel(hermesProvider));
             hermesSelectedProvider = provider;
-            if (provider == "custom")
+            // Hermes runs PURE — stock upstream behavior, no Hydra-side tuning of its
+            // environment, models, skills, or prompts. Hydra only starts the local
+            // Ollama server when the user picked that provider and it isn't up yet.
+            if (provider == "custom" && !TestPort(OllamaPort))
             {
-                // Hermes' system prompt (29 tools + every enabled skill) overflows small
-                // Ollama windows; truncation silently drops earlier instructions and the
-                // model stalls, repeats lines, or mangles long files. Guarantee 32k.
-                bool needCtxBump = OllamaCtx() < 32768;
-                if (needCtxBump)
+                string executable = FindOllamaExecutable();
+                if (executable == null)
                 {
-                    SaveOllamaCtx(32768);
-                    SetupLog("Ollama context raised to 32768 for Hermes — its tools+skills system prompt overflows smaller windows, which shows up as stalls, repeated lines, and mangled output.");
-                }
-                bool ownedRunning = false;
-                try { ownedRunning = ollamaProcess != null && !ollamaProcess.HasExited; } catch { }
-                if (needCtxBump && ownedRunning)
-                {
-                    // Restart the owned server so the larger window applies to THIS session,
-                    // then come back through the same wait-for-API launch path.
-                    string restartExe = FindOllamaExecutable();
-                    if (restartExe != null)
-                    {
-                        StopOwnedOllama();
-                        string folderCopy = folder;
-                        ThreadPool.QueueUserWorkItem(_ => {
-                            for (int i = 0; i < 20 && TestPort(OllamaPort); i++) Thread.Sleep(250);
-                            try { BeginInvoke((Action)(() => ContinueHermesAfterOllamaReady(folderCopy, restartExe))); } catch { }
-                        });
-                        return;
-                    }
-                }
-                if (!TestPort(OllamaPort))
-                {
-                    string executable = FindOllamaExecutable();
-                    if (executable == null)
-                    {
-                        MessageBox.Show("Ollama isn't available yet. Install the built-in runtime from Settings, then launch this Hermes backend again.",
-                            "Hermes + Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        return;
-                    }
-                    ContinueHermesAfterOllamaReady(folder, executable);
+                    MessageBox.Show("Ollama isn't available yet. Install the built-in runtime from Settings, then launch this Hermes backend again.",
+                        "Hermes + Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
+                ContinueHermesAfterOllamaReady(folder, executable);
+                return;
             }
-            RemoveMirroredSkillsFromHermes();   // Hermes runs on its own skills ecosystem
-            if (provider == "custom") EnsureHermesLocalModelGuidance(folder);
-            // Ollama's default repeat_penalty (1.1) corrupts long repetitive code —
-            // CSS/HTML eventually has the CORRECT next token forbidden, producing
-            // split words, doubled fragments, and orphan braces (verified live with
-            // ornith:9b). Local sessions run a derived tag with the penalty off.
-            if (provider == "custom") model = EnsureCodeSafeOllamaModel(model);
             cmd = "hermes";
             if (profile.Length > 0) cmd += " -p " + CmdQ(profile);
-            cmd += " --tui --yolo";   // full access: skip Hermes' per-command approval prompts
+            cmd += " --tui --yolo";   // full access: skip Hermes' per-command approval prompts (user-chosen)
             if (provider != "auto") cmd += " --provider " + CmdQ(provider);
-            // Local small models get a lean toolset: delegation/cron/browser machinery
-            // injects subagent markers ("[DONE]" turns, long waits) that derail them
-            // mid-task. Power users can override with their own -t in extra flags.
-            if (provider == "custom" && extra.IndexOf("--toolsets", StringComparison.OrdinalIgnoreCase) < 0
-                && extra.IndexOf("-t ", StringComparison.OrdinalIgnoreCase) < 0)
-                cmd += " -t " + CmdQ("web,terminal,file,code_execution,skills,todo,memory,clarify");
             if (model.Length > 0 && model != "Default") cmd += " --model " + CmdQ(model);
             if (continueChk.Checked) cmd += " --continue";
             if (extra.Length > 0) cmd += " " + extra;
@@ -6405,34 +6317,6 @@ try {
             }
         }
         if (changed) RefreshTermList();
-    }
-
-    // Hermes runs on its own skills ecosystem — Hydra never injects the shared
-    // Claude/Codex skills into it (an earlier mirror contaminated Hermes runs).
-    // Each launch removes exactly those mirrored copies from the active Hermes home,
-    // matched by name against the shared skills dirs; Hermes-native skills stay.
-    void RemoveMirroredSkillsFromHermes()
-    {
-        string home = HermesActiveHomeDir();
-        ThreadPool.QueueUserWorkItem(_ => {
-            try
-            {
-                string target = Path.Combine(home, "skills");
-                if (!Directory.Exists(target)) return;
-                foreach (var sourceDir in new[] { SkillsDir, CodexSkillsDir })
-                {
-                    if (!Directory.Exists(sourceDir)) continue;
-                    foreach (var src in Directory.GetDirectories(sourceDir))
-                    {
-                        if (!File.Exists(Path.Combine(src, "SKILL.md"))) continue;
-                        string dst = Path.Combine(target, Path.GetFileName(src));
-                        if (Directory.Exists(dst) && File.Exists(Path.Combine(dst, "SKILL.md")))
-                            try { Directory.Delete(dst, true); } catch { }
-                    }
-                }
-            }
-            catch { }
-        });
     }
 
     void OnEventFile(string path)

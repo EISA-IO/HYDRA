@@ -151,13 +151,11 @@ extension AppState {
         var cleanupPaths: [String] = []
         let selectedHermesProvider = HermesIntegration.normalizedProviderID(hermesProvider)
         if selectedAgent == "Hermes" {
-            // Ollama's default repeat_penalty (1.1) corrupts long repetitive code —
-            // local sessions run a "<tag>-hydra" variant with the penalty off. When the
-            // server isn't up yet, the wait-for-API path re-enters launch and derives it then.
-            let hermesModel = selectedHermesProvider == "custom" && AppState.portOpen(OllamaPort)
-                ? ollamaCodeSafeModel(m) : m
+            // Hermes runs PURE — stock upstream behavior, no Hydra-side tuning of its
+            // environment, models, skills, or prompts. Hydra only starts the local
+            // Ollama server when the user picked that provider and it isn't up yet.
             guard let command = HermesIntegration.launchCommand(
-                model: hermesModel, providerID: selectedHermesProvider, profile: hermesProfile,
+                model: m, providerID: selectedHermesProvider, profile: hermesProfile,
                 resume: continueLast, extra: extra, startupPrompt: startupPrompt
             ) else {
                 alert("Invalid Hermes profile", "Use 1–64 lowercase letters, numbers, underscores or hyphens; the first character must be a letter or number.")
@@ -166,32 +164,6 @@ extension AppState {
             if selectedHermesProvider == "custom" {
                 guard AppState.portOpen(OllamaPort) || OllamaService.installedExecutable() != nil else {
                     alert("Ollama not available", "Install the built-in Ollama runtime from Settings, then launch this Hermes backend again.")
-                    return
-                }
-                // Hermes' system prompt (29 tools + every enabled skill) overflows small
-                // Ollama windows; truncation silently drops earlier instructions and the
-                // model stalls, repeats lines, or mangles long files. Guarantee 32k.
-                let needCtxBump = OllamaService.contextLength() < 32768
-                if needCtxBump { OllamaService.saveContextLength(32768) }
-                if needCtxBump, ollama.state == .runningOwned || ollama.state == .starting {
-                    // Restart the owned server so the larger window applies to THIS
-                    // session: stop it, wait for the port to free, then re-enter launch —
-                    // the wait-for-API path below brings it back with the new context.
-                    guard !hermesLocalLaunchPending else {
-                        alert("Hermes is waiting for Ollama", "Hydra is still restarting the local API with a larger context window. The Hermes session will open automatically when it is ready.")
-                        return
-                    }
-                    hermesLocalLaunchPending = true
-                    ollama.stop()
-                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                        for _ in 0..<25 where AppState.portOpen(OllamaPort) { Thread.sleep(forTimeInterval: 0.2) }
-                        DispatchQueue.main.async { [weak self] in
-                            guard let self else { return }
-                            self.hermesLocalLaunchPending = false
-                            self.launch(folder: f, startupPrompt: startupPrompt,
-                                        modelOverride: modelOverride, agentOverride: selectedAgent)
-                        }
-                    }
                     return
                 }
                 if !AppState.portOpen(OllamaPort) {
@@ -222,8 +194,6 @@ extension AppState {
                     return
                 }
             }
-            HermesIntegration.removeMirroredSkills(profile: hermesProfile)   // Hermes runs on its own skills ecosystem
-            if selectedHermesProvider == "custom" { HermesIntegration.ensureLocalModelGuidance(folder: f) }
             cli = command
         } else if selectedAgent == "Codex" {
             // Compression is provisioned by Settings. Keep network/plugin installation off
@@ -469,22 +439,6 @@ extension AppState {
     }
 
     // ---- alerts ----
-    // Derive "<tag>-hydra" from a local Ollama model with repeat_penalty neutralized
-    // (verified live: the 1.1 default eventually forbids the CORRECT token in repetitive
-    // CSS/HTML, mangling output). `ollama create` from a local parent only links blobs —
-    // fast and idempotent. Falls back to the original tag on any failure.
-    func ollamaCodeSafeModel(_ tag: String) -> String {
-        let clean = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty, clean.caseInsensitiveCompare("Default") != .orderedSame,
-              !clean.lowercased().hasSuffix("-hydra"),
-              let exe = OllamaService.installedExecutable() else { return tag }
-        let modelfile = Paths.ollamaDir + "/Modelfile.hydra"
-        FS.write(modelfile, "FROM \(clean)\nPARAMETER repeat_penalty 1.0\n")
-        let result = Shell.shared.run(exe, ["create", clean + "-hydra", "-f", modelfile],
-                                      env: ["OLLAMA_HOST": "127.0.0.1:\(OllamaPort)"], timeout: 60)
-        return result.code == 0 ? clean + "-hydra" : clean
-    }
-
     func alert(_ title: String, _ msg: String) {
         DispatchQueue.main.async {
             let a = NSAlert()

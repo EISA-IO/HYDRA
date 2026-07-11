@@ -113,14 +113,6 @@ enum HermesIntegration {
         let provider = normalizedProviderID(providerID)
         if provider != "auto" { command += " --provider " + TerminalLauncher.shellQuote(provider) }
 
-        // Local small models get a lean toolset: delegation/cron/browser machinery
-        // injects subagent markers ("[DONE]" turns, long waits) that derail them
-        // mid-task. Power users can override with their own -t in extra flags.
-        let cleanExtraForToolsets = extra.lowercased()
-        if provider == "custom", !cleanExtraForToolsets.contains("--toolsets"), !cleanExtraForToolsets.contains("-t ") {
-            command += " -t " + TerminalLauncher.shellQuote("web,terminal,file,code_execution,skills,todo,memory,clarify")
-        }
-
         let cleanModel = normalizedModel(model)
         if cleanModel != "Default" { command += " --model " + TerminalLauncher.shellQuote(cleanModel) }
         if resume { command += " --continue" }
@@ -131,48 +123,6 @@ enum HermesIntegration {
             command += " " + TerminalLauncher.shellQuote(prompt)
         }
         return command
-    }
-
-    /// Small local models close long single tool-call arguments early — a whole HTML
-    /// file inside ONE write_file/execute_code argument is beyond a 9B. Seed the
-    /// project's .hermes.md (Hermes' supported per-project context) with chunked-write
-    /// guidance so local sessions split long files into small pieces. Marker-guarded.
-    static func ensureLocalModelGuidance(folder: String) {
-        let path = folder + "/.hermes.md"
-        let marker = "<!-- hydra-local-model-guidance -->"
-        let existing = FS.read(path) ?? ""
-        guard !existing.contains(marker) else { return }
-        let head = existing.isEmpty ? "# Project context for Hermes\n\n"
-            : existing.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"
-        let block = head + marker + "\n"
-            + "## Local model guidance (added by Hydra)\n"
-            + "This session runs on a LOCAL model. Long single tool-call arguments get cut off, so:\n"
-            + "- Write long files in CHUNKS: create the file with the first ~40 lines, then append the rest in ~40-line pieces (patch/append). Never put more than ~60 lines in one tool call.\n"
-            + "- After the final chunk, read the file back and repair anything malformed before declaring it done.\n"
-            + "- Prefer several small writes over one big rewrite.\n"
-            + "<!-- /hydra-local-model-guidance -->\n"
-        FS.write(path, block)
-    }
-
-    /// Hermes runs on its own skills ecosystem — Hydra never injects the shared
-    /// Claude/Codex skills into it (an earlier mirror contaminated Hermes runs).
-    /// Each launch removes exactly those mirrored copies from the active Hermes home,
-    /// matched by name against the shared skills dirs; Hermes-native skills stay.
-    static func removeMirroredSkills(profile: String) {
-        let clean = profile.trimmingCharacters(in: .whitespacesAndNewlines)
-        let home = Paths.hermesProfileHome(clean)
-        DispatchQueue.global(qos: .utility).async {
-            let target = home + "/skills"
-            guard FS.isDir(target) else { return }
-            for sourceDir in [Paths.skillsDir, Paths.codexSkillsDir] {
-                guard let names = try? FileManager.default.contentsOfDirectory(atPath: sourceDir) else { continue }
-                for name in names {
-                    guard FS.exists(sourceDir + "/" + name + "/SKILL.md"),
-                          FS.exists(target + "/" + name + "/SKILL.md") else { continue }
-                    try? FileManager.default.removeItem(atPath: target + "/" + name)
-                }
-            }
-        }
     }
 
     static func environmentOverrides(providerID: String) -> [String: String] {
