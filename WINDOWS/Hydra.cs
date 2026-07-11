@@ -81,6 +81,25 @@ class Hydra : Form
     // OpenRouter: the curated allow-list of vendor-prefixed IDs Hydra supports.
     static readonly object[] HermesOpenRouterModelChoices = { "moonshotai/kimi-k2.7-code", "z-ai/glm-5.2", "deepseek/deepseek-v4-flash" };
     static readonly object[] HermesProviderChoices = { "Hermes default", "ChatGPT / Codex OAuth", "Claude / Anthropic", "Ollama (local)", "OpenRouter" };
+    const string HermesLocalTurnGuard =
+        "Act on concrete requests immediately in the current turn. " +
+        "Never stop after only planning, explaining what you will do, or saying you are about to begin. " +
+        "When the user asks you to create, change, run, or verify an artifact, keep using tools until the artifact exists and is verified. " +
+        "Finish only when the request is complete or required user input genuinely blocks progress." +
+        "\n\n" + HermesLocalBrowserGuard;
+
+    // Local models do not know the Windows browser layout and keep concluding "no browser
+    // installed" after `where msedge` (never on PATH) and a probe of the 64-bit Program Files
+    // (Edge only ships under the (x86) tree). State the facts so they stop guessing.
+    const string HermesLocalBrowserGuard =
+        "Browsers on Windows: Microsoft Edge is always installed. Its executable is " +
+        "\"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe\" — note the (x86) tree; " +
+        "it is NOT under \"C:\\Program Files\\Microsoft\\...\". " +
+        "msedge is not on PATH, so `where msedge` finding nothing does NOT mean Edge is missing. " +
+        "To open a page, run: cmd /c start msedge \"<url>\" — or invoke the full path above. " +
+        "`Start-Process microsoft-edge` fails on its own: that protocol needs a URL, as in microsoft-edge:https://example.com. " +
+        "Never tell the user no browser is installed, and never search only for chrome/chromium/firefox. " +
+        "Google blocks automated clients with a CAPTCHA; for programmatic search use Bing or DuckDuckGo instead.";
     static bool screenshotMode;
 
     // palette — dark liquid-glass
@@ -246,10 +265,39 @@ class Hydra : Form
         var rich = ParseHermesRows("│ Name │ Source │ Status │\n│ demo │ hub │ enabled │");
         var sessions = ParseHermesSessionRows("Preview   Last Active   Src   ID\nhello world   11m ago   tui   20260711_demo");
         string hostileArg = QuoteProcessArgument("task & echo \"unsafe\"");
+        var localHermes = new ProcessStartInfo();
+        localHermes.EnvironmentVariables["HERMES_EPHEMERAL_SYSTEM_PROMPT"] = "Existing user prompt.";
+        ApplyHermesProviderEnvironment(localHermes, "custom");
+        string turnGuard = localHermes.EnvironmentVariables["HERMES_EPHEMERAL_SYSTEM_PROMPT"];
+        var remoteHermes = new ProcessStartInfo();
+        remoteHermes.EnvironmentVariables.Remove("HERMES_EPHEMERAL_SYSTEM_PROMPT");
+        ApplyHermesProviderEnvironment(remoteHermes, "anthropic");
         return becameReady && probes == 3 && timedOut
             && rich.Count == 2 && rich[1].Length == 3 && rich[1][0] == "demo"
             && sessions.Count == 2 && sessions[1][3] == "20260711_demo"
-            && hostileArg.StartsWith("\"") && hostileArg.EndsWith("\"") && hostileArg.Contains("\\\"unsafe\\\"");
+            && hostileArg.StartsWith("\"") && hostileArg.EndsWith("\"") && hostileArg.Contains("\\\"unsafe\\\"")
+            && !string.IsNullOrEmpty(turnGuard)
+            && turnGuard.StartsWith("Existing user prompt.")
+            && turnGuard.Contains("Never stop after only planning")
+            && turnGuard.Contains("verify")
+            && localHermes.EnvironmentVariables["OPENROUTER_BASE_URL"] == "http://127.0.0.1:11434/v1"
+            && localHermes.EnvironmentVariables["OPENAI_API_KEY"] == "no-key-required"
+            && remoteHermes.EnvironmentVariables["HERMES_EPHEMERAL_SYSTEM_PROMPT"] == null;
+    }
+
+    // Hermes officially reads this process-only override and appends it to the system
+    // prompt without persisting it. Keep the guard and local API mapping scoped to the
+    // child process so other providers and the user's Hermes configuration stay untouched.
+    static void ApplyHermesProviderEnvironment(ProcessStartInfo process, string provider)
+    {
+        if (process == null) throw new ArgumentNullException("process");
+        if (provider != "custom") return;
+        process.EnvironmentVariables["OPENROUTER_BASE_URL"] = "http://127.0.0.1:" + OllamaPort + "/v1";
+        process.EnvironmentVariables["OPENAI_API_KEY"] = "no-key-required";
+        string existing = process.EnvironmentVariables["HERMES_EPHEMERAL_SYSTEM_PROMPT"];
+        process.EnvironmentVariables["HERMES_EPHEMERAL_SYSTEM_PROMPT"] = string.IsNullOrWhiteSpace(existing)
+            ? HermesLocalTurnGuard
+            : existing.TrimEnd() + "\n\n" + HermesLocalTurnGuard;
     }
 
     // Self-test for the big "Launch Claude" button: sit on the Launch tab, press it,
@@ -5810,9 +5858,9 @@ try {
             }
             string provider = HermesProviderId(hermesProviderCombo != null && hermesProviderCombo.SelectedItem != null ? hermesProviderCombo.SelectedItem.ToString() : HermesProviderLabel(hermesProvider));
             hermesSelectedProvider = provider;
-            // Hermes runs PURE — stock upstream behavior, no Hydra-side tuning of its
-            // environment, models, skills, or prompts. Hydra only starts the local
-            // Ollama server when the user picked that provider and it isn't up yet.
+            // Hermes uses stock upstream behavior and supported per-launch overrides.
+            // The only prompt tuning is a supported, process-only turn guard added
+            // later for small local models; Hermes config and sessions stay untouched.
             if (provider == "custom" && !TestPort(OllamaPort))
             {
                 string executable = FindOllamaExecutable();
@@ -5865,11 +5913,7 @@ try {
             psi.EnvironmentVariables["CODEX_HOME"] = CodexDir;
             if (agent == "Claude" && useHeadroom) psi.EnvironmentVariables["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:" + ProxyPort;
             ApplyCreds(psi);   // shared tokens/keys (SaaS → API keys) — same as the Mac app
-            if (agent == "Hermes" && hermesSelectedProvider == "custom")
-            {
-                psi.EnvironmentVariables["OPENROUTER_BASE_URL"] = "http://127.0.0.1:" + OllamaPort + "/v1";
-                psi.EnvironmentVariables["OPENAI_API_KEY"] = "no-key-required";
-            }
+            if (agent == "Hermes") ApplyHermesProviderEnvironment(psi, hermesSelectedProvider);
             sess.Proc = Process.Start(psi);
         }
         catch (Exception ex)
