@@ -133,6 +133,27 @@ enum HermesIntegration {
         return command
     }
 
+    /// Small local models close long single tool-call arguments early — a whole HTML
+    /// file inside ONE write_file/execute_code argument is beyond a 9B. Seed the
+    /// project's .hermes.md (Hermes' supported per-project context) with chunked-write
+    /// guidance so local sessions split long files into small pieces. Marker-guarded.
+    static func ensureLocalModelGuidance(folder: String) {
+        let path = folder + "/.hermes.md"
+        let marker = "<!-- hydra-local-model-guidance -->"
+        let existing = FS.read(path) ?? ""
+        guard !existing.contains(marker) else { return }
+        let head = existing.isEmpty ? "# Project context for Hermes\n\n"
+            : existing.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"
+        let block = head + marker + "\n"
+            + "## Local model guidance (added by Hydra)\n"
+            + "This session runs on a LOCAL model. Long single tool-call arguments get cut off, so:\n"
+            + "- Write long files in CHUNKS: create the file with the first ~40 lines, then append the rest in ~40-line pieces (patch/append). Never put more than ~60 lines in one tool call.\n"
+            + "- After the final chunk, read the file back and repair anything malformed before declaring it done.\n"
+            + "- Prefer several small writes over one big rewrite.\n"
+            + "<!-- /hydra-local-model-guidance -->\n"
+        FS.write(path, block)
+    }
+
     /// Hermes runs on its own skills ecosystem — Hydra never injects the shared
     /// Claude/Codex skills into it (an earlier mirror contaminated Hermes runs).
     /// Each launch removes exactly those mirrored copies from the active Hermes home,

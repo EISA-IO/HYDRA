@@ -223,6 +223,7 @@ extension AppState {
                 }
             }
             HermesIntegration.removeMirroredSkills(profile: hermesProfile)   // Hermes runs on its own skills ecosystem
+            if selectedHermesProvider == "custom" { HermesIntegration.ensureLocalModelGuidance(folder: f) }
             cli = command
         } else if selectedAgent == "Codex" {
             // Compression is provisioned by Settings. Keep network/plugin installation off

@@ -3691,6 +3691,32 @@ class Hydra : Form
         NewHermesUtilityTerminal(args, taskLabel);
     }
 
+    // Small local models close long single tool-call arguments early (the model even
+    // says "I keep getting cut off") — a whole HTML file inside ONE write_file /
+    // execute_code argument is beyond a 9B. Seed the project's .hermes.md (Hermes'
+    // supported per-project context) with chunked-write guidance so local sessions
+    // split long files into small pieces. Marker-guarded and append-only.
+    void EnsureHermesLocalModelGuidance(string folder)
+    {
+        try
+        {
+            string path = Path.Combine(folder, ".hermes.md");
+            string marker = "<!-- hydra-local-model-guidance -->";
+            string existing = File.Exists(path) ? File.ReadAllText(path) : "";
+            if (existing.Contains(marker)) return;
+            string block = (existing.Length > 0 ? existing.TrimEnd() + "\r\n\r\n" : "# Project context for Hermes\r\n\r\n")
+                + marker + "\r\n"
+                + "## Local model guidance (added by Hydra)\r\n"
+                + "This session runs on a LOCAL model. Long single tool-call arguments get cut off, so:\r\n"
+                + "- Write long files in CHUNKS: create the file with the first ~40 lines, then append the rest in ~40-line pieces (patch/append). Never put more than ~60 lines in one tool call.\r\n"
+                + "- After the final chunk, read the file back and repair anything malformed before declaring it done.\r\n"
+                + "- Prefer several small writes over one big rewrite.\r\n"
+                + "<!-- /hydra-local-model-guidance -->\r\n";
+            File.WriteAllText(path, block, new UTF8Encoding(false));
+        }
+        catch { }
+    }
+
     // Derive "<tag>-hydra" from a local Ollama model with repeat_penalty neutralized
     // (1.0). `ollama create` from a local parent only links blobs, so this is fast and
     // idempotent. Falls back to the original tag if anything goes wrong.
@@ -5826,6 +5852,7 @@ try {
                 }
             }
             RemoveMirroredSkillsFromHermes();   // Hermes runs on its own skills ecosystem
+            if (provider == "custom") EnsureHermesLocalModelGuidance(folder);
             // Ollama's default repeat_penalty (1.1) corrupts long repetitive code —
             // CSS/HTML eventually has the CORRECT next token forbidden, producing
             // split words, doubled fragments, and orphan braces (verified live with
