@@ -148,6 +148,16 @@ extension AppState {
         return text.isEmpty ? "(no output)" : text
     }
 
+    /// Run a profile-aware Hermes command in a visible Workspace terminal.
+    func runHermesInWorkspace(_ arguments: String, task: String) {
+        guard Shell.shared.onPath("hermes") else {
+            alert("Hermes not installed", "Install or repair Hermes first.")
+            return
+        }
+        runInWorkspace(hermesProfileCommand + " " + arguments, cwd: folder,
+                       note: task, agentLabel: "Hermes", modelLabel: "Hermes CLI", taskLabel: task)
+    }
+
     func hermesSkillCommandText(_ verb: String, ref: String) -> String {
         let clean = ref.trimmingCharacters(in: .whitespaces)
         guard HermesIntegration.validSkillRef(clean) else {

@@ -84,7 +84,7 @@ struct HermesView: View {
                     AnyView(Button("Install / repair") { app.installHermes() }.ghostButton()),
                     AnyView(Button("Check update") { app.checkHermesUpdate() }.ghostButton()),
                     AnyView(Button("Update now") { app.updateHermes() }.ghostButton()),
-                    AnyView(Button("Doctor") { app.runHermesMemory("doctor", task: "Hermes diagnostics") }.ghostButton())
+                    AnyView(Button("Doctor") { app.runHermesInWorkspace("doctor", task: "Hermes diagnostics") }.ghostButton())
                 ] }
             }
         }
@@ -118,6 +118,6 @@ struct HermesView: View {
         }
         var args = "skills " + verb + " " + TerminalLauncher.shellQuote(clean)
         if verb == "install" { args += " --yes" }
-        app.runHermesMemory(args, task: title)
+        app.runHermesInWorkspace(args, task: title)
     }
 }
