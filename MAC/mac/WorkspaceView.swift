@@ -22,11 +22,11 @@ struct WorkspaceView: View {
                 Button {
                     app.launch()
                 } label: {
-                    HStack(spacing: 6) { Image(systemName: "plus"); Text("New" + compSuffix()) }
+                    HStack(spacing: 6) { Image(systemName: "plus"); Text("New Terminal") }
                 }
                 .accentButton()
                 .keyboardShortcut("t", modifiers: .command)
-                .help("Open a new \(app.agent) terminal in the folder at right")
+                .help("Open a new \(app.agent) terminal in the folder at right\(compSuffix().isEmpty ? "" : " · compression:" + compSuffix())")
 
                 DarkField(placeholder: "~/path/to/project", text: $app.folder)
 

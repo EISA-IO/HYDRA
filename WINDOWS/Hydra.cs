@@ -3215,11 +3215,8 @@ try {
         if (cvCheck != null && cvCheck.Checked) tail += " +Caveman";
         if (launchBtn != null)
         {
-            string badges = "";
-            if (agent != "Codex" && hrCheck != null && hrCheck.Checked) badges += "H";
-            if (rtCheck != null && rtCheck.Checked) badges += (badges.Length > 0 ? "·" : "") + "R";
-            if (cvCheck != null && cvCheck.Checked) badges += (badges.Length > 0 ? "·" : "") + "C";
-            launchBtn.Text = "+ New" + (badges.Length > 0 ? "  (" + badges + ")" : "");
+            // Plain label; the compression mix lives in the tooltip instead of cryptic badges.
+            launchBtn.Text = "+ New Terminal";
             if (tabTip == null) tabTip = new ToolTip { ShowAlways = true, InitialDelay = 250 };
             tabTip.SetToolTip(launchBtn, "Start an embedded " + agent + " session in the chosen folder.\nModel: " + m + (tail.Length > 0 ? "\nCompression:" + tail : "\nCompression: none"));
         }
@@ -3437,7 +3434,7 @@ try {
             Dock = DockStyle.Fill, ColumnCount = 7, RowCount = 1, BackColor = Color.Transparent, Margin = new Padding(0) };
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112f)); // Agent
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126f)); // New + compression badges
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150f)); // "+ New Terminal"
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));  // path (stretches)
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132f)); // recent combo
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 72f));  // Browse
@@ -3479,7 +3476,7 @@ try {
         syncSegments();
         bar.Controls.Add(segment, 0, 0);
 
-        var newBtn = AccentBtn("+ New");
+        var newBtn = AccentBtn("+ New Terminal");
         newBtn.Dock = DockStyle.Fill; newBtn.Margin = new Padding(0, 4, 8, 4);
         newBtn.Click += (s, e) => NewTerminal(termPathBox.Text);
         bar.Controls.Add(newBtn, 1, 0);
@@ -3547,10 +3544,10 @@ try {
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextFaint, Font = new Font("Consolas", 19f, FontStyle.Bold) });
         empty.Controls.Add(new Label { Text = "No terminals yet", Location = new Point(0, 49), Size = new Size(590, 24),
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextDim, Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold) });
-        empty.Controls.Add(new Label { Text = "Click “+ New” to start a Claude or Codex session. It runs right here as a tab —\r\nopen as many as you like and switch between them.",
+        empty.Controls.Add(new Label { Text = "Click “+ New Terminal” to start a Claude or Codex session. It runs right here as a tab —\r\nopen as many as you like and switch between them.",
             Location = new Point(0, 79), Size = new Size(590, 42), TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = TextFaint, Font = new Font("Segoe UI", 8.5f) });
-        empty.Controls.Add(new Label { Text = "H Headroom · R RTK · C Caveman   ·   Ctrl+T new terminal", Location = new Point(0, 132), Size = new Size(590, 20),
+        empty.Controls.Add(new Label { Text = "Ctrl+T new terminal   ·   hover the button to see the compression mix", Location = new Point(0, 132), Size = new Size(590, 20),
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextFaint, Font = new Font("Segoe UI", 8f) });
         termEmptyState.Controls.Add(empty);
         centerEmpty();
