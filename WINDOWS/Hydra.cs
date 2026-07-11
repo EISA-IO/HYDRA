@@ -181,6 +181,10 @@ class Hydra : Form
 
     // setup / bootstrap (install the CLI + tools + skills from scratch)
     TextBox setupOut;
+    Label setupStatusLabel;            // current step / download / self-healing notice
+    Panel setupBarTrack, setupBarFill; // dark determinate/indeterminate progress bar
+    int setupBarPct = -1;              // -1 = indeterminate (marquee), 0..100 = determinate
+    float setupMarqueeT;               // marquee sweep phase
     Label setupStatus;
     Button setupAllBtn, setupUpdBtn;
     Label setupAllCap;
@@ -810,6 +814,16 @@ class Hydra : Form
         float pulse = (float)(0.5 + 0.5 * Math.Sin(animT));           // 0..1 breathing
         if (headerDot != null)
             headerDot.BackColor = Lerp(Accent, AccentHi, pulse);
+        // indeterminate setup bar: sweep a block back and forth while a step runs
+        if (setupBusy && setupBarTrack != null && setupBarTrack.Visible && setupBarPct < 0 && setupBarFill != null)
+        {
+            setupMarqueeT += 0.03f;
+            int w = setupBarTrack.ClientSize.Width;
+            int block = Math.Max(40, w / 4);
+            float phase = (float)(0.5 + 0.5 * Math.Sin(setupMarqueeT * Math.PI));
+            setupBarFill.Width = block;
+            setupBarFill.Left = (int)((w - block) * phase);
+        }
         // keep the working-session spinners rotating
         if (termTabs != null)
         {
@@ -2839,6 +2853,15 @@ class Hydra : Form
         mk("Refresh", Panel2, FieldHi, (s, e) => refreshAll());
         row(tools, 40);
 
+        // Live progress: what is happening right now + a real bar for downloads.
+        setupStatusLabel = new Label { Dock = DockStyle.Fill, Text = "Ready.", ForeColor = TextDim,
+            Font = new Font("Segoe UI Semibold", 9f, FontStyle.Bold), TextAlign = ContentAlignment.BottomLeft, AutoEllipsis = true };
+        row(setupStatusLabel, 24);
+        setupBarTrack = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(30, 30, 34), Margin = new Padding(0, 2, 0, 4), Visible = false };
+        setupBarFill = new Panel { BackColor = Accent, Location = new Point(0, 0), Height = 8, Width = 0 };
+        setupBarTrack.Controls.Add(setupBarFill);
+        setupBarTrack.Resize += (s, e) => { setupBarFill.Height = setupBarTrack.Height; ApplySetupBar(); };
+        row(setupBarTrack, 10);
         setupOut = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false,
             BackColor = Color.FromArgb(18, 18, 20), ForeColor = Color.FromArgb(210, 210, 215),
             BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f),
@@ -4098,11 +4121,81 @@ try {
         {
             if (setupOut == null) return;
             if (setupOut.InvokeRequired) { setupOut.BeginInvoke((Action)(() => SetupLog(line))); return; }
+            // "PROGRESS <pct> <detail>" lines from download scripts drive the bar
+            // instead of flooding the log (one line per percent).
+            if (line.StartsWith("PROGRESS "))
+            {
+                string rest = line.Substring(9).Trim();
+                int space = rest.IndexOf(' ');
+                string pctText = space < 0 ? rest : rest.Substring(0, space);
+                string detail = space < 0 ? "" : rest.Substring(space + 1).Trim();
+                int pct;
+                if (int.TryParse(pctText, out pct)) SetSetupProgress(pct, detail);
+                return;
+            }
+            // Mirror step headings and action lines into the status label so the user
+            // always sees what is happening right now; flag self-healing fallbacks.
+            string trimmed = line.Trim();
+            if (trimmed.StartsWith("====="))
+                SetSetupProgress(-1, trimmed.Trim('=', ' '));
+            else if (trimmed.IndexOf("falling back", StringComparison.OrdinalIgnoreCase) >= 0
+                  || trimmed.IndexOf("retry", StringComparison.OrdinalIgnoreCase) >= 0
+                  || trimmed.IndexOf("repair", StringComparison.OrdinalIgnoreCase) >= 0)
+                SetSetupProgress(-1, "⚕ Self-healing: " + trimmed);
+            else if (Regex.IsMatch(trimmed, "^(Installing|Downloading|Updating|Building|Refreshing|Checking|Backing up|Unpacking)", RegexOptions.IgnoreCase))
+                SetSetupProgress(-1, trimmed);
             setupOut.AppendText("\r\n" + line);
             // mirror into the Ollama tab's activity pane so its actions stay visible there
             if (ollamaOut != null) ollamaOut.AppendText("\r\n" + line);
         }
         catch { }
+    }
+
+    // Drive the setup status label + bar. pct -1 = indeterminate marquee while a step
+    // runs; 0..100 = a real download percentage; -2 = back to idle.
+    void SetSetupProgress(int pct, string status)
+    {
+        try
+        {
+            if (setupStatusLabel == null) return;
+            if (setupStatusLabel.InvokeRequired) { setupStatusLabel.BeginInvoke((Action)(() => SetSetupProgress(pct, status))); return; }
+            if (pct == -2)
+            {
+                setupBarPct = -1;
+                setupBarTrack.Visible = false;
+                setupStatusLabel.Text = status.Length > 0 ? status : "Ready.";
+                setupStatusLabel.ForeColor = TextDim;
+                return;
+            }
+            setupBarPct = pct;
+            setupBarTrack.Visible = true;
+            bool healing = status.StartsWith("⚕");
+            setupStatusLabel.ForeColor = healing ? Yellow : (pct >= 0 ? AccentHi : TextDim);
+            if (status.Length > 0)
+                setupStatusLabel.Text = pct >= 0 ? status + "  —  " + pct + "%" : status;
+            else if (pct >= 0)
+                setupStatusLabel.Text = setupCurrentStatusBase() + "  —  " + pct + "%";
+            ApplySetupBar();
+        }
+        catch { }
+    }
+
+    string setupCurrentStatusBase()
+    {
+        string t = setupStatusLabel.Text ?? "";
+        int dash = t.LastIndexOf("  —  ");
+        return dash > 0 ? t.Substring(0, dash) : t;
+    }
+
+    void ApplySetupBar()
+    {
+        if (setupBarTrack == null || setupBarFill == null) return;
+        if (setupBarPct >= 0)
+        {
+            setupBarFill.Width = Math.Max(2, setupBarTrack.ClientSize.Width * Math.Min(100, setupBarPct) / 100);
+            setupBarFill.Left = 0;
+        }
+        // indeterminate: AnimTick sweeps the fill
     }
 
     // run a command through cmd /c so PATH + .cmd shims resolve; stream output to the log. Call from a bg thread.
@@ -4113,6 +4206,8 @@ try {
         {
             var psi = new ProcessStartInfo("cmd.exe", "/c " + commandLine)
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.StandardOutputEncoding = Encoding.UTF8;   // scripts print UTF-8 (set in RunPowerShellScript)
+            psi.StandardErrorEncoding = Encoding.UTF8;
             var p = Process.Start(psi);
             p.OutputDataReceived += (s, e) => { if (e.Data != null) SetupLog(e.Data); };
             p.ErrorDataReceived += (s, e) => { if (e.Data != null) SetupLog(e.Data); };
@@ -4195,23 +4290,57 @@ try {
         SetupLog(name + ": " + installed + " -> " + latest + (installed.CompareTo(latest) < 0 ? "  UPDATE AVAILABLE" : "  up to date"));
     }
 
+    // Shared PS helper: streamed download that emits "PROGRESS <pct> <detail>" lines
+    // (one per percent) which SetupLog turns into the live progress bar.
+    const string PsDownloadHelper =
+"function Save-WithProgress($url, $dest, $label) {\r\n" +
+"  $req = [System.Net.HttpWebRequest]::Create($url)\r\n" +
+"  $req.UserAgent = 'hydra-installer'\r\n" +
+"  $resp = $req.GetResponse()\r\n" +
+"  $total = $resp.ContentLength\r\n" +
+"  $in = $resp.GetResponseStream()\r\n" +
+"  $out = [System.IO.File]::Create($dest)\r\n" +
+"  $buf = New-Object byte[] 1048576\r\n" +
+"  $done = 0; $last = -1\r\n" +
+"  while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {\r\n" +
+"    $out.Write($buf, 0, $n); $done += $n\r\n" +
+"    if ($total -gt 0) {\r\n" +
+"      $pct = [int](100 * $done / $total)\r\n" +
+"      if ($pct -ne $last) { Write-Host ('PROGRESS ' + $pct + ' ' + $label + ' - ' + [int]($done/1MB) + ' MB of ' + [int]($total/1MB) + ' MB'); $last = $pct }\r\n" +
+"    } elseif ([int]($done/5MB) -ne $last) { $last = [int]($done/5MB); Write-Host ('PROGRESS -1 ' + $label + ' - ' + [int]($done/1MB) + ' MB so far') }\r\n" +
+"  }\r\n" +
+"  $out.Close(); $in.Close(); $resp.Close()\r\n" +
+"}\r\n";
+
     void RunPowerShellScript(string script)
     {
         string tmp = Path.Combine(Path.GetTempPath(), "cm_" + Guid.NewGuid().ToString("N") + ".ps1");
-        try { File.WriteAllText(tmp, script); RunLoggedCmd("powershell -NoProfile -ExecutionPolicy Bypass -File \"" + tmp + "\""); }
+        // UTF-8 console output so log text (dashes, ellipses) never mojibakes.
+        string full = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\r\n" + PsDownloadHelper + script;
+        try { File.WriteAllText(tmp, full, new UTF8Encoding(false)); RunLoggedCmd("powershell -NoProfile -ExecutionPolicy Bypass -File \"" + tmp + "\""); }
         catch (Exception ex) { SetupLog("  ERR " + ex.Message); }
         finally { try { File.Delete(tmp); } catch { } }
     }
 
     void SetupRun(Action work)
     {
-        if (setupBusy) { SetupLog("(busy — wait for the current step to finish)"); return; }
+        if (setupBusy)
+        {
+            string running = setupStatusLabel != null ? setupCurrentStatusBase() : "";
+            SetupLog("(still busy with \"" + (running.Length > 0 ? running : "the current step") + "\" — this click was ignored; watch the progress bar above)");
+            return;
+        }
         setupBusy = true;
+        SetSetupProgress(-1, "Working…");
         var th = new Thread(() =>
         {
             try { work(); }
             catch (Exception ex) { SetupLog("ERR " + ex.Message); }
-            finally { setupBusy = false; try { BeginInvoke((Action)DetectStatus); } catch { } }
+            finally
+            {
+                setupBusy = false;
+                try { BeginInvoke((Action)(() => { SetSetupProgress(-2, "Done — see the log below. Ready for the next step."); DetectStatus(); })); } catch { }
+            }
         });
         th.IsBackground = true; th.Start();
     }
@@ -4304,7 +4433,7 @@ try {
   $tmp = Join-Path $env:TEMP ('rtk_' + [guid]::NewGuid())
   New-Item -ItemType Directory -Force -Path $tmp | Out-Null
   $z = Join-Path $tmp 'rtk.zip'
-  Invoke-WebRequest $a -OutFile $z
+  Save-WithProgress $a $z 'Downloading RTK'
   Expand-Archive $z -DestinationPath $tmp -Force
   $exe = Get-ChildItem $tmp -Recurse -Filter rtk.exe | Select-Object -First 1
   Copy-Item $exe.FullName (Join-Path $bin 'rtk.exe') -Force
@@ -4368,9 +4497,9 @@ try {
 "  New-Item -ItemType Directory -Force -Path $dir | Out-Null\r\n" +
 "  New-Item -ItemType Directory -Force -Path (Join-Path $dir 'models') | Out-Null\r\n" +
 "  $zip = Join-Path $env:TEMP 'ollama-windows-amd64.zip'\r\n" +
-"  Write-Host 'Downloading the portable Ollama runtime (~1 GB, one time)…'\r\n" +
-"  Invoke-WebRequest 'https://ollama.com/download/ollama-windows-amd64.zip' -OutFile $zip -UseBasicParsing\r\n" +
-"  Write-Host 'Unpacking into Hydra…'\r\n" +
+"  Write-Host 'Downloading the portable Ollama runtime (~1 GB, one time)...'\r\n" +
+"  Save-WithProgress 'https://ollama.com/download/ollama-windows-amd64.zip' $zip 'Downloading Ollama runtime'\r\n" +
+"  Write-Host 'Unpacking Ollama into Hydra (a minute)...'\r\n" +
 "  Expand-Archive $zip -DestinationPath $dir -Force\r\n" +
 "  Remove-Item $zip -Force -ErrorAction SilentlyContinue\r\n" +
 "  Write-Host 'OK  portable runtime unpacked.'\r\n" +
@@ -4780,12 +4909,16 @@ try {
         if (found.Length == 0) { SetupLog("No SKILL.md found under " + src); return; }
         Directory.CreateDirectory(SkillsDir);
         Directory.CreateDirectory(CodexSkillsDir);
-        int n = 0;
+        int n = 0, i = 0;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // nested SKILL.md files must not reinstall the same skill
         foreach (var md in found)
         {
+            i++;
             string nm, ds; ReadMeta(md, out nm, out ds);
             string parent = Path.GetDirectoryName(md);
             if (string.IsNullOrEmpty(nm)) nm = new DirectoryInfo(parent).Name;
+            if (!seen.Add(nm)) continue;
+            SetSetupProgress(i * 100 / found.Length, "Installing skills — " + nm);
             bool copied = false;
             try { CopyDir(parent, Path.Combine(SkillsDir, nm)); copied = true; } catch (Exception ex) { SetupLog("  x Claude " + nm + ": " + ex.Message); }
             try { CopyDir(parent, Path.Combine(CodexSkillsDir, nm)); copied = true; } catch (Exception ex) { SetupLog("  x Codex " + nm + ": " + ex.Message); }
