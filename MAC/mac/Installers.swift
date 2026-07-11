@@ -334,6 +334,26 @@ extension AppState {
         }
     }
 
+    /// The repo this copy of Hydra runs from (walk up from the app bundle until .git).
+    static func findRepoRoot() -> String? {
+        var d = (Bundle.main.bundlePath as NSString).deletingLastPathComponent
+        while !d.isEmpty && d != "/" {
+            if FS.isDir(d + "/.git") { return d }
+            d = (d as NSString).deletingLastPathComponent
+        }
+        return nil
+    }
+
+    func fetchLatestFromGit() {
+        guard let root = Self.findRepoRoot() else {
+            log("This Hydra isn't running from a git checkout — clone https://github.com/EISA-IO/HYDRA.git and run it from there to use one-click updates.")
+            return
+        }
+        runSteps("Fetching the latest Hydra from GitHub", [
+            ("git pull", "git -C \(TerminalLauncher.shellQuote(root)) pull --ff-only && echo 'OK Repo up to date. Rebuild with build-mac.sh (or Hydra-Mac.command) to pick it up.'")
+        ])
+    }
+
     func isARM() -> Bool {
         var sysinfo = utsname()
         uname(&sysinfo)

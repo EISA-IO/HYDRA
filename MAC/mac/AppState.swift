@@ -1,5 +1,7 @@
 import SwiftUI
 import Combine
+import AppKit
+import UniformTypeIdentifiers
 
 struct Skill: Identifiable {
     var id: String { path }
@@ -215,6 +217,68 @@ final class AppState: ObservableObject {
             "extra=" + extraArgs.trimmingCharacters(in: .whitespaces)
         ]
         FS.write(Paths.settingsFile, lines.joined(separator: "\n"))
+    }
+
+    // ---- backup & sync ----
+    // Portable settings snapshot. NEVER includes credentials, API keys or tokens —
+    // by design (CredStore is deliberately not read here), so exports and git pushes
+    // stay safe to share. Lives in this file for access to the private model fields.
+    func settingsAsJsonData() -> Data? {
+        rememberVisibleModel()
+        let rec = Self.recommendedOllamaModels().map { $0.group.isEmpty ? $0.tag : "\($0.group)|\($0.tag)" }
+        let dict: [String: Any] = [
+            "agent": agent,
+            "claudeModel": claudeLaunchModel,
+            "codexModel": codexLaunchModel,
+            "headroom": headroom,
+            "permission": permission,
+            "continueLast": continueLast,
+            "extraFlags": extraArgs.trimmingCharacters(in: .whitespaces),
+            "ollamaContext": OllamaService.contextLength(),
+            "ollamaRecommended": rec
+        ]
+        return try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys])
+    }
+
+    func exportSettingsJson() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "hydra-settings.json"
+        panel.title = "Export Hydra settings (no credentials included)"
+        guard panel.runModal() == .OK, let url = panel.url, let data = settingsAsJsonData() else { return }
+        do {
+            try data.write(to: url)
+            log("OK Settings exported to \(url.path) (credentials are never included).")
+        } catch { log("ERR export: \(error.localizedDescription)") }
+    }
+
+    func importSettingsJson() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.json]
+        panel.title = "Import Hydra settings"
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url),
+              let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            log("ERR import: could not read that file as JSON."); return
+        }
+        if let v = dict["agent"] as? String, agentOptions.contains(v) { agent = v }
+        if let v = dict["claudeModel"] as? String, !v.isEmpty { claudeLaunchModel = v }
+        if let v = dict["codexModel"] as? String, !v.isEmpty { codexLaunchModel = v }
+        if let v = dict["headroom"] as? Bool { headroom = v }
+        if let v = dict["permission"] as? String, permissionOptions.contains(v) { permission = v }
+        if let v = dict["continueLast"] as? Bool { continueLast = v }
+        if let v = dict["extraFlags"] as? String { extraArgs = v }
+        if let v = dict["ollamaContext"] as? Int, v > 0 {
+            OllamaService.saveContextLength(v)
+            ollamaCtxText = String(v)
+        }
+        if let rec = dict["ollamaRecommended"] as? [String], !rec.isEmpty {
+            try? FileManager.default.createDirectory(atPath: Paths.ollamaDir, withIntermediateDirectories: true)
+            FS.write(Paths.ollamaRecFile, rec.joined(separator: "\n") + "\n")
+        }
+        model = storedModel(for: agent)
+        saveSettings()
+        refreshOllamaModels()
+        log("OK Settings imported from \(url.path).")
     }
 
     // ---- shared credentials ----

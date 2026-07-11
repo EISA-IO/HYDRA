@@ -225,6 +225,21 @@ struct SettingsView: View {
                     }
                 }
 
+                // Backup & sync
+                Card {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionCap(text: "Backup & sync")
+                        Text("Settings travel as plain JSON — credentials and API keys are never included, so exports and git pushes stay clean.")
+                            .font(.system(size: 11)).foregroundStyle(Theme.textFaint)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Button("Fetch latest from GitHub") { app.fetchLatestFromGit() }.blueButton().disabled(app.setupBusy)
+                            Button("Export settings (JSON)") { app.exportSettingsJson() }.ghostButton()
+                            Button("Import settings (JSON)") { app.importSettingsJson() }.ghostButton()
+                        }
+                    }
+                }
+
                 // Install & setup
                 Card {
                     VStack(alignment: .leading, spacing: 12) {

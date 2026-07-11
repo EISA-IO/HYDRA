@@ -892,6 +892,141 @@ class Hydra : Form
         catch { }
     }
 
+    // ---------- backup & sync ----------
+    // Portable settings snapshot. NEVER includes credentials, API keys or tokens —
+    // by design, so exports (and the repo) stay safe to share and push.
+    static string JsonEsc(string s)
+    {
+        return (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+    }
+
+    string SettingsAsJson()
+    {
+        string agent = ActiveLaunchAgent();
+        RememberVisibleModelForAgent(agent);
+        var rec = new List<string>();
+        foreach (var kv in RecommendedOllamaModels()) rec.Add("\"" + JsonEsc(kv.Key.Length > 0 ? kv.Key + "|" + kv.Value : kv.Value) + "\"");
+        return "{\r\n"
+            + "  \"agent\": \"" + JsonEsc(agent) + "\",\r\n"
+            + "  \"claudeModel\": \"" + JsonEsc(claudeLaunchModel) + "\",\r\n"
+            + "  \"codexModel\": \"" + JsonEsc(codexLaunchModel) + "\",\r\n"
+            + "  \"headroom\": " + ((hrCheck != null && hrCheck.Checked) ? "true" : "false") + ",\r\n"
+            + "  \"permission\": \"" + JsonEsc(permCombo != null && permCombo.SelectedItem != null ? permCombo.SelectedItem.ToString() : "") + "\",\r\n"
+            + "  \"continueLast\": " + ((continueChk != null && continueChk.Checked) ? "true" : "false") + ",\r\n"
+            + "  \"extraFlags\": \"" + JsonEsc(extraBox != null ? extraBox.Text.Trim() : "") + "\",\r\n"
+            + "  \"ollamaContext\": " + OllamaCtx() + ",\r\n"
+            + "  \"ollamaRecommended\": [" + string.Join(", ", rec.ToArray()) + "]\r\n"
+            + "}";
+    }
+
+    void ExportSettingsJson()
+    {
+        using (var d = new SaveFileDialog { FileName = "hydra-settings.json", Filter = "JSON|*.json", Title = "Export Hydra settings (no credentials included)" })
+        {
+            if (d.ShowDialog() != DialogResult.OK) return;
+            try
+            {
+                File.WriteAllText(d.FileName, SettingsAsJson());
+                SetupLog("OK  Settings exported to " + d.FileName + " (credentials are never included).");
+            }
+            catch (Exception ex) { SetupLog("ERR export: " + ex.Message); }
+        }
+    }
+
+    static string JsonStr(string json, string key)
+    {
+        var m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
+        return m.Success ? Regex.Unescape(m.Groups[1].Value) : null;
+    }
+    static bool? JsonBool(string json, string key)
+    {
+        var m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(true|false)");
+        return m.Success ? (bool?)(m.Groups[1].Value == "true") : null;
+    }
+
+    void ImportSettingsJson()
+    {
+        using (var d = new OpenFileDialog { Filter = "JSON|*.json", Title = "Import Hydra settings" })
+        {
+            if (d.ShowDialog() != DialogResult.OK) return;
+            try
+            {
+                string json = File.ReadAllText(d.FileName);
+                string agent = JsonStr(json, "agent");
+                if (agent == "Claude" || agent == "Codex")
+                {
+                    if (agentCombo != null) agentCombo.SelectedItem = agent;
+                    if (termAgentCombo != null) termAgentCombo.SelectedItem = agent;
+                }
+                string cm = JsonStr(json, "claudeModel"); if (!string.IsNullOrEmpty(cm)) claudeLaunchModel = cm;
+                string xm = JsonStr(json, "codexModel"); if (!string.IsNullOrEmpty(xm)) codexLaunchModel = xm;
+                bool? hr = JsonBool(json, "headroom"); if (hr.HasValue && hrCheck != null) hrCheck.Checked = hr.Value;
+                bool? co = JsonBool(json, "continueLast"); if (co.HasValue && continueChk != null) continueChk.Checked = co.Value;
+                string ex2 = JsonStr(json, "extraFlags"); if (ex2 != null && extraBox != null) extraBox.Text = ex2;
+                string perm = JsonStr(json, "permission");
+                if (!string.IsNullOrEmpty(perm) && permCombo != null)
+                    for (int i = 0; i < permCombo.Items.Count; i++)
+                        if ((string)permCombo.Items[i] == perm) { permCombo.SelectedIndex = i; break; }
+                var ctxM = Regex.Match(json, "\"ollamaContext\"\\s*:\\s*(\\d+)");
+                if (ctxM.Success)
+                {
+                    int v; if (int.TryParse(ctxM.Groups[1].Value, out v) && v > 0)
+                    { SaveOllamaCtx(v); if (ollamaCtxCombo != null) ollamaCtxCombo.Text = v.ToString(); }
+                }
+                var recM = Regex.Match(json, "\"ollamaRecommended\"\\s*:\\s*\\[(.*?)\\]", RegexOptions.Singleline);
+                if (recM.Success)
+                {
+                    var lines = new List<string>();
+                    foreach (Match s in Regex.Matches(recM.Groups[1].Value, "\"((?:\\\\.|[^\"])*)\""))
+                        lines.Add(Regex.Unescape(s.Groups[1].Value));
+                    if (lines.Count > 0)
+                    {
+                        Directory.CreateDirectory(OllamaDir);
+                        File.WriteAllLines(OllamaRecFile, lines.ToArray());
+                    }
+                }
+                activeModelAgent = ActiveLaunchAgent();
+                RefreshModelChoicesForAgent();
+                SaveSettings();
+                RefreshOllamaModels();
+                SetupLog("OK  Settings imported from " + d.FileName + ".");
+            }
+            catch (Exception ex) { SetupLog("ERR import: " + ex.Message); }
+        }
+    }
+
+    // The repo this copy of Hydra runs from (walk up from the exe until .git).
+    static string FindRepoRoot()
+    {
+        try
+        {
+            string d = Path.GetDirectoryName(Application.ExecutablePath);
+            while (!string.IsNullOrEmpty(d))
+            {
+                if (Directory.Exists(Path.Combine(d, ".git"))) return d;
+                d = Path.GetDirectoryName(d);
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    void FetchLatestFromGit()
+    {
+        string root = FindRepoRoot();
+        if (root == null)
+        {
+            SetupLog("This Hydra isn't running from a git checkout — clone https://github.com/EISA-IO/HYDRA.git and run it from there to use one-click updates.");
+            return;
+        }
+        SetupLog("");
+        SetupLog("===== Fetching the latest Hydra from GitHub =====");
+        int rc = RunLoggedCmd("git -C " + CmdQ(root) + " pull --ff-only");
+        SetupLog(rc == 0
+            ? "OK  Repo is up to date. Restart via Hydra.bat — it rebuilds from the new source automatically."
+            : "git pull returned exit " + rc + " — check the log above (local changes or diverged branch?).");
+    }
+
     // ---------- launch ----------
     bool EnsureProxy()
     {
@@ -2019,6 +2154,19 @@ class Hydra : Form
         row(RowCap("Appended verbatim to every launch (optional)"), 18);
         extraBox = new TextBox { Dock = DockStyle.Fill, BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle };
         row(extraBox, 28);
+
+        // ---- backup & sync ----
+        row(SectionCap("Backup & sync"), 26);
+        row(RowCap("Settings travel as plain JSON — credentials and API keys are never included, so exports and git pushes stay clean."), 18);
+        var bsRow = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 2), WrapContents = true };
+        Action<string, Color, Color, EventHandler> bsBtn = (text, n, hov, click) => {
+            var b = new Button { Text = text, AutoSize = true, FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Margin = new Padding(0, 2, 8, 2) };
+            Hoverize(b, n, hov); b.Click += click; bsRow.Controls.Add(b);
+        };
+        bsBtn("⟳  Fetch latest from GitHub", Color.FromArgb(70, 110, 150), Color.FromArgb(86, 130, 172), (s, e) => SetupRun(FetchLatestFromGit));
+        bsBtn("⭳  Export settings (JSON)", Panel2, FieldHi, (s, e) => ExportSettingsJson());
+        bsBtn("⭱  Import settings (JSON)", Panel2, FieldHi, (s, e) => ImportSettingsJson());
+        row(bsRow, 40);
 
         // ---- install & setup (folded in from the old Setup tab; single home for everything) ----
         row(SectionCap("Install & setup"), 26);
