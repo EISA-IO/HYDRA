@@ -77,6 +77,23 @@ try {
         }
     }
 
+    # Majority-color check for regions that contain text: single-pixel asserts break on
+    # ClearType glyph fringes that land differently per machine (font metrics, user name).
+    function Assert-RegionMostly([string]$Name, [int]$X, [int]$Y, [int]$Width, [int]$Height, [int[]]$Expected, [int]$Tolerance = 12, [double]$MinFraction = 0.5) {
+        $match = 0; $total = 0
+        for ($px = $X; $px -lt ($X + $Width); $px += 2) {
+            for ($py = $Y; $py -lt ($Y + $Height); $py += 2) {
+                $pixel = $image.GetPixel($px, $py); $total++
+                if ([Math]::Abs($pixel.R - $Expected[0]) -le $Tolerance -and
+                    [Math]::Abs($pixel.G - $Expected[1]) -le $Tolerance -and
+                    [Math]::Abs($pixel.B - $Expected[2]) -le $Tolerance) { $match++ }
+            }
+        }
+        if ($total -eq 0 -or ($match / $total) -lt $MinFraction) {
+            throw "$Name region ($X,$Y ${Width}x$Height) had $match/$total pixels near $($Expected -join ','); expected at least $($MinFraction * 100)%."
+        }
+    }
+
     function Assert-RegionHasInk([string]$Name, [int]$X, [int]$Y, [int]$Width, [int]$Height, [int]$Minimum = 20) {
         $ink = 0
         for ($px = $X; $px -lt ($X + $Width); $px += 2) {
@@ -97,13 +114,13 @@ try {
         if ($DemoLaunch -or $DemoHermes) {
             Assert-RegionHasInk "new terminal tab" 210 100 500 65 30
         } else {
-            Assert-PixelNear "project path field" 620 65 @(43, 43, 51) 12
-            Assert-PixelNear "recent folders control" 810 65 @(40, 40, 45) 12
+            Assert-RegionMostly "project path field" 545 57 130 18 @(43, 43, 51)
+            Assert-RegionHasInk "toolbar controls" 700 55 320 24 25
             Assert-PixelNear "terminal host" 500 300 @(16, 16, 18) 10
         }
     }
     if ($Tab -eq 1) { Assert-RegionHasInk "Settings section navigation" 210 108 500 40 30 }
-    if ($Tab -eq 2) { Assert-PixelNear "SaaS dropdown arrow" 930 135 @(43, 43, 51) 12 }
+    if ($Tab -eq 2) { Assert-RegionMostly "SaaS dropdown" 905 129 28 12 @(43, 43, 51) }
     Assert-RegionHasInk "sidebar brand" 48 48 100 42 20
     Assert-RegionHasInk "Ollama action" 34 408 135 24 18
     if (-not $DemoLaunch -and -not $DemoHermes) { Assert-RegionHasInk "sidebar footer" 14 655 164 52 15 }
