@@ -158,7 +158,15 @@ extension AppState {
         return hermesInventoryText(arguments)
     }
 
+    // The big Hermes-tab button: if the dashboard already serves, jump straight to the
+    // page; otherwise start `hermes dashboard` and open the browser the moment the
+    // local API answers — either way the user lands on http://localhost:9119.
     func openHermesDashboard() {
+        let dashboardURL = URL(string: "http://127.0.0.1:9119")!
+        if AppState.portOpen(9119) {
+            NSWorkspace.shared.open(dashboardURL)
+            return
+        }
         guard Shell.shared.onPath("hermes") else {
             alert("Hermes not installed", "Install or repair Hermes first.")
             return
@@ -172,7 +180,19 @@ extension AppState {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do { try process.run() }
-        catch { alert("Hermes dashboard", "Could not start the full GUI: \(error.localizedDescription)") }
+        catch {
+            alert("Hermes dashboard", "Could not start the full GUI: \(error.localizedDescription)")
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            for _ in 0..<60 {
+                if AppState.portOpen(9119) { break }
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+            if AppState.portOpen(9119) {
+                DispatchQueue.main.async { NSWorkspace.shared.open(dashboardURL) }
+            }
+        }
     }
 
     func useHermesBuiltinMemory() {

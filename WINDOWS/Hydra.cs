@@ -1949,42 +1949,67 @@ class Hydra : Form
         g.Add(new GEntry(X, "rtk init -g --codex", "Install RTK guidance for Codex so shell commands use token-filtered rtk output."));
         g.Add(new GEntry(X, "CODEX_HOME", "Points Codex at its config/state directory; Hydra sets it to ~/.codex."));
 
-        string HP = "Hermes Agent — popular";
-        g.Add(new GEntry(HP, "★ hermes --tui", "Start the modern interactive agent UI; Hydra uses this for normal Hermes sessions."));
-        g.Add(new GEntry(HP, "★ hermes skills browse", "Explore the skills hub and install reviewed skills by registry identifier."));
-        g.Add(new GEntry(HP, "★ hermes -p <profile>", "Run an isolated profile with separate auth, skills, memory, and configuration."));
-        g.Add(new GEntry(HP, "★ hermes cron create", "Schedule recurring agent or script tasks with skills and project context."));
-        g.Add(new GEntry(HP, "★ hermes sessions browse", "Search, resume, rename, export, prune, or delete conversation history."));
-        g.Add(new GEntry(HP, "★ hermes dashboard", "Open the local GUI for config, auth, sessions, schedules, profiles, skills, tools, analytics, and plugins."));
-        g.Add(new GEntry(HP, "★ hermes memory status", "Inspect built-in MEMORY.md / USER.md and the optional external memory provider."));
-        g.Add(new GEntry(HP, "hermes model", "Choose the primary provider and model; Hydra can override both for one launch."));
-        g.Add(new GEntry(HP, "hermes fallback", "Manage the provider/model chain used after rate limits, overloads, or connection failures."));
-        g.Add(new GEntry(HP, "hermes status --all", "Show component, provider, gateway, schedule, and tool health with secrets redacted."));
-        g.Add(new GEntry(HP, "hermes doctor --fix", "Diagnose and repair configuration, dependencies, providers, skills, and tooling."));
+        string H1 = "Hermes · 1  Getting started";
+        g.Add(new GEntry(H1, "★ hermes --tui", "Start the modern interactive agent UI; Hydra uses this (plus --yolo) for every Hermes terminal."));
+        g.Add(new GEntry(H1, "★ hermes -p <profile>", "Run an isolated profile with separate auth, skills, memory, and configuration."));
+        g.Add(new GEntry(H1, "★ hermes dashboard", "Open the full local GUI on http://localhost:9119 — config, auth, sessions, schedules, profiles, skills, tools, analytics, plugins. Hydra's Hermes tab has a one-click button for it."));
+        g.Add(new GEntry(H1, "hermes model", "Choose the primary provider and model; Hydra's Hermes tab can override both per launch."));
+        g.Add(new GEntry(H1, "hermes fallback", "Manage the provider/model chain used after rate limits, overloads, or connection failures."));
+        g.Add(new GEntry(H1, "hermes auth", "Add, list, reset, or remove pooled provider credentials."));
+        g.Add(new GEntry(H1, "hermes --provider / --model", "Per-launch overrides (openai-codex, anthropic, custom = local Ollama, openrouter)."));
+        g.Add(new GEntry(H1, "hermes --continue", "Resume the most recent conversation in this profile."));
+        g.Add(new GEntry(H1, "hermes --yolo", "Skip per-command approval prompts — full access (Hydra launches Hermes this way)."));
 
-        string HF = "Hermes Agent — full reference";
-        g.Add(new GEntry(HF, "hermes auth", "Add, list, reset, or remove pooled provider credentials."));
-        g.Add(new GEntry(HF, "hermes skills search / inspect", "Search registries and preview source, trust, metadata, and files before installing."));
-        g.Add(new GEntry(HF, "hermes skills config", "Enable or disable installed skills globally or for a supported platform."));
-        g.Add(new GEntry(HF, "hermes plugins", "Install, update, enable, disable, and remove Hermes runtime plugins."));
-        g.Add(new GEntry(HF, "hermes curator", "Run or pause background skill maintenance and pin skills that must not change."));
-        g.Add(new GEntry(HF, "hermes tools", "Choose toolsets for the CLI, gateway platforms, and scheduled jobs."));
-        g.Add(new GEntry(HF, "hermes cron list --all", "List, edit, pause, resume, run, or remove scheduled jobs."));
-        g.Add(new GEntry(HF, "hermes kanban", "Manage durable multi-profile tasks, dependencies, comments, retries, and workers."));
-        g.Add(new GEntry(HF, "hermes webhook subscribe", "React to supported external events such as GitHub issues and pull requests."));
-        g.Add(new GEntry(HF, "hermes gateway", "Run and manage the messaging gateway for connected chat platforms."));
-        g.Add(new GEntry(HF, "hermes whatsapp / slack", "Set up supported messaging integrations and generated manifests."));
-        g.Add(new GEntry(HF, "hermes mcp", "Manage MCP servers or expose Hermes itself as an MCP server."));
-        g.Add(new GEntry(HF, "hermes computer-use", "Manage the Computer Use backend where the operating system supports it."));
-        g.Add(new GEntry(HF, "hermes checkpoints / hooks", "Manage saved tool checkpoints and approved project/profile hooks."));
-        g.Add(new GEntry(HF, "hermes backup / import", "Back up and restore the Hermes home through supported commands."));
-        g.Add(new GEntry(HF, "hermes logs --since 1h", "Filter agent, error, gateway, cron, and component logs."));
-        g.Add(new GEntry(HF, "hermes insights", "Review usage insights and analytics by session and model."));
-        g.Add(new GEntry(HF, "hermes config", "View or set supported configuration keys."));
-        g.Add(new GEntry(HF, "hermes proxy", "Run a local OpenAI-compatible proxy for supported OAuth-backed providers."));
-        g.Add(new GEntry(HF, "hermes lsp / acp", "Manage language servers or run Hermes as an Agent Client Protocol server."));
-        g.Add(new GEntry(HF, "hermes update --backup", "Back up the active home, then update through the supported lifecycle command."));
-        g.Add(new GEntry(HF, "hermes dump / debug share", "Create a redacted support summary or diagnostic report."));
+        string H2 = "Hermes · 2  Skills hub";
+        g.Add(new GEntry(H2, "★ hermes skills browse", "Explore the hub (88k+ skills) with paginated browsing across every registry."));
+        g.Add(new GEntry(H2, "hermes skills search <text>", "Search official, skills.sh, well-known, GitHub, ClawHub, and LobeHub registries."));
+        g.Add(new GEntry(H2, "hermes skills install <id|url>", "Install by registry ID (official/security/1password) or a direct SKILL.md URL."));
+        g.Add(new GEntry(H2, "hermes skills list", "Show installed skills with source, trust, and enabled status."));
+        g.Add(new GEntry(H2, "hermes skills inspect <id>", "Preview source, trust, metadata, and files before installing."));
+        g.Add(new GEntry(H2, "hermes skills config", "Enable or disable installed skills globally or per platform."));
+        g.Add(new GEntry(H2, "hermes skills check / update", "Check hub skills for updates and apply them."));
+        g.Add(new GEntry(H2, "hermes skills audit", "Audit installed skills for problems."));
+        g.Add(new GEntry(H2, "hermes skills uninstall / reset", "Remove a skill, or reset it to its installed state (--restore)."));
+        g.Add(new GEntry(H2, "hermes skills opt-out", "Disable the bundled skill seeding (--remove --yes deletes them too)."));
+        g.Add(new GEntry(H2, "hermes bundles create <name>", "Group several skills into one reusable command (list / show / delete)."));
+
+        string H3 = "Hermes · 3  Memory & context";
+        g.Add(new GEntry(H3, "★ hermes memory status", "Inspect built-in MEMORY.md / USER.md and the optional external memory provider."));
+        g.Add(new GEntry(H3, "hermes memory setup / off", "Attach or detach an external memory provider plugin; built-in memory is always on."));
+        g.Add(new GEntry(H3, "MEMORY.md / USER.md", "Built-in long-term memory and user profile, editable under the Hermes home's memories folder."));
+        g.Add(new GEntry(H3, ".hermes.md", "Per-project context file Hermes reads from the working folder."));
+        g.Add(new GEntry(H3, "★ hermes sessions browse", "Search, resume, rename, export, prune, or delete conversation history — your saved contexts."));
+        g.Add(new GEntry(H3, "hermes sessions list / export", "List past sessions or export one for sharing."));
+
+        string H4 = "Hermes · 4  Automation & scheduling";
+        g.Add(new GEntry(H4, "★ hermes cron create \"<prompt>\"", "Schedule recurring agent or script tasks, optionally with --skill and project context."));
+        g.Add(new GEntry(H4, "hermes cron list --all", "List active and paused jobs; edit, pause, resume, run, or remove each schedule."));
+        g.Add(new GEntry(H4, "hermes cron status", "Check whether the scheduler is running."));
+        g.Add(new GEntry(H4, "hermes kanban", "Durable multi-profile task board — dependencies, claims, comments, retries, isolated workers."));
+        g.Add(new GEntry(H4, "hermes webhook subscribe", "React to supported external events such as GitHub issues and pull requests (list / remove)."));
+        g.Add(new GEntry(H4, "hermes hooks", "Inspect, test, approve, or revoke project/profile shell hooks (list / test / revoke / doctor)."));
+        g.Add(new GEntry(H4, "hermes gateway", "Run and manage the messaging gateway for connected chat platforms (start / stop / status)."));
+        g.Add(new GEntry(H4, "hermes whatsapp / slack", "Set up supported messaging integrations and generated manifests."));
+
+        string H5 = "Hermes · 5  Integrations & tools";
+        g.Add(new GEntry(H5, "hermes mcp", "Install and manage MCP servers, or expose Hermes itself as an MCP server."));
+        g.Add(new GEntry(H5, "hermes tools", "Choose toolsets for the CLI, gateway platforms, and scheduled jobs."));
+        g.Add(new GEntry(H5, "hermes plugins", "Install, update, enable, disable, and remove Hermes runtime plugins."));
+        g.Add(new GEntry(H5, "hermes curator", "Run or pause background skill maintenance and pin skills that must not change."));
+        g.Add(new GEntry(H5, "hermes computer-use", "Manage the Computer Use backend where the operating system supports it."));
+        g.Add(new GEntry(H5, "hermes lsp / acp", "Manage language servers or run Hermes as an Agent Client Protocol server."));
+        g.Add(new GEntry(H5, "hermes proxy", "Run a local OpenAI-compatible proxy for supported OAuth-backed providers."));
+
+        string H6 = "Hermes · 6  Maintenance & diagnostics";
+        g.Add(new GEntry(H6, "★ hermes status --all", "Show component, provider, gateway, schedule, and tool health with secrets redacted (--deep for more)."));
+        g.Add(new GEntry(H6, "★ hermes doctor --fix", "Diagnose and repair configuration, dependencies, providers, skills, and local tooling."));
+        g.Add(new GEntry(H6, "hermes update --backup --yes", "Back up the active home, then update through the supported lifecycle command."));
+        g.Add(new GEntry(H6, "hermes backup / import", "Back up the Hermes home to a zip and restore it through the supported path."));
+        g.Add(new GEntry(H6, "hermes checkpoints", "Inspect, prune, or clear saved tool-execution checkpoints."));
+        g.Add(new GEntry(H6, "hermes logs --since 1h", "Filter agent, error, gateway, cron, and component logs."));
+        g.Add(new GEntry(H6, "hermes insights", "Review usage insights and analytics by session and model."));
+        g.Add(new GEntry(H6, "hermes config", "View or set supported configuration keys (show / set / edit)."));
+        g.Add(new GEntry(H6, "hermes dump / debug share", "Create a redacted support summary or diagnostic report."));
 
         string K = "Keyboard & prompt tips";
         g.Add(new GEntry(K, "Esc", "Interrupt Claude / cancel the current action."));
@@ -2436,12 +2461,7 @@ class Hydra : Form
         for (int i = 0; i < contentPanels.Count; i++)
             contentPanels[i].Visible = i == sel;
         if (sel == 5) { UpdateOllamaTab(); RefreshOllamaModels(); }   // fresh state whenever the Ollama tab opens
-        if (sel == 6)
-        {
-            UpdateHermesStatusLine(); UpdateHermesMappingSummary();
-            if (hermesInventoryList != null && hermesInventoryList.Items.Count == 0)
-                RefreshHermesInventory("skills list", "Installed Hermes skills");
-        }
+        if (sel == 6) { UpdateHermesStatusLine(); UpdateHermesMappingSummary(); }
         if (sel == 7) RefreshMcpServers();
     }
 
@@ -2859,8 +2879,8 @@ class Hydra : Form
         row(hermesFields, 52);
         var hermesActions = MemoryActionRow();
         AddMemoryButton(hermesActions, "Provider settings GUI", (s, e) => OpenHermesDashboard());
-        AddMemoryButton(hermesActions, "Memory status", (s, e) => { SelectNav(6); RefreshHermesInventory("memory status", "Hermes memory provider"); });
-        AddMemoryButton(hermesActions, "Built-in only", (s, e) => { SelectNav(6); RunHermesManagerCommand("memory off", "Use built-in Hermes memory"); });
+        AddMemoryButton(hermesActions, "Memory status", (s, e) => NewHermesUtilityTerminal("memory status", "Hermes memory provider"));
+        AddMemoryButton(hermesActions, "Built-in only", (s, e) => NewHermesUtilityTerminal("memory off", "Use built-in Hermes memory"));
         AddMemoryButton(hermesActions, "Edit MEMORY.md", (s, e) => EditTextFileInHydra(Path.Combine(HermesActiveHomeDir(), "memories", "MEMORY.md"), "Hermes long-term memory", "# Long-term memory\r\n"));
         AddMemoryButton(hermesActions, "Edit USER.md", (s, e) => EditTextFileInHydra(Path.Combine(HermesActiveHomeDir(), "memories", "USER.md"), "Hermes user profile", "# User preferences\r\n"));
         AddMemoryButton(hermesActions, "Edit project context", (s, e) => EditTextFileInHydra(Path.Combine(CurrentProjectDir(), ".hermes.md"), "Hermes project context", "# Project context for Hermes\r\n"));
@@ -3153,6 +3173,18 @@ class Hydra : Form
     {
         RunAgentContextCommand("codex features " + (enabled ? "enable" : "disable") + " memories");
     }
+    // Open a visible Workspace terminal running a profile-aware Hermes command.
+    void NewHermesUtilityTerminal(string arguments, string task)
+    {
+        RefreshPathFromRegistry();
+        if (!HasHermes())
+        {
+            MessageBox.Show("Hermes is not installed yet. Use the Hermes tab → Install / repair.", "Hydra", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        StartUtilityTerminal(HermesCliPrefix() + " " + arguments, task, "Hermes");
+    }
+
     string HermesCliPrefix()
     {
         string profile = (hermesProfile ?? "").Trim();
@@ -3486,6 +3518,20 @@ class Hydra : Form
 
         row(PageHeader("Hermes", "Nous Research's agent — LLM mapping, install & updates, and its own skills ecosystem. Hydra never mixes the shared Claude/Codex skills into Hermes."), 52);
 
+        // The dashboard is Hermes' own full manager (models, accounts, sessions, schedules,
+        // profiles, skills, tools, analytics, plugins) — one big obvious way in.
+        var dashBtn = new Button {
+            Text = "🌐   Open Hermes Dashboard  —  localhost:9119", Dock = DockStyle.Fill,
+            FlatStyle = FlatStyle.Flat, BackColor = Lerp(TitleBg, Accent, 0.55f), ForeColor = Color.White,
+            Font = new Font("Segoe UI Semibold", 12.5f, FontStyle.Bold), Cursor = Cursors.Hand,
+            TextAlign = ContentAlignment.MiddleCenter, Margin = new Padding(0, 4, 0, 8)
+        };
+        dashBtn.FlatAppearance.BorderSize = 0;
+        dashBtn.FlatAppearance.MouseOverBackColor = Accent;
+        dashBtn.FlatAppearance.MouseDownBackColor = AccentHi;
+        dashBtn.Click += (s, e) => OpenHermesDashboard();
+        row(dashBtn, 52);
+
         // ---- 1 · provider → model mapping (moved out of Settings) ----
         row(SectionCap("1  Map Hermes to an LLM"), 32);
         row(RowCap("Choose where Hermes authenticates, then choose or type the model that provider should run."), 22);
@@ -3517,7 +3563,7 @@ class Hydra : Form
         var hInstall = GhostBtn("Install / repair"); hInstall.AutoSize = true; hInstall.Click += (s, e) => InstallHermes();
         var hCheck = GhostBtn("Check update"); hCheck.AutoSize = true; hCheck.Click += (s, e) => SetupRun(CheckHermesUpdate);
         var hUpdate = GhostBtn("Update now"); hUpdate.AutoSize = true; hUpdate.Click += (s, e) => SetupRun(UpdateHermes);
-        var hDoctor = GhostBtn("Doctor"); hDoctor.AutoSize = true; hDoctor.Click += (s, e) => RefreshHermesInventory("doctor", "Hermes diagnostics");
+        var hDoctor = GhostBtn("Doctor"); hDoctor.AutoSize = true; hDoctor.Click += (s, e) => NewHermesUtilityTerminal("doctor", "Hermes diagnostics");
         hermesActions.Controls.AddRange(new Control[] { hSetup, hInstall, hCheck, hUpdate, hDoctor });
         row(hermesActions, 38);
 
@@ -3527,7 +3573,7 @@ class Hydra : Form
         var hubActions = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0) };
         var hubBrowse = GhostBtn("Browse hub in GUI"); hubBrowse.AutoSize = true; hubBrowse.Click += (s, e) => OpenHermesDashboard();
         var hubConfig = GhostBtn("Enable / disable in GUI"); hubConfig.AutoSize = true; hubConfig.Click += (s, e) => OpenHermesDashboard();
-        var hubUpdate = GhostBtn("Update all skills"); hubUpdate.AutoSize = true; hubUpdate.Click += (s, e) => RunHermesManagerCommand("skills update", "Update Hermes skills");
+        var hubUpdate = GhostBtn("Update all skills"); hubUpdate.AutoSize = true; hubUpdate.Click += (s, e) => NewHermesUtilityTerminal("skills update", "Update Hermes skills");
         var hubFolder = GhostBtn("Open skills folder"); hubFolder.AutoSize = true; hubFolder.Click += (s, e) => OpenHermesSkillsFolder();
         hubActions.Controls.AddRange(new Control[] { hubBrowse, hubConfig, hubUpdate, hubFolder });
         row(hubActions, 38);
@@ -3545,87 +3591,10 @@ class Hydra : Form
         installGrid.Controls.Add(skillButtons, 1, 1);
         row(installGrid, 58);
 
-        // ---- 3 · agent state: skills · memory · sessions · scheduled · status ----
-        row(SectionCap("3  Agent state"), 32);
-        row(RowCap("Live inventories straight from the Hermes CLI for the selected profile."), 22);
-        var stateActions = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0) };
-        var stSkills = GhostBtn("Installed skills"); stSkills.AutoSize = true; stSkills.Click += (s, e) => RefreshHermesInventory("skills list", "Installed Hermes skills");
-        var stMemory = GhostBtn("Memories"); stMemory.AutoSize = true; stMemory.Click += (s, e) => RefreshHermesInventory("memory status", "Hermes memory (built-in MEMORY.md / USER.md is always active)");
-        var stSessions = GhostBtn("Contexts (sessions)"); stSessions.AutoSize = true; stSessions.Click += (s, e) => RefreshHermesInventory("sessions list", "Hermes conversation sessions — the contexts you can resume");
-        var stCron = GhostBtn("Scheduled tasks"); stCron.AutoSize = true; stCron.Click += (s, e) => RefreshHermesInventory("cron list", "Scheduled Hermes jobs (hermes cron)");
-        var stStatus = GhostBtn("Status"); stStatus.AutoSize = true; stStatus.Click += (s, e) => RefreshHermesInventory("status --all", "Hermes agent & platform status");
-        stateActions.Controls.AddRange(new Control[] { stSkills, stMemory, stSessions, stCron, stStatus });
-        row(stateActions, 38);
-        var manageActions = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0) };
-        var mgDashboard = GhostBtn("Full manager"); mgDashboard.AutoSize = true; mgDashboard.Click += (s, e) => OpenHermesDashboard();
-        var mgMemory = GhostBtn("Edit MEMORY.md"); mgMemory.AutoSize = true; mgMemory.Click += (s, e) => EditTextFileInHydra(Path.Combine(HermesActiveHomeDir(), "memories", "MEMORY.md"), "Hermes long-term memory", "# Long-term memory\r\n");
-        var mgUser = GhostBtn("Edit USER.md"); mgUser.AutoSize = true; mgUser.Click += (s, e) => EditTextFileInHydra(Path.Combine(HermesActiveHomeDir(), "memories", "USER.md"), "Hermes user profile", "# User preferences\r\n");
-        var mgProject = GhostBtn("Edit project context"); mgProject.AutoSize = true; mgProject.Click += (s, e) => EditTextFileInHydra(Path.Combine(CurrentProjectDir(), ".hermes.md"), "Hermes project context", "# Project context for Hermes\r\n");
-        var mgSchedule = GhostBtn("New schedule"); mgSchedule.AutoSize = true; mgSchedule.Click += (s, e) => CreateHermesScheduleDialog();
-        var mgTask = GhostBtn("New kanban task"); mgTask.AutoSize = true; mgTask.Click += (s, e) => CreateHermesTaskDialog();
-        var mgTaskAction = GhostBtn("Update kanban task"); mgTaskAction.AutoSize = true; mgTaskAction.Click += (s, e) => ManageHermesTaskDialog();
-        var mgTasks = GhostBtn("Task board"); mgTasks.AutoSize = true; mgTasks.Click += (s, e) => RefreshHermesInventory("kanban list", "Hermes kanban tasks");
-        manageActions.Controls.AddRange(new Control[] { mgDashboard, mgMemory, mgUser, mgProject, mgSchedule, mgTask, mgTaskAction, mgTasks });
-        row(manageActions, 72);
-        hermesInventoryTitle = new Label { Dock = DockStyle.Fill, ForeColor = AccentHi, Font = new Font("Segoe UI Semibold", 9.5f, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
-        row(hermesInventoryTitle, 24);
-        hermesInventoryList = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, GridLines = true,
-            HideSelection = false, MultiSelect = false, BackColor = Color.FromArgb(20, 20, 23), ForeColor = Color.FromArgb(220, 220, 225),
-            BorderStyle = BorderStyle.FixedSingle, Font = new Font("Segoe UI", 8.75f) };
-        row(hermesInventoryList, 200);
-        hermesInventoryMessage = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Segoe UI", 8.5f),
-            TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
-        row(hermesInventoryMessage, 24);
-
-        // ---- 4 · glossary: get the most out of Hermes ----
-        row(SectionCap("4  Hermes glossary — top features"), 32);
-        row(RowCap("The features that get the most out of Hermes. ★ = recommended starting points."), 22);
-        var featureGrid = new TableLayoutPanel { ColumnCount = 2, RowCount = 35, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
-        featureGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 300f)); featureGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-        string[,] features = {
-            { "★ hermes --tui", "Start the modern interactive agent UI; Hydra uses this for normal Hermes sessions." },
-            { "★ hermes skills browse", "Explore the skills hub and install reviewed skills by registry identifier." },
-            { "★ hermes -p <profile>", "Isolated profiles — separate auth, skills, memory, and configuration per project or client." },
-            { "★ hermes cron create", "Schedule recurring agent or script tasks, optionally with skills and project context." },
-            { "★ hermes sessions browse", "Search, resume, rename, export, prune, or delete conversation history." },
-            { "★ hermes dashboard", "Open the local GUI for config, auth, sessions, schedules, profiles, skills, tools, analytics, and plugins." },
-            { "★ hermes memory status", "Inspect built-in MEMORY.md / USER.md and the optional external memory provider." },
-            { "hermes model", "Choose the primary provider and model; Hydra can override both for one launch." },
-            { "hermes fallback", "Manage the provider/model chain used after rate limits, overloads, or connection failures." },
-            { "hermes auth", "Add, list, reset, or remove pooled provider credentials." },
-            { "hermes status --all", "Show component, provider, gateway, schedule, and tool health with secrets redacted." },
-            { "hermes doctor --fix", "Diagnose and repair configuration, dependencies, providers, skills, and local tooling." },
-            { "hermes skills search", "Search official, skills.sh, well-known, GitHub, ClawHub, and LobeHub registries." },
-            { "hermes skills inspect", "Preview source, trust, metadata, and files before installing a skill." },
-            { "hermes skills config", "Enable or disable installed skills globally or for a supported platform." },
-            { "hermes plugins", "Install, update, enable, disable, and remove Hermes runtime plugins." },
-            { "hermes curator", "Run or pause background skill maintenance and pin skills that must not change." },
-            { "hermes tools", "Choose toolsets for the CLI, gateway platforms, and scheduled jobs." },
-            { "hermes cron list --all", "List active and paused jobs; edit, pause, resume, run, or remove each schedule." },
-            { "hermes kanban", "Durable multi-profile tasks with dependencies, claims, comments, retries, and isolated workers." },
-            { "hermes webhook subscribe", "React to supported external events such as GitHub issues and pull requests." },
-            { "hermes gateway", "Run and manage the messaging gateway for connected chat platforms." },
-            { "hermes whatsapp / slack", "Set up supported messaging integrations and generated manifests." },
-            { "hermes mcp", "Install and manage MCP servers, or expose Hermes itself as an MCP server." },
-            { "hermes computer-use", "Manage the Computer Use backend where the operating system supports it." },
-            { "hermes checkpoints", "Inspect, prune, or clear saved tool-execution checkpoints." },
-            { "hermes hooks", "Inspect and approve project/profile shell hooks." },
-            { "hermes backup / import", "Back up the Hermes home to a zip and restore it through the supported path." },
-            { "hermes logs --since 1h", "Filter agent, error, gateway, cron, and component logs." },
-            { "hermes insights", "Review usage insights and analytics by session and model." },
-            { "hermes config", "View or set supported configuration keys." },
-            { "hermes proxy", "Run a local OpenAI-compatible proxy for supported OAuth-backed providers." },
-            { "hermes lsp / acp", "Manage language servers or run Hermes as an Agent Client Protocol server." },
-            { "hermes update --backup", "Back up the active home, then update through the supported lifecycle command." },
-            { "hermes dump / debug share", "Create a redacted support summary or diagnostic report." }
-        };
-        for (int i = 0; i < features.GetLength(0); i++)
-        {
-            featureGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 22f));
-            featureGrid.Controls.Add(new Label { Text = features[i, 0], Dock = DockStyle.Fill, ForeColor = AccentHi, Font = new Font("Consolas", 8.75f), TextAlign = ContentAlignment.MiddleLeft }, 0, i);
-            featureGrid.Controls.Add(new Label { Text = features[i, 1], Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Segoe UI", 8.75f), TextAlign = ContentAlignment.MiddleLeft }, 1, i);
-        }
-        row(featureGrid, features.GetLength(0) * 22 + 4);
+        // Everything else — sessions, memories, schedules, kanban, analytics — lives in the
+        // Hermes dashboard (the big button above). The full command reference moved to the
+        // Glossary tab, sectioned per feature area.
+        row(RowCap("Sessions, memories, schedules, tasks and analytics live in the dashboard above. The full command reference is in the Glossary tab."), 22);
 
         UpdateHermesStatusLine();
         UpdateHermesMappingSummary();
@@ -3648,16 +3617,27 @@ class Hydra : Form
         }
         if (verb == "uninstall" && MessageBox.Show("Uninstall Hermes skill '" + skillRef + "'?", "Hermes skills",
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-        if (verb == "install") RunHermesManagerArguments(taskLabel, "skills", verb, skillRef, "--yes");
-        else RunHermesManagerArguments(taskLabel, "skills", verb, skillRef);
+        // Run in a visible Workspace terminal so progress and prompts are on screen.
+        string args = "skills " + verb + " " + CmdQ(skillRef) + (verb == "install" ? " --yes" : "");
+        NewHermesUtilityTerminal(args, taskLabel);
     }
 
+    const int HermesDashboardPort = 9119;
+
+    // The big Hermes-tab button: if the dashboard already serves, jump straight to the
+    // page; otherwise start `hermes dashboard` and open the browser the moment the
+    // local API answers — either way the user lands on http://localhost:9119.
     void OpenHermesDashboard()
     {
+        if (TestPort(HermesDashboardPort))
+        {
+            try { Process.Start("http://127.0.0.1:" + HermesDashboardPort); } catch { }
+            return;
+        }
         RefreshPathFromRegistry();
         if (!HasHermes())
         {
-            MessageBox.Show("Hermes is not installed yet â€” click Install / repair first.", "Hermes", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            MessageBox.Show("Hermes is not installed yet — click Install / repair first.", "Hermes", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
         try
@@ -3666,7 +3646,12 @@ class Hydra : Form
             var psi = new ProcessStartInfo("cmd.exe", "/d /c " + HermesCliPrefix() + " dashboard")
             { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = HermesActiveHomeDir() };
             Process.Start(psi);
-            RenderHermesMessage("Hermes GUI dashboard", "Starting securely on http://127.0.0.1:9119 â€¦ The browser opens automatically and manages models, accounts, settings, sessions, schedules, profiles, skills, tools, analytics, and plugins.");
+            SetupLog("Hermes dashboard starting on http://127.0.0.1:" + HermesDashboardPort + " — the browser opens as soon as it answers.");
+            ThreadPool.QueueUserWorkItem(_ => {
+                for (int i = 0; i < 60 && !TestPort(HermesDashboardPort); i++) Thread.Sleep(250);
+                if (TestPort(HermesDashboardPort))
+                    try { Process.Start("http://127.0.0.1:" + HermesDashboardPort); } catch { }
+            });
         }
         catch (Exception ex)
         {
@@ -3676,7 +3661,8 @@ class Hydra : Form
 
     void RunHermesManagerCommand(string arguments, string heading)
     {
-        if (hermesInventoryList == null) return;
+        // The Hermes tab's inventory pane is gone — surface the command in a visible terminal.
+        if (hermesInventoryList == null) { NewHermesUtilityTerminal(arguments, heading); return; }
         RenderHermesMessage(heading, "Workingâ€¦");
         ThreadPool.QueueUserWorkItem(_ => {
             RefreshPathFromRegistry();
@@ -3735,7 +3721,13 @@ class Hydra : Form
 
     void RunHermesManagerArguments(string heading, params string[] arguments)
     {
-        if (hermesInventoryList == null) return;
+        if (hermesInventoryList == null)
+        {
+            var quoted = new List<string>();
+            foreach (var argument in arguments) quoted.Add(QuoteProcessArgument(argument));
+            NewHermesUtilityTerminal(string.Join(" ", quoted.ToArray()), heading);
+            return;
+        }
         RenderHermesMessage(heading, "Workingâ€¦");
         ThreadPool.QueueUserWorkItem(_ => {
             RefreshPathFromRegistry();
@@ -3750,8 +3742,17 @@ class Hydra : Form
 
     void RunHermesTaskUpdate(string taskID, string action, string comment)
     {
-        string heading = "Hermes kanban â€¢ " + action;
-        RenderHermesMessage(heading, "Workingâ€¦");
+        string heading = "Hermes kanban • " + action;
+        if (hermesInventoryList == null)
+        {
+            string args = "kanban " + action + " " + QuoteProcessArgument(taskID);
+            if (comment.Length > 0)
+                args = "kanban comment " + QuoteProcessArgument(taskID) + " " + QuoteProcessArgument(comment)
+                    + " && " + HermesCliPrefix() + " " + args;
+            NewHermesUtilityTerminal(args, heading);
+            return;
+        }
+        RenderHermesMessage(heading, "Working…");
         ThreadPool.QueueUserWorkItem(_ => {
             RefreshPathFromRegistry();
             int code = 0; var combined = new StringBuilder();
@@ -3774,7 +3775,8 @@ class Hydra : Form
     // selected profile (skills list · memory status · sessions list · cron list · status).
     void RefreshHermesInventory(string arguments, string heading)
     {
-        if (hermesInventoryList == null) return;
+        // The Hermes tab's inventory pane is gone — surface the command in a visible terminal.
+        if (hermesInventoryList == null) { NewHermesUtilityTerminal(arguments, heading); return; }
         RenderHermesMessage(heading, "Loadingâ€¦");
         ThreadPool.QueueUserWorkItem(_ => {
             RefreshPathFromRegistry();
@@ -3823,7 +3825,7 @@ class Hydra : Form
 
     void RenderHermesMessage(string heading, string message)
     {
-        if (hermesInventoryList == null) return;
+        if (hermesInventoryList == null) { SetupLog(heading + ": " + (message ?? "")); return; }
         hermesInventoryTitle.Text = heading;
         hermesInventoryList.BeginUpdate(); hermesInventoryList.Items.Clear(); hermesInventoryList.Columns.Clear();
         hermesInventoryList.Columns.Add("Status", 740);
@@ -5076,6 +5078,7 @@ try {
         // Hermes has no lifecycle hooks, so its live state is inferred from CPU activity.
         public double HermesCpuMs = -1;
         public DateTime HermesActiveAt = DateTime.MinValue;
+        public bool UsesLocalOllama;   // local-provider sessions also watch the owned Ollama server's CPU
         public bool Embedded;
         public bool Popped;
         public bool FocusPending;
@@ -5636,6 +5639,7 @@ try {
             CHeadroom = agent == "Claude" ? useHeadroom : false,
             CRtk = agent == "Hermes" ? false : useRtk,
             CCaveman = agent == "Hermes" ? false : useCaveman,
+            UsesLocalOllama = agent == "Hermes" && hermesSelectedProvider == "custom",
             CodexProfilePath = codexProfilePath };
         try
         {
@@ -6042,13 +6046,37 @@ try {
 
     int hermesPollTick;
 
+    double ollamaCpuMs = -1;   // shared inference-activity sample for local-Ollama Hermes tabs
+
     // Claude and Codex report their turn state through real lifecycle hooks; Hermes has
     // none, so a Hermes tab would sit on "Ready" forever. Instead its live state is
-    // inferred from the CPU its console tree burns: thinking/streaming shows measurable
-    // activity, an idle prompt shows none.
+    // inferred from CPU activity. Two signals are needed: the console tree (the TUI
+    // redraws while streaming) AND the owned Ollama server — while a local model thinks,
+    // the CPU burns in ollama.exe, not in the hermes process that just awaits the API.
     void PollHermesActivity()
     {
         bool changed = false;
+        bool anyLocal = false;
+        foreach (var s in sessions)
+            if (s.Agent == "Hermes" && s.UsesLocalOllama && s.Status != TermStopped) { anyLocal = true; break; }
+
+        bool ollamaBusy = false;
+        if (anyLocal)
+        {
+            double serverTotal = 0;
+            try
+            {
+                Process owner = ollamaProcess;
+                if (owner != null && !owner.HasExited)
+                    foreach (uint pid in DescendantPids(owner.Id))
+                        try { using (var p = Process.GetProcessById((int)pid)) serverTotal += p.TotalProcessorTime.TotalMilliseconds; } catch { }
+            }
+            catch { }
+            // Inference saturates cores; idle keep-alive barely ticks. >200ms per 2s poll = busy.
+            ollamaBusy = ollamaCpuMs >= 0 && serverTotal - ollamaCpuMs > 200;
+            ollamaCpuMs = serverTotal;
+        }
+
         foreach (var s in sessions)
         {
             if (s.Agent != "Hermes" || s.Status == TermStopped || s.Proc == null) continue;
@@ -6060,10 +6088,11 @@ try {
                     try { using (var p = Process.GetProcessById((int)pid)) total += p.TotalProcessorTime.TotalMilliseconds; } catch { }
             }
             catch { continue; }
-            if (s.HermesCpuMs >= 0 && total - s.HermesCpuMs > 100) s.HermesActiveAt = DateTime.UtcNow;
+            bool ownActivity = s.HermesCpuMs >= 0 && total - s.HermesCpuMs > 40;
             s.HermesCpuMs = total;
+            if (ownActivity || (s.UsesLocalOllama && ollamaBusy)) s.HermesActiveAt = DateTime.UtcNow;
             if (s.HermesActiveAt == DateTime.MinValue) continue;   // no activity signal yet — keep launch state
-            bool working = DateTime.UtcNow - s.HermesActiveAt < TimeSpan.FromSeconds(4);
+            bool working = DateTime.UtcNow - s.HermesActiveAt < TimeSpan.FromSeconds(5);
             string next = working ? TermWorking : TermReady;
             if (next != s.Status)
             {
