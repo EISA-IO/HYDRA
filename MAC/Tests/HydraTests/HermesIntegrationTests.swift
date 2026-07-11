@@ -60,7 +60,7 @@ func hermesLaunchCommand() {
     #expect(command!.contains("--model 'anthropic/claude-sonnet-4.6'"))
     #expect(command!.contains("--continue --verbose 'review this repo'"))
     #expect(HermesIntegration.normalizedModel("model; touch /tmp/nope") == "Default")
-    #expect(HermesIntegration.normalizedModel("ornith:9b") == "ornith:9b")
+    #expect(HermesIntegration.normalizedModel("rafw007/ornith-claude-coder:latest") == "rafw007/ornith-claude-coder:latest")
 }
 
 @Test("Ollama uses Hermes custom-provider environment only for that process")

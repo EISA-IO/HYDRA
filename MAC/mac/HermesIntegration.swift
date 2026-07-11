@@ -12,7 +12,7 @@ enum ModelCatalog {
     static let codex = ["Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
                         "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"]
     /// Local Ollama tags: the recommended seeds.
-    static let ollamaLocal = ["ornith:9b", "ornith:35b"]
+    static let ollamaLocal = ["rafw007/ornith-claude-coder:latest", "ornith:35b"]
     /// OpenRouter: the curated allow-list of vendor-prefixed IDs Hydra supports.
     static let openRouter = ["moonshotai/kimi-k2.7-code", "z-ai/glm-5.2", "deepseek/deepseek-v4-flash"]
 }
@@ -33,7 +33,7 @@ enum HermesIntegration {
         "gpt-5.5",
         "claude-sonnet-5",
         "claude-opus-4-8",
-        "ornith:9b"
+        "rafw007/ornith-claude-coder:latest"
     ]
 
     static func modelSuggestions(forProviderID providerID: String) -> [String] {

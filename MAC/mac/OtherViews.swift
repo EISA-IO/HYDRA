@@ -221,7 +221,7 @@ struct OllamaTabView: View {
                                     .font(.system(size: 11))
                             }
                             .frame(width: 110)
-                            DarkField(placeholder: "ornith:9b", text: $app.ollamaTag, mono: true)
+                            DarkField(placeholder: "rafw007/ornith-claude-coder:latest", text: $app.ollamaTag, mono: true)
                                 .frame(maxWidth: 220)
                             Button("Download") { app.pullOllamaModel() }.accentButton().disabled(app.setupBusy)
                             Button("Chat") { app.chatOllamaModel() }.ghostButton()

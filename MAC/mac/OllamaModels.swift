@@ -14,7 +14,7 @@ extension AppState {
         var list: [(String, String)] = []
         if !FS.exists(Paths.ollamaRecFile) {
             try? FileManager.default.createDirectory(atPath: Paths.ollamaDir, withIntermediateDirectories: true)
-            FS.write(Paths.ollamaRecFile, "LOW|ornith:9b\nHIGH|ornith:35b\n")
+            FS.write(Paths.ollamaRecFile, "LOW|rafw007/ornith-claude-coder:latest\nHIGH|ornith:35b\n")
         }
         for raw in (FS.read(Paths.ollamaRecFile) ?? "").split(separator: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
@@ -26,7 +26,7 @@ extension AppState {
                 list.append(("", line))
             }
         }
-        if list.isEmpty { list = [("LOW", "ornith:9b"), ("HIGH", "ornith:35b")] }
+        if list.isEmpty { list = [("LOW", "rafw007/ornith-claude-coder:latest"), ("HIGH", "ornith:35b")] }
         return list
     }
 
@@ -123,7 +123,7 @@ extension AppState {
     /// `ollama pull` — builds the runtime into Hydra first when it's missing.
     func pullOllamaModel() {
         let tag = Self.cleanOllamaTag(ollamaTag)
-        if tag.isEmpty { log("Pick or type an Ollama model tag first (e.g. ornith:9b)."); return }
+        if tag.isEmpty { log("Pick or type an Ollama model tag first (e.g. rafw007/ornith-claude-coder:latest)."); return }
         let install = FileManager.default.isExecutableFile(atPath: Paths.ollamaExe)
             ? "true" : ollamaInstallScript()
         let exe = Paths.ollamaExe
@@ -163,7 +163,7 @@ extension AppState {
         var tag = Self.cleanOllamaTag(ollamaTag)
         if tag.isEmpty { tag = Self.installedOllamaModels().first ?? "" }
         if tag.isEmpty {
-            alert("Ollama Chat", "No local models yet. Download one first in Settings → Ollama models (e.g. ornith:9b).")
+            alert("Ollama Chat", "No local models yet. Download one first in Settings → Ollama models (e.g. rafw007/ornith-claude-coder:latest).")
             return
         }
         chatOllama(tag: tag)

@@ -75,9 +75,9 @@ class Hydra : Form
     static readonly object[] ClaudeModelChoices = { "Default", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5" };
     static readonly object[] ChatGptModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark" };
     // "Hermes default" (auto) can land on any provider, so offer a cross-section of the catalogs.
-    static readonly object[] HermesModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.5", "claude-sonnet-5", "claude-opus-4-8", "ornith:9b" };
+    static readonly object[] HermesModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.5", "claude-sonnet-5", "claude-opus-4-8", "rafw007/ornith-claude-coder:latest" };
     // Local Ollama tags: the recommended seeds plus common local coding models.
-    static readonly object[] HermesOllamaModelChoices = { "ornith:9b", "ornith:35b" };
+    static readonly object[] HermesOllamaModelChoices = { "rafw007/ornith-claude-coder:latest", "ornith:35b" };
     // OpenRouter: the curated allow-list of vendor-prefixed IDs Hydra supports.
     static readonly object[] HermesOpenRouterModelChoices = { "moonshotai/kimi-k2.7-code", "z-ai/glm-5.2", "deepseek/deepseek-v4-flash" };
     static readonly object[] HermesProviderChoices = { "Hermes default", "ChatGPT / Codex OAuth", "Claude / Anthropic", "Ollama (local)", "OpenRouter" };
@@ -753,7 +753,7 @@ class Hydra : Form
                 BeginInvoke((Action)(() => {
                     if (tag.Length == 0)
                     {
-                        MessageBox.Show("No local models yet. Download one first in Settings → Ollama models (e.g. ornith:9b).",
+                        MessageBox.Show("No local models yet. Download one first in Settings → Ollama models (e.g. rafw007/ornith-claude-coder:latest).",
                             "Ollama Chat", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
@@ -3241,7 +3241,7 @@ class Hydra : Form
                 && ChoiceContains(HermesModelsForProvider("anthropic"), "claude-opus-4-8")
                 && !ChoiceContains(HermesModelsForProvider("anthropic"), "gpt-5.6-sol")
                 && ChoiceContains(HermesModelsForProvider("openai-codex"), "gpt-5.6-sol")
-                && ChoiceContains(ollamaModels, "ornith:9b")
+                && ChoiceContains(ollamaModels, "rafw007/ornith-claude-coder:latest")
                 && ChoiceContains(ollamaModels, "ornith:35b")
                 && ollamaTagsOnly
                 && ChoiceContains(openRouterModels, "moonshotai/kimi-k2.7-code")
@@ -3527,7 +3527,7 @@ class Hydra : Form
         Hoverize(omPull, Accent, AccentHi);
         omPull.Click += (s, e) => {
             string tag = SelectedOllamaTag(ollamaModelCombo.Text);
-            if (tag.Length == 0) { SetupLog("Pick or type an Ollama model tag first (e.g. ornith:9b)."); return; }
+            if (tag.Length == 0) { SetupLog("Pick or type an Ollama model tag first (e.g. rafw007/ornith-claude-coder:latest)."); return; }
             SetupRun(() => PullOllamaModel(tag));
         };
         omRow.Controls.Add(omPull);
@@ -4542,7 +4542,7 @@ try {
             if (!File.Exists(OllamaRecFile))
             {
                 Directory.CreateDirectory(OllamaDir);
-                File.WriteAllText(OllamaRecFile, "LOW|ornith:9b\r\nHIGH|ornith:35b\r\n");
+                File.WriteAllText(OllamaRecFile, "LOW|rafw007/ornith-claude-coder:latest\r\nHIGH|ornith:35b\r\n");
             }
             foreach (var raw in File.ReadAllLines(OllamaRecFile))
             {
@@ -4556,7 +4556,7 @@ try {
         catch { }
         if (list.Count == 0)
         {
-            list.Add(new KeyValuePair<string, string>("LOW", "ornith:9b"));
+            list.Add(new KeyValuePair<string, string>("LOW", "rafw007/ornith-claude-coder:latest"));
             list.Add(new KeyValuePair<string, string>("HIGH", "ornith:35b"));
         }
         return list;
