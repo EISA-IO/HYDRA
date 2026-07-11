@@ -98,7 +98,7 @@ enum HermesIntegration {
 
         var command = "hermes"
         if !cleanProfile.isEmpty { command += " -p " + TerminalLauncher.shellQuote(cleanProfile) }
-        command += " --tui"
+        command += " --tui --yolo"   // full access: skip Hermes' per-command approval prompts
 
         let provider = normalizedProviderID(providerID)
         if provider != "auto" { command += " --provider " + TerminalLauncher.shellQuote(provider) }
@@ -113,6 +113,26 @@ enum HermesIntegration {
             command += " " + TerminalLauncher.shellQuote(prompt)
         }
         return command
+    }
+
+    /// Mirror Hydra's shared skills into the active Hermes home so Hermes can use them
+    /// automatically (Hermes reads SKILL.md folders from <home>/skills). Hermes-managed
+    /// skills are never overwritten; the copy is idempotent and runs off the main thread.
+    static func mirrorSharedSkills(profile: String) {
+        let clean = profile.trimmingCharacters(in: .whitespacesAndNewlines)
+        let home = Paths.hermesProfileHome(clean)
+        DispatchQueue.global(qos: .utility).async {
+            let target = home + "/skills"
+            try? FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: true)
+            for sourceDir in [Paths.skillsDir, Paths.codexSkillsDir] {
+                guard let names = try? FileManager.default.contentsOfDirectory(atPath: sourceDir) else { continue }
+                for name in names {
+                    let src = sourceDir + "/" + name
+                    guard FS.exists(src + "/SKILL.md"), !FS.exists(target + "/" + name) else { continue }
+                    try? FS.copyDir(src, target + "/" + name)
+                }
+            }
+        }
     }
 
     static func environmentOverrides(providerID: String) -> [String: String] {

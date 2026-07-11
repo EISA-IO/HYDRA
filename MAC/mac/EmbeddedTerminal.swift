@@ -2,6 +2,16 @@ import SwiftUI
 import AppKit
 import SwiftTerm
 
+// Terminal view that timestamps PTY output, so hook-less agents (Hermes) can get a
+// live Working/Ready status inferred from output activity.
+final class ActivityTerminalView: LocalProcessTerminalView {
+    var onOutput: (() -> Void)?
+    override func dataReceived(slice: ArraySlice<UInt8>) {
+        onOutput?()
+        super.dataReceived(slice: slice)
+    }
+}
+
 // One embedded Claude session: an in-app terminal running the CLI via a PTY.
 final class TermTab: ObservableObject, Identifiable {
     let id: String
@@ -17,6 +27,8 @@ final class TermTab: ObservableObject, Identifiable {
     let cleanupPaths: [String]
     let view: LocalProcessTerminalView
     let startedAt = Date()
+    /// Last PTY output timestamp — drives the activity heuristic for hook-less agents.
+    var lastOutputAt: Date?
     // Strong owner for the process delegate (SwiftTerm holds it weakly, so the tab must retain it).
     var coordinator: AnyObject?
 
@@ -33,7 +45,7 @@ final class TermTab: ObservableObject, Identifiable {
         self.caveman = caveman
         self.cleanupPaths = cleanupPaths
         self.title = TerminalPresentation.tabHint(task: taskLabel, folder: folder)
-        self.view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
+        self.view = ActivityTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
         view.nativeBackgroundColor = NSColor(srgbRed: 16/255, green: 16/255, blue: 18/255, alpha: 1)
         view.nativeForegroundColor = NSColor(srgbRed: 235/255, green: 235/255, blue: 240/255, alpha: 1)
         if let f = NSFont(name: "SF Mono", size: 12.5) ?? NSFont(name: "Menlo", size: 12.5) {
@@ -46,6 +58,24 @@ final class TerminalManager: ObservableObject {
     @Published var tabs: [TermTab] = []
     @Published var selectedId: String?
     weak var app: AppState?
+    private var activityTimer: Timer?
+
+    init() {
+        // Claude/Codex report turn state through real lifecycle hooks; Hermes has none,
+        // so its tabs would sit on "Ready" forever. Infer Working/Ready from PTY output:
+        // a thinking/streaming TUI keeps emitting, an idle prompt goes quiet.
+        activityTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.pollHookLessActivity()
+        }
+    }
+
+    private func pollHookLessActivity() {
+        for t in tabs where t.agent == "Hermes" && t.status != .stoppedOrTokenLimit {
+            guard let last = t.lastOutputAt else { continue }   // no output yet — keep launch state
+            let next: TerminalStatus = Date().timeIntervalSince(last) < 2.5 ? .working : .ready
+            if t.status != next { t.status = next }
+        }
+    }
 
     func tab(_ id: String?) -> TermTab? { tabs.first { $0.id == id } }
     var selected: TermTab? { tab(selectedId) }
@@ -66,6 +96,9 @@ final class TerminalManager: ObservableObject {
         let coord = Coordinator(manager: self, tabId: id)
         t.coordinator = coord                 // retain it — processDelegate below is weak
         t.view.processDelegate = coord
+        if agent == "Hermes" {
+            (t.view as? ActivityTerminalView)?.onOutput = { [weak t] in t?.lastOutputAt = Date() }
+        }
         tabs.append(t)
         selectedId = id
         // Run the command through a login shell so PATH + shims resolve inside the PTY.

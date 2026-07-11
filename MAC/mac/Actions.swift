@@ -165,6 +165,7 @@ extension AppState {
                 }
                 ollama.start()
             }
+            HermesIntegration.mirrorSharedSkills(profile: hermesProfile)   // Hermes picks the shared skills up automatically
             cli = command
         } else if selectedAgent == "Codex" {
             // Compression is provisioned by Settings. Keep network/plugin installation off

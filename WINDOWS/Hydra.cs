@@ -499,12 +499,53 @@ class Hydra : Form
         });
     }
 
+    // A reachable server Hydra didn't start is usually Hydra's own embedded runtime
+    // left over from a previous session (or booted inside an embedded terminal).
+    // Reclaim it so Start/Stop and app-shutdown own it again; a genuinely foreign
+    // install (PATH, system Ollama) is never adopted or killed.
+    Process FindEmbeddedOllamaProcess()
+    {
+        try
+        {
+            foreach (var p in Process.GetProcessesByName("ollama"))
+            {
+                string path = null;
+                try { path = p.MainModule != null ? p.MainModule.FileName : null; } catch { }
+                if (path != null && IsUnder(path, OllamaDir)) return p;
+                try { p.Dispose(); } catch { }
+            }
+        }
+        catch { }
+        return null;
+    }
+
     void ApplyOllamaState(bool reachable, bool installed)
     {
         if (ollamaButton == null || ollamaStatus == null) return;
         bool owned = false;
         try { owned = ollamaProcess != null && !ollamaProcess.HasExited; }
         catch { ollamaProcess = null; }
+
+        if (!owned && reachable)
+        {
+            Process adopted = FindEmbeddedOllamaProcess();
+            if (adopted != null)
+            {
+                ollamaProcess = adopted;
+                try
+                {
+                    adopted.EnableRaisingEvents = true;
+                    adopted.Exited += (s, e) => {
+                        try { BeginInvoke((Action)(() => {
+                            if (object.ReferenceEquals(ollamaProcess, adopted)) ollamaProcess = null;
+                            QueueOllamaRefresh();
+                        })); } catch { }
+                    };
+                }
+                catch { }
+                owned = true;
+            }
+        }
 
         // Short, sidebar-width-safe status strings — the section header already says "OLLAMA".
         // The status card is the single source of truth; the Start/Stop button only shows
@@ -759,8 +800,35 @@ class Hydra : Form
         try { if (ollamaTimer != null) ollamaTimer.Stop(); } catch { }
         try { if (evWatcher != null) evWatcher.EnableRaisingEvents = false; } catch { }
         StopOwnedOllama();
+        KillEmbeddedOllamaStragglers();
         foreach (var s in sessions.ToArray()) KillSession(s);
         try { if (tray != null) { tray.Visible = false; tray.Dispose(); } } catch { }
+    }
+
+    // Belt and braces on exit: no ollama.exe from Hydra's own runtime dir may outlive
+    // the app — Ollama runs strictly as part of Hydra. Foreign installs untouched.
+    void KillEmbeddedOllamaStragglers()
+    {
+        try
+        {
+            foreach (var p in Process.GetProcessesByName("ollama"))
+            {
+                string path = null;
+                try { path = p.MainModule != null ? p.MainModule.FileName : null; } catch { }
+                if (path != null && IsUnder(path, OllamaDir))
+                {
+                    try
+                    {
+                        var kill = new ProcessStartInfo("taskkill", "/PID " + p.Id + " /T /F")
+                            { UseShellExecute = false, CreateNoWindow = true };
+                        Process.Start(kill);
+                    }
+                    catch { }
+                }
+                try { p.Dispose(); } catch { }
+            }
+        }
+        catch { }
     }
 
     // ---------- small helpers ----------
@@ -4419,6 +4487,9 @@ try {
         public Color Color = Color.Gray;
         public Process Proc;
         public IntPtr Hwnd = IntPtr.Zero;
+        // Hermes has no lifecycle hooks, so its live state is inferred from CPU activity.
+        public double HermesCpuMs = -1;
+        public DateTime HermesActiveAt = DateTime.MinValue;
         public bool Embedded;
         public bool Popped;
         public bool FocusPending;
@@ -4897,9 +4968,10 @@ try {
                 }
                 StartOwnedOllama(executable);
             }
+            MirrorSkillsToHermes();   // background copy — Hermes picks the skills up automatically
             cmd = "hermes";
             if (profile.Length > 0) cmd += " -p " + CmdQ(profile);
-            cmd += " --tui";
+            cmd += " --tui --yolo";   // full access: skip Hermes' per-command approval prompts
             if (provider != "auto") cmd += " --provider " + CmdQ(provider);
             if (model.Length > 0 && model != "Default") cmd += " --model " + CmdQ(model);
             if (continueChk.Checked) cmd += " --continue";
@@ -5300,6 +5372,69 @@ try {
         }
         if (changed) RefreshTermList();
         ResizeEmbedded();
+        if (++hermesPollTick >= 5) { hermesPollTick = 0; PollHermesActivity(); }   // every ~2s
+    }
+
+    int hermesPollTick;
+
+    // Claude and Codex report their turn state through real lifecycle hooks; Hermes has
+    // none, so a Hermes tab would sit on "Ready" forever. Instead its live state is
+    // inferred from the CPU its console tree burns: thinking/streaming shows measurable
+    // activity, an idle prompt shows none.
+    void PollHermesActivity()
+    {
+        bool changed = false;
+        foreach (var s in sessions)
+        {
+            if (s.Agent != "Hermes" || s.Status == TermStopped || s.Proc == null) continue;
+            double total = 0;
+            try
+            {
+                if (s.Proc.HasExited) continue;   // TermTick's exit check owns the stopped state
+                foreach (uint pid in DescendantPids(s.Proc.Id))
+                    try { using (var p = Process.GetProcessById((int)pid)) total += p.TotalProcessorTime.TotalMilliseconds; } catch { }
+            }
+            catch { continue; }
+            if (s.HermesCpuMs >= 0 && total - s.HermesCpuMs > 100) s.HermesActiveAt = DateTime.UtcNow;
+            s.HermesCpuMs = total;
+            if (s.HermesActiveAt == DateTime.MinValue) continue;   // no activity signal yet — keep launch state
+            bool working = DateTime.UtcNow - s.HermesActiveAt < TimeSpan.FromSeconds(4);
+            string next = working ? TermWorking : TermReady;
+            if (next != s.Status)
+            {
+                s.Status = next;
+                s.Color = working ? Accent : Green;
+                changed = true;
+            }
+        }
+        if (changed) RefreshTermList();
+    }
+
+    // Mirror Hydra's shared skills into the active Hermes home so Hermes can use them
+    // automatically (Hermes reads SKILL.md folders from <home>/skills). Hermes-managed
+    // skills are never overwritten; the copy runs in the background and is idempotent.
+    void MirrorSkillsToHermes()
+    {
+        string home = HermesActiveHomeDir();
+        ThreadPool.QueueUserWorkItem(_ => {
+            try
+            {
+                string target = Path.Combine(home, "skills");
+                Directory.CreateDirectory(target);
+                foreach (var sourceDir in new[] { SkillsDir, CodexSkillsDir })
+                {
+                    if (!Directory.Exists(sourceDir)) continue;
+                    foreach (var src in Directory.GetDirectories(sourceDir))
+                    {
+                        if (!File.Exists(Path.Combine(src, "SKILL.md"))) continue;
+                        string dst = Path.Combine(target, Path.GetFileName(src));
+                        if (Directory.Exists(dst)) continue;
+                        CopyDir(src, dst);
+                    }
+                }
+            }
+            catch { }
+        });
     }
 
     void OnEventFile(string path)

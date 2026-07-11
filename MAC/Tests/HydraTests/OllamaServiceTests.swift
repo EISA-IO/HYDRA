@@ -23,12 +23,32 @@ struct OllamaServiceTests {
         let service = OllamaService(
             executable: { "/usr/local/bin/ollama" },
             serverReachable: { true },
-            launch: { _, _ in Issue.record("External server must not be relaunched"); return FakeOllamaProcess() }
+            launch: { _, _ in Issue.record("External server must not be relaunched"); return FakeOllamaProcess() },
+            adopt: { nil }
         )
 
         service.refresh()
 
         #expect(service.state == .runningExternal)
+    }
+
+    @Test("re-adopts Hydra's own runtime left over from a previous session")
+    func refreshAdoptsSurvivingEmbeddedRuntime() {
+        let leftover = FakeOllamaProcess()
+        let service = OllamaService(
+            executable: { "/usr/local/bin/ollama" },
+            serverReachable: { true },
+            launch: { _, _ in Issue.record("Adopted server must not be relaunched"); return FakeOllamaProcess() },
+            adopt: { leftover }
+        )
+
+        service.refresh()
+        #expect(service.state == .runningOwned)
+        #expect(service.buttonTitle == "Stop Ollama")
+
+        service.stop()
+        #expect(leftover.wasTerminated)
+        #expect(service.state == .stopped)
     }
 
     @Test("starts ollama serve and marks reachable process as Hydra-owned")
@@ -97,7 +117,8 @@ struct OllamaServiceTests {
         let service = OllamaService(
             executable: { "/usr/local/bin/ollama" },
             serverReachable: { true },
-            launch: { _, _ in Issue.record("External server must not be launched"); return FakeOllamaProcess() }
+            launch: { _, _ in Issue.record("External server must not be launched"); return FakeOllamaProcess() },
+            adopt: { nil }
         )
         service.refresh()
 

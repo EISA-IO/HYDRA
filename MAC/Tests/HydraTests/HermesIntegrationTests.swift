@@ -46,6 +46,7 @@ func hermesLaunchCommand() {
     )
     #expect(command != nil)
     #expect(command!.contains("hermes -p 'client-a' --tui"))
+    #expect(command!.contains("--yolo"))   // every Hermes terminal launches with full access
     #expect(command!.contains("--provider 'openrouter'"))
     #expect(command!.contains("--model 'anthropic/claude-sonnet-4.6'"))
     #expect(command!.contains("--continue --verbose 'review this repo'"))

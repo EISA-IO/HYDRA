@@ -48,6 +48,18 @@ private final class NativeOllamaProcess: OllamaProcess {
     }
 }
 
+// A reachable server Hydra didn't start is usually Hydra's own embedded runtime left
+// over from a previous session (or booted inside an embedded terminal). Wrapping its
+// pid lets Stop and app-shutdown own it again; a genuinely foreign install (PATH,
+// Ollama.app) is never adopted or killed.
+private final class AdoptedOllamaProcess: OllamaProcess {
+    private let pid: pid_t
+    init(pid: pid_t) { self.pid = pid }
+    var isRunning: Bool { kill(pid, 0) == 0 }
+    func setTerminationHandler(_ handler: @escaping () -> Void) {}   // refresh() polls instead
+    func terminate() { kill(pid, SIGTERM) }
+}
+
 final class OllamaService: ObservableObject {
     @Published private(set) var state: OllamaState = .stopped
     @Published private(set) var errorMessage: String?
@@ -55,6 +67,7 @@ final class OllamaService: ObservableObject {
     private let executable: () -> String?
     private let serverReachable: () -> Bool
     private let launch: (String, [String]) throws -> OllamaProcess
+    private let adopt: () -> OllamaProcess?
     private var process: OllamaProcess?
 
     init(
@@ -62,11 +75,31 @@ final class OllamaService: ObservableObject {
         serverReachable: @escaping () -> Bool = { AppState.portOpen(OllamaPort) },
         launch: @escaping (String, [String]) throws -> OllamaProcess = {
             try NativeOllamaProcess(executable: $0, arguments: $1)
+        },
+        adopt: @escaping () -> OllamaProcess? = {
+            OllamaService.embeddedServerPid().map { AdoptedOllamaProcess(pid: $0) }
         }
     ) {
         self.executable = executable
         self.serverReachable = serverReachable
         self.launch = launch
+        self.adopt = adopt
+    }
+
+    /// Pid of a running `ollama` that belongs to Hydra's own runtime (managed dir or
+    /// app bundle) — the only kind of "external" server Hydra is allowed to reclaim.
+    static func embeddedServerPid() -> pid_t? {
+        var markers = [Paths.ollamaDir + "/ollama"]
+        if let resources = Bundle.main.resourcePath {
+            markers.append(resources + "/runtime/ollama/ollama")
+        }
+        for marker in markers {
+            let result = Shell.shared.run("pgrep", ["-f", marker], timeout: 5)
+            for line in result.out.split(separator: "\n") {
+                if let pid = Int32(line.trimmingCharacters(in: .whitespaces)), pid > 0 { return pid_t(pid) }
+            }
+        }
+        return nil
     }
 
     static func installedExecutable() -> String? {
@@ -165,7 +198,14 @@ final class OllamaService: ObservableObject {
     func refresh() {
         if serverReachable() {
             errorMessage = nil
-            state = process?.isRunning == true ? .runningOwned : .runningExternal
+            if process?.isRunning == true {
+                state = .runningOwned
+            } else if let reclaimed = adopt() {
+                process = reclaimed          // Hydra's own runtime — own it again
+                state = .runningOwned
+            } else {
+                state = .runningExternal
+            }
             return
         }
 
@@ -227,6 +267,9 @@ final class OllamaService: ObservableObject {
 
     func shutdown() {
         stop()
+        // Belt and braces: no process from Hydra's own runtime dir may outlive the
+        // app — Ollama runs strictly as part of Hydra. Foreign installs untouched.
+        _ = Shell.shared.run("pkill", ["-f", Paths.ollamaDir + "/"], timeout: 5)
     }
 
     private func processDidTerminate(_ terminated: OllamaProcess) {
