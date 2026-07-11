@@ -6081,7 +6081,11 @@ try {
                     try { using (var p = Process.GetProcessById((int)pid)) total += p.TotalProcessorTime.TotalMilliseconds; } catch { }
             }
             catch { continue; }
-            bool ownActivity = s.HermesCpuMs >= 0 && total - s.HermesCpuMs > 40;
+            // Threshold must sit ABOVE the Hermes TUI's idle animation (the node
+            // frontend repaints its spinner even when the turn is over — a few percent
+            // of one core) and BELOW real work (streaming repaints / tool execution).
+            // 250ms per 2s poll ≈ 12% of one core.
+            bool ownActivity = s.HermesCpuMs >= 0 && total - s.HermesCpuMs > 250;
             s.HermesCpuMs = total;
             if (ownActivity || (s.UsesLocalOllama && ollamaBusy)) s.HermesActiveAt = DateTime.UtcNow;
             if (s.HermesActiveAt == DateTime.MinValue) continue;   // no activity signal yet — keep launch state

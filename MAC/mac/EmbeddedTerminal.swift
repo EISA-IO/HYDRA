@@ -2,12 +2,12 @@ import SwiftUI
 import AppKit
 import SwiftTerm
 
-// Terminal view that timestamps PTY output, so hook-less agents (Hermes) can get a
-// live Working/Ready status inferred from output activity.
+// Terminal view that counts PTY output bytes, so hook-less agents (Hermes) can get a
+// live Working/Ready status inferred from output volume.
 final class ActivityTerminalView: LocalProcessTerminalView {
-    var onOutput: (() -> Void)?
+    var onOutput: ((Int) -> Void)?
     override func dataReceived(slice: ArraySlice<UInt8>) {
-        onOutput?()
+        onOutput?(slice.count)
         super.dataReceived(slice: slice)
     }
 }
@@ -27,8 +27,12 @@ final class TermTab: ObservableObject, Identifiable {
     let cleanupPaths: [String]
     let view: LocalProcessTerminalView
     let startedAt = Date()
-    /// Last PTY output timestamp — drives the activity heuristic for hook-less agents.
-    var lastOutputAt: Date?
+    /// PTY output bytes since the last activity poll — drives the Working/Ready
+    /// heuristic for hook-less agents. Volume, not timing: the Hermes TUI's idle
+    /// spinner keeps emitting a trickle even when the turn is over.
+    var recentOutputBytes = 0
+    /// Keep showing Working until this instant once real output volume was seen.
+    var workingUntil = Date.distantPast
     // Strong owner for the process delegate (SwiftTerm holds it weakly, so the tab must retain it).
     var coordinator: AnyObject?
 
@@ -62,8 +66,10 @@ final class TerminalManager: ObservableObject {
 
     init() {
         // Claude/Codex report turn state through real lifecycle hooks; Hermes has none,
-        // so its tabs would sit on "Ready" forever. Infer Working/Ready from PTY output:
-        // a thinking/streaming TUI keeps emitting, an idle prompt goes quiet.
+        // so its tabs would sit on "Ready" forever. Infer Working/Ready from PTY output
+        // VOLUME: streaming/tool turns repaint the whole TUI (kilobytes per second),
+        // while the idle spinner animation only emits a small trickle — timing alone
+        // would leave the tab stuck on Working forever.
         activityTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             self?.pollHookLessActivity()
         }
@@ -71,8 +77,11 @@ final class TerminalManager: ObservableObject {
 
     private func pollHookLessActivity() {
         for t in tabs where t.agent == "Hermes" && t.status != .stoppedOrTokenLimit {
-            guard let last = t.lastOutputAt else { continue }   // no output yet — keep launch state
-            let next: TerminalStatus = Date().timeIntervalSince(last) < 2.5 ? .working : .ready
+            let bytes = t.recentOutputBytes
+            t.recentOutputBytes = 0
+            if bytes > 4096 { t.workingUntil = Date().addingTimeInterval(4) }
+            guard t.workingUntil != Date.distantPast || bytes > 0 else { continue }   // nothing yet — keep launch state
+            let next: TerminalStatus = Date() < t.workingUntil ? .working : .ready
             if t.status != next { t.status = next }
         }
     }
@@ -97,7 +106,7 @@ final class TerminalManager: ObservableObject {
         t.coordinator = coord                 // retain it — processDelegate below is weak
         t.view.processDelegate = coord
         if agent == "Hermes" {
-            (t.view as? ActivityTerminalView)?.onOutput = { [weak t] in t?.lastOutputAt = Date() }
+            (t.view as? ActivityTerminalView)?.onOutput = { [weak t] bytes in t?.recentOutputBytes += bytes }
         }
         tabs.append(t)
         selectedId = id
