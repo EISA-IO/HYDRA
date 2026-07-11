@@ -3567,16 +3567,9 @@ class Hydra : Form
         hermesActions.Controls.AddRange(new Control[] { hSetup, hInstall, hCheck, hUpdate, hDoctor });
         row(hermesActions, 38);
 
-        // ---- 2 · skills hub ----
+        // ---- 2 · skills hub — deliberately minimal: visit, install, remove ----
         row(SectionCap("2  Skills hub"), 32);
-        row(RowCap("Hermes' own skills ecosystem (hermes skills). Browse the hub, install by ID or URL, inspect, remove — or open the folder to edit a skill by hand."), 22);
-        var hubActions = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0) };
-        var hubBrowse = GhostBtn("Browse hub in GUI"); hubBrowse.AutoSize = true; hubBrowse.Click += (s, e) => OpenHermesDashboard();
-        var hubConfig = GhostBtn("Enable / disable in GUI"); hubConfig.AutoSize = true; hubConfig.Click += (s, e) => OpenHermesDashboard();
-        var hubUpdate = GhostBtn("Update all skills"); hubUpdate.AutoSize = true; hubUpdate.Click += (s, e) => NewHermesUtilityTerminal("skills update", "Update Hermes skills");
-        var hubFolder = GhostBtn("Open skills folder"); hubFolder.AutoSize = true; hubFolder.Click += (s, e) => OpenHermesSkillsFolder();
-        hubActions.Controls.AddRange(new Control[] { hubBrowse, hubConfig, hubUpdate, hubFolder });
-        row(hubActions, 38);
+        row(RowCap("Visit the hub to find a skill, paste its ID (or SKILL.md URL) here, then install or remove it."), 22);
         var installGrid = new TableLayoutPanel { ColumnCount = 2, RowCount = 2, Dock = DockStyle.Fill, BackColor = Color.Transparent, Margin = new Padding(0) };
         installGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52f)); installGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48f));
         installGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20f)); installGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
@@ -3584,10 +3577,11 @@ class Hydra : Form
         hermesSkillIdBox = new TextBox { Dock = DockStyle.Fill, BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 2, 8, 2) };
         installGrid.Controls.Add(hermesSkillIdBox, 0, 1);
         var skillButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = false, Margin = new Padding(0) };
-        var skInstall = GhostBtn("Install"); skInstall.AutoSize = true; skInstall.Click += (s, e) => RunHermesSkillCommand("install", "Install Hermes skill");
-        var skInspect = GhostBtn("Inspect"); skInspect.AutoSize = true; skInspect.Click += (s, e) => RunHermesSkillCommand("inspect", "Inspect Hermes skill");
-        var skRemove = GhostBtn("Uninstall"); skRemove.AutoSize = true; skRemove.Click += (s, e) => RunHermesSkillCommand("uninstall", "Uninstall Hermes skill");
-        skillButtons.Controls.AddRange(new Control[] { skInstall, skInspect, skRemove });
+        var skVisit = GhostBtn("Visit skill hub"); skVisit.AutoSize = true;
+        skVisit.Click += (s, e) => { try { Process.Start("https://hermes-agent.nousresearch.com/docs/skills/"); } catch { } };
+        var skInstall = GhostBtn("Install skill"); skInstall.AutoSize = true; skInstall.Click += (s, e) => RunHermesSkillCommand("install", "Install Hermes skill");
+        var skRemove = GhostBtn("Remove skill"); skRemove.AutoSize = true; skRemove.Click += (s, e) => RunHermesSkillCommand("uninstall", "Remove Hermes skill");
+        skillButtons.Controls.AddRange(new Control[] { skVisit, skInstall, skRemove });
         installGrid.Controls.Add(skillButtons, 1, 1);
         row(installGrid, 58);
 

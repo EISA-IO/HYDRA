@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // ============================================================================
 // Hermes tab — one big dashboard entry, LLM mapping, and the skills hub.
@@ -93,20 +94,16 @@ struct HermesView: View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
                 SectionCap(text: "2  Skills hub")
-                Text("Hermes' own skills ecosystem (hermes skills). Browse the hub, install by ID or URL, inspect, remove — or open the folder to edit a skill by hand.")
+                Text("Visit the hub to find a skill, paste its ID (or SKILL.md URL) here, then install or remove it.")
                     .font(.system(size: 11)).foregroundStyle(Theme.textFaint).fixedSize(horizontal: false, vertical: true)
-                FlowButtons { [
-                    AnyView(Button("Browse hub in GUI") { app.openHermesDashboard() }.accentButton()),
-                    AnyView(Button("Enable / disable in GUI") { app.openHermesDashboard() }.ghostButton()),
-                    AnyView(Button("Update all skills") { app.runHermesMemory("skills update", task: "Update Hermes skills") }.ghostButton()),
-                    AnyView(Button("Open skills folder") { app.openHermesSkillsFolder() }.ghostButton())
-                ] }
                 FieldLabel(text: "Skill ID (e.g. official/security/1password) or a direct SKILL.md URL")
                 HStack(spacing: 8) {
                     DarkField(placeholder: "official/security/1password", text: $skillRef, mono: true)
-                    Button("Install") { runSkill("install", "Install Hermes skill") }.accentButton()
-                    Button("Inspect") { runSkill("inspect", "Inspect Hermes skill") }.ghostButton()
-                    Button("Uninstall") { runSkill("uninstall", "Uninstall Hermes skill") }.ghostButton()
+                    Button("Visit skill hub") {
+                        NSWorkspace.shared.open(URL(string: "https://hermes-agent.nousresearch.com/docs/skills/")!)
+                    }.ghostButton()
+                    Button("Install skill") { runSkill("install", "Install Hermes skill") }.accentButton()
+                    Button("Remove skill") { runSkill("uninstall", "Remove Hermes skill") }.ghostButton()
                 }
             }
         }
