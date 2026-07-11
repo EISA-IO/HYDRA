@@ -154,7 +154,8 @@ extension AppState {
             alert("Hermes not installed", "Install or repair Hermes first.")
             return
         }
-        runInWorkspace(hermesProfileCommand + " " + arguments, cwd: folder,
+        let prefix = (["hermes"] + hermesProfileArguments.map { TerminalLauncher.shellQuote($0) }).joined(separator: " ")
+        runInWorkspace(prefix + " " + arguments, cwd: folder,
                        note: task, agentLabel: "Hermes", modelLabel: "Hermes CLI", taskLabel: task)
     }
 
