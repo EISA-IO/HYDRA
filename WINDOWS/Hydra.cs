@@ -75,9 +75,9 @@ class Hydra : Form
     static readonly object[] ClaudeModelChoices = { "Default", "claude-fable-5", "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5" };
     static readonly object[] ChatGptModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark" };
     // "Hermes default" (auto) can land on any provider, so offer a cross-section of the catalogs.
-    static readonly object[] HermesModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.5", "claude-sonnet-5", "claude-opus-4-8", "qwen3-coder:30b", "gpt-oss:20b" };
+    static readonly object[] HermesModelChoices = { "Default", "gpt-5.6-sol", "gpt-5.5", "claude-sonnet-5", "claude-opus-4-8", "ornith:9b" };
     // Local Ollama tags: the recommended seeds plus common local coding models.
-    static readonly object[] HermesOllamaModelChoices = { "ornith:9b", "ornith:35b", "qwen3-coder:30b", "gpt-oss:20b" };
+    static readonly object[] HermesOllamaModelChoices = { "ornith:9b", "ornith:35b" };
     // OpenRouter: the curated allow-list of vendor-prefixed IDs Hydra supports.
     static readonly object[] HermesOpenRouterModelChoices = { "moonshotai/kimi-k2.7-code", "z-ai/glm-5.2", "deepseek/deepseek-v4-flash" };
     static readonly object[] HermesProviderChoices = { "Hermes default", "ChatGPT / Codex OAuth", "Claude / Anthropic", "Ollama (local)", "OpenRouter" };
