@@ -115,21 +115,22 @@ enum HermesIntegration {
         return command
     }
 
-    /// Mirror Hydra's shared skills into the active Hermes home so Hermes can use them
-    /// automatically (Hermes reads SKILL.md folders from <home>/skills). Hermes-managed
-    /// skills are never overwritten; the copy is idempotent and runs off the main thread.
-    static func mirrorSharedSkills(profile: String) {
+    /// Hermes runs on its own skills ecosystem — Hydra never injects the shared
+    /// Claude/Codex skills into it (an earlier mirror contaminated Hermes runs).
+    /// Each launch removes exactly those mirrored copies from the active Hermes home,
+    /// matched by name against the shared skills dirs; Hermes-native skills stay.
+    static func removeMirroredSkills(profile: String) {
         let clean = profile.trimmingCharacters(in: .whitespacesAndNewlines)
         let home = Paths.hermesProfileHome(clean)
         DispatchQueue.global(qos: .utility).async {
             let target = home + "/skills"
-            try? FileManager.default.createDirectory(atPath: target, withIntermediateDirectories: true)
+            guard FS.isDir(target) else { return }
             for sourceDir in [Paths.skillsDir, Paths.codexSkillsDir] {
                 guard let names = try? FileManager.default.contentsOfDirectory(atPath: sourceDir) else { continue }
                 for name in names {
-                    let src = sourceDir + "/" + name
-                    guard FS.exists(src + "/SKILL.md"), !FS.exists(target + "/" + name) else { continue }
-                    try? FS.copyDir(src, target + "/" + name)
+                    guard FS.exists(sourceDir + "/" + name + "/SKILL.md"),
+                          FS.exists(target + "/" + name + "/SKILL.md") else { continue }
+                    try? FileManager.default.removeItem(atPath: target + "/" + name)
                 }
             }
         }

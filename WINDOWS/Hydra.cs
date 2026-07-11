@@ -2015,6 +2015,12 @@ class Hydra : Form
             mmi.ptMaxSize.y = scr.WorkingArea.Height;
             mmi.ptMinTrackSize.x = MinimumSize.Width;
             mmi.ptMinTrackSize.y = MinimumSize.Height;
+            if (screenshotMode)
+            {
+                // Allow the CI reference size to exceed a small runner screen.
+                mmi.ptMaxTrackSize.x = Math.Max(mmi.ptMaxTrackSize.x, 1100);
+                mmi.ptMaxTrackSize.y = Math.Max(mmi.ptMaxTrackSize.y, 800);
+            }
             Marshal.StructureToPtr(mmi, m.LParam, true);
             return;
         }
@@ -2269,6 +2275,14 @@ class Hydra : Form
         var wa = Screen.PrimaryScreen.WorkingArea;
         int startW = Math.Min(1040, wa.Width - 40);
         int startH = Math.Min(720, wa.Height - 40);
+        if (screenshotMode)
+        {
+            // CI render contract: capture at the exact 1040×720 reference size even on a
+            // small runner screen (PrintWindow paints the full window off-screen too), so
+            // Test-UIRender's pixel coordinates mean the same thing on every machine.
+            startW = 1040; startH = 720;
+            MaximumSize = new Size(2000, 2000);   // lift WinForms' work-area size clamp
+        }
         MinimumSize = new Size(Math.Min(940, startW), Math.Min(640, startH));
         ClientSize = new Size(startW, startH);
         StartPosition = FormStartPosition.CenterScreen;
@@ -4968,7 +4982,7 @@ try {
                 }
                 StartOwnedOllama(executable);
             }
-            MirrorSkillsToHermes();   // background copy — Hermes picks the skills up automatically
+            RemoveMirroredSkillsFromHermes();   // Hermes runs on its own skills ecosystem
             cmd = "hermes";
             if (profile.Length > 0) cmd += " -p " + CmdQ(profile);
             cmd += " --tui --yolo";   // full access: skip Hermes' per-command approval prompts
@@ -5410,17 +5424,18 @@ try {
         if (changed) RefreshTermList();
     }
 
-    // Mirror Hydra's shared skills into the active Hermes home so Hermes can use them
-    // automatically (Hermes reads SKILL.md folders from <home>/skills). Hermes-managed
-    // skills are never overwritten; the copy runs in the background and is idempotent.
-    void MirrorSkillsToHermes()
+    // Hermes runs on its own skills ecosystem — Hydra never injects the shared
+    // Claude/Codex skills into it (an earlier mirror contaminated Hermes runs).
+    // Each launch removes exactly those mirrored copies from the active Hermes home,
+    // matched by name against the shared skills dirs; Hermes-native skills stay.
+    void RemoveMirroredSkillsFromHermes()
     {
         string home = HermesActiveHomeDir();
         ThreadPool.QueueUserWorkItem(_ => {
             try
             {
                 string target = Path.Combine(home, "skills");
-                Directory.CreateDirectory(target);
+                if (!Directory.Exists(target)) return;
                 foreach (var sourceDir in new[] { SkillsDir, CodexSkillsDir })
                 {
                     if (!Directory.Exists(sourceDir)) continue;
@@ -5428,8 +5443,8 @@ try {
                     {
                         if (!File.Exists(Path.Combine(src, "SKILL.md"))) continue;
                         string dst = Path.Combine(target, Path.GetFileName(src));
-                        if (Directory.Exists(dst)) continue;
-                        CopyDir(src, dst);
+                        if (Directory.Exists(dst) && File.Exists(Path.Combine(dst, "SKILL.md")))
+                            try { Directory.Delete(dst, true); } catch { }
                     }
                 }
             }
