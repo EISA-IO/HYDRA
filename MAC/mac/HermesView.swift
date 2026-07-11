@@ -65,7 +65,7 @@ struct HermesView: View {
                                 get: { app.defaultModel(for: "Hermes") },
                                 set: { app.setDefaultModel($0, for: "Hermes") }), mono: true)
                             Menu("Suggestions") {
-                                ForEach(HermesIntegration.modelSuggestions(forProviderID: app.hermesProvider), id: \.self) { model in
+                                ForEach(hermesModelSuggestions(), id: \.self) { model in
                                     Button(model) { app.setDefaultModel(model, for: "Hermes") }
                                 }
                             }.menuStyle(.borderlessButton)
@@ -107,6 +107,17 @@ struct HermesView: View {
                 }
             }
         }
+    }
+
+    // Ollama provider: don't be strict — suggest whatever is actually installed
+    // (internal "-hydra" variants hidden); the curated seeds are only the fallback
+    // for a machine with no local models yet. The field itself stays free-text.
+    private func hermesModelSuggestions() -> [String] {
+        if HermesIntegration.normalizedProviderID(app.hermesProvider) == "custom" {
+            let installed = AppState.installedOllamaModels().filter { !$0.lowercased().hasSuffix("-hydra") }
+            if !installed.isEmpty { return installed }
+        }
+        return HermesIntegration.modelSuggestions(forProviderID: app.hermesProvider)
     }
 
     // Skill actions run in a visible Workspace terminal so progress stays on screen.

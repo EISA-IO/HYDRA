@@ -1681,10 +1681,34 @@ class Hydra : Form
         if (hermesDefaultModelCombo == null) return;
         string current = loadingSettings ? StoredModelForAgent("Hermes") : NormalizeModelForAgent(hermesDefaultModelCombo.Text, "Hermes");
         refreshingModelChoices = true;
-        FillModelControl(hermesDefaultModelCombo, HermesModelsForProvider(hermesProvider), current, hermesProvider != "custom");
+        // Always allow typing — suggestions are a convenience, never a cage.
+        FillModelControl(hermesDefaultModelCombo, HermesModelsForProvider(hermesProvider), current, true);
         refreshingModelChoices = false;
         if (!loadingSettings) RememberVisibleModelForAgent("Hermes");
         UpdateHermesMappingSummary();
+        // Ollama provider: don't be strict — offer whatever is actually installed.
+        // Fetched off the UI thread (HTTP with a short timeout, or a manifest scan);
+        // the curated seeds above stay as the fallback when nothing is installed yet.
+        if (hermesProvider == "custom")
+        {
+            ThreadPool.QueueUserWorkItem(_ => {
+                var installed = new List<object>();
+                try
+                {
+                    foreach (var tag in InstalledOllamaModels())
+                        if (!tag.EndsWith("-hydra", StringComparison.OrdinalIgnoreCase)) installed.Add(tag);
+                }
+                catch { }
+                if (installed.Count == 0) return;
+                try { BeginInvoke((Action)(() => {
+                    if (hermesDefaultModelCombo == null || hermesProvider != "custom") return;
+                    string keep = hermesDefaultModelCombo.Text;
+                    refreshingModelChoices = true;
+                    FillModelControl(hermesDefaultModelCombo, installed.ToArray(), keep, true);
+                    refreshingModelChoices = false;
+                })); } catch { }
+            });
+        }
     }
     void UpdateHermesMappingSummary()
     {
