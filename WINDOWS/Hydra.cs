@@ -4609,12 +4609,15 @@ try {
         {
             if (Directory.Exists(manifests))
                 foreach (var registry in Directory.GetDirectories(manifests))         // registry.ollama.ai
-                foreach (var ns in Directory.GetDirectories(registry))                // library
+                foreach (var ns in Directory.GetDirectories(registry))                // library / rafw007 / …
                 foreach (var model in Directory.GetDirectories(ns))                   // llama3.2
                 foreach (var tagFile in Directory.GetFiles(model))                    // 1b / latest
                 {
-                    string tag = Path.GetFileName(tagFile);
-                    string name = Path.GetFileName(model) + (tag == "latest" ? ":latest" : ":" + tag);
+                    // Community models keep their namespace ("rafw007/model:tag") — dropping
+                    // it produces names Ollama 404s on. Only the default "library" is implicit.
+                    string nsName = Path.GetFileName(ns);
+                    string prefix = nsName == "library" ? "" : nsName + "/";
+                    string name = prefix + Path.GetFileName(model) + ":" + Path.GetFileName(tagFile);
                     if (!list.Contains(name)) list.Add(name);
                 }
         }

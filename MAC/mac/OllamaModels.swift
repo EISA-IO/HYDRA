@@ -37,11 +37,15 @@ extension AppState {
         let roots = [Paths.ollamaModelsDir + "/manifests", Paths.home + "/.ollama/models/manifests"]
         for manifests in roots where FS.isDir(manifests) {
             for registry in FS.dirs(manifests) {                    // registry.ollama.ai
-                for ns in FS.dirs(registry) {                       // library
+                for ns in FS.dirs(registry) {                       // library / rafw007 / …
+                    // Community models keep their namespace ("rafw007/model:tag") —
+                    // dropping it produces names Ollama 404s on. Only "library" is implicit.
+                    let nsName = FS.base(ns)
+                    let prefix = nsName == "library" ? "" : nsName + "/"
                     for model in FS.dirs(ns) {                      // llama3.2
                         let files = (try? FileManager.default.contentsOfDirectory(atPath: model)) ?? []
                         for tag in files {
-                            let name = FS.base(model) + ":" + tag
+                            let name = prefix + FS.base(model) + ":" + tag
                             if !names.contains(name) { names.append(name) }
                         }
                     }
