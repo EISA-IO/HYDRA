@@ -1,0 +1,55 @@
+name: Self-contained release builds
+
+on:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build single-file offline Windows EXE
+        shell: pwsh
+        run: .\WINDOWS\Build-SelfContained.ps1 -Output .\dist\Hydra-Windows-x64-SelfContained.exe
+      - name: Offline first-launch smoke test
+        shell: pwsh
+        run: |
+          $state = Join-Path $env:RUNNER_TEMP "hydra-offline-state"
+          $env:HYDRA_STATE_DIR = $state
+          $env:PATH = "$env:WINDIR\System32;$env:WINDIR"
+          .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\dist\Hydra-Windows-x64-SelfContained.exe) -Tab 0 -DemoLaunch -TimeoutSeconds 300 -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-offline.png")
+          & (Join-Path $state "runtime\bin\claude.cmd") --version
+          & (Join-Path $state "runtime\bin\codex.cmd") --version
+          & (Join-Path $state "runtime\bin\node.exe") --version
+          & (Join-Path $state "runtime\ollama\ollama.exe") --version
+          & (Join-Path $state "runtime\tools\win-x64\rtk.exe") --version
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Hydra-Windows-x64-SelfContained
+          path: dist/Hydra-Windows-x64-SelfContained.exe
+          compression-level: 0
+
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build architecture-matched offline Mac app
+        working-directory: MAC
+        run: ./build-mac.sh
+      - name: Verify bundled runtime
+        working-directory: MAC
+        run: |
+          RES="Hydra.app/Contents/Resources"
+          "$RES/runtime/bin/claude" --version
+          "$RES/runtime/bin/codex" --version
+          "$RES/runtime/bin/node" --version
+          "$RES/runtime/ollama/ollama" --version
+          find "$RES/tools" -type f -name rtk -perm -111 -exec {} --version \;
+          ditto -c -k --keepParent Hydra.app "../Hydra-macOS-$(uname -m)-SelfContained.zip"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Hydra-macOS-SelfContained
+          path: Hydra-macOS-*-SelfContained.zip
+          compression-level: 0
