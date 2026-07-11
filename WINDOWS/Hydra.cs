@@ -5565,14 +5565,14 @@ try {
             hermesSelectedProvider = provider;
             if (provider == "custom")
             {
-                // Hermes' system prompt (tool + skill instructions) overflows Ollama's
-                // 8192-token default; truncation silently drops the act-now rules, so
-                // small models narrate a plan and then stall. Guarantee a 16k window.
-                bool needCtxBump = OllamaCtx() < 16384;
+                // Hermes' system prompt (29 tools + every enabled skill) overflows small
+                // Ollama windows; truncation silently drops earlier instructions and the
+                // model stalls, repeats lines, or mangles long files. Guarantee 32k.
+                bool needCtxBump = OllamaCtx() < 32768;
                 if (needCtxBump)
                 {
-                    SaveOllamaCtx(16384);
-                    SetupLog("Ollama context raised to 16384 for Hermes — its system prompt overflows smaller windows and the model stalls after planning.");
+                    SaveOllamaCtx(32768);
+                    SetupLog("Ollama context raised to 32768 for Hermes — its tools+skills system prompt overflows smaller windows, which shows up as stalls, repeated lines, and mangled output.");
                 }
                 bool ownedRunning = false;
                 try { ownedRunning = ollamaProcess != null && !ollamaProcess.HasExited; } catch { }

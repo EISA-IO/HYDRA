@@ -163,11 +163,11 @@ extension AppState {
                     alert("Ollama not available", "Install the built-in Ollama runtime from Settings, then launch this Hermes backend again.")
                     return
                 }
-                // Hermes' system prompt (tool + skill instructions) overflows Ollama's
-                // 8192-token default; truncation silently drops the act-now rules, so
-                // small models narrate a plan and then stall. Guarantee a 16k window.
-                let needCtxBump = OllamaService.contextLength() < 16384
-                if needCtxBump { OllamaService.saveContextLength(16384) }
+                // Hermes' system prompt (29 tools + every enabled skill) overflows small
+                // Ollama windows; truncation silently drops earlier instructions and the
+                // model stalls, repeats lines, or mangles long files. Guarantee 32k.
+                let needCtxBump = OllamaService.contextLength() < 32768
+                if needCtxBump { OllamaService.saveContextLength(32768) }
                 if needCtxBump, ollama.state == .runningOwned || ollama.state == .starting {
                     // Restart the owned server so the larger window applies to THIS
                     // session: stop it, wait for the port to free, then re-enter launch —
