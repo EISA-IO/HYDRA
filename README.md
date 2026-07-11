@@ -1,6 +1,17 @@
 # Hydra  ·  by Ahmed Al-Eissa
 
-A launcher + toolchain manager for Claude Code, Codex CLI, and optional local Ollama, with an embedded multi-terminal
+[![Windows](https://img.shields.io/badge/Windows-hydra__v1.0.exe-0078D6?logo=windows&logoColor=white)](https://github.com/EISA-IO/HYDRA/releases/latest/download/hydra_v1.0.exe)
+[![macOS](https://img.shields.io/badge/macOS-hydra__v1.0--mac.zip-000000?logo=apple&logoColor=white)](https://github.com/EISA-IO/HYDRA/releases/latest/download/hydra_v1.0-mac.zip)
+[![Release](https://img.shields.io/github/v/release/EISA-IO/HYDRA?color=D97757)](https://github.com/EISA-IO/HYDRA/releases/latest)
+
+## Download
+
+| Platform | Download | Run |
+|---|---|---|
+| **Windows 10/11** | [`hydra_v1.0.exe`](https://github.com/EISA-IO/HYDRA/releases/latest/download/hydra_v1.0.exe) | double-click — no installer |
+| **macOS 14+** | [`hydra_v1.0-mac.zip`](https://github.com/EISA-IO/HYDRA/releases/latest/download/hydra_v1.0-mac.zip) | unzip → right-click **Hydra.app** → Open |
+
+A launcher + toolchain manager for Claude Code, Codex CLI, and a natively built-in Ollama, with an embedded multi-terminal
 Workspace, a token-compression toolchain (RTK + Caveman + Headroom), Claude Video `/watch`,
 Addy Osmani's Agent Skills, and a bundled skills library,
 and a guided **Build a SaaS** lifecycle (Vision → Deploy → Subscriptions).

@@ -590,6 +590,7 @@ class Hydra : Form
         {
             var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title Ollama " + id + " & " + command)
                 { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = HomeDir };
+            ApplyCreds(psi);   // shared tokens/keys, same as every other embedded terminal
             sess.Proc = Process.Start(psi);
         }
         catch (Exception ex)
@@ -891,6 +892,67 @@ class Hydra : Form
         }
         catch { }
     }
+
+    // ---------- shared credentials (SaaS API keys) ----------
+    // Same store + format as the Mac app: ~/.claude-manager/credentials.env,
+    // key=value, NEVER committed anywhere, injected as environment variables into
+    // every terminal Hydra launches so gh / firebase / SDKs work in any project.
+    static readonly string CredFile = Path.Combine(StateDir, "credentials.env");
+
+    static Dictionary<string, string> LoadCreds()
+    {
+        var creds = new Dictionary<string, string>();
+        try
+        {
+            if (File.Exists(CredFile))
+                foreach (var raw in File.ReadAllLines(CredFile))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith("#")) continue;
+                    int eq = line.IndexOf('=');
+                    if (eq <= 0) continue;
+                    creds[line.Substring(0, eq).Trim()] = line.Substring(eq + 1);
+                }
+        }
+        catch { }
+        return creds;
+    }
+
+    static void SaveCreds(Dictionary<string, string> creds)
+    {
+        try
+        {
+            Directory.CreateDirectory(StateDir);
+            var lines = new List<string> {
+                "# Hydra — shared access tokens & API keys.",
+                "# Injected as env vars into every terminal the app launches. Do not commit."
+            };
+            foreach (var kv in creds)
+                if (!string.IsNullOrEmpty(kv.Value)) lines.Add(kv.Key + "=" + kv.Value);
+            File.WriteAllLines(CredFile, lines.ToArray());
+        }
+        catch { }
+    }
+
+    static void ApplyCreds(ProcessStartInfo psi)
+    {
+        foreach (var kv in LoadCreds())
+            if (!string.IsNullOrEmpty(kv.Value)) psi.EnvironmentVariables[kv.Key] = kv.Value;
+    }
+
+    // Every key the SaaS playbook needs — label, env key, hint (mirrors the Mac catalog).
+    static readonly string[,] SaasKeyCatalog = {
+        { "GitHub token",            "GITHUB_TOKEN",             "gh auth token / PAT (repo + workflow scopes) — pushes + Actions" },
+        { "Firebase CI token",       "FIREBASE_TOKEN",           "from `firebase login:ci` — hosting deploys" },
+        { "Firebase service account","FIREBASE_SERVICE_ACCOUNT", "base64 or raw JSON key — firebase-admin, CI deploys" },
+        { "Lemon Squeezy key",       "LEMONSQUEEZY_API_KEY",     "merchant-of-record subscriptions — Settings → API" },
+        { "Moyasar secret",          "MOYASAR_SECRET_KEY",       "sk_test_/sk_live_ — KSA payments incl. mada + STC Pay" },
+        { "Resend API key",          "RESEND_API_KEY",           "re_… — transactional + subscriber email" },
+        { "Fly.io token",            "FLY_API_TOKEN",            "fly tokens create deploy — flyctl deploys" },
+        { "OpenRouter key",          "OPENROUTER_API_KEY",       "one key → 300+ models incl. :free" },
+        { "Groq key",                "GROQ_API_KEY",             "fastest free inference — console.groq.com/keys" },
+        { "Gemini key",              "GEMINI_API_KEY",           "Google AI Studio free tier" }
+    };
 
     // ---------- backup & sync ----------
     // Portable settings snapshot. NEVER includes credentials, API keys or tokens —
@@ -2945,6 +3007,7 @@ try {
         {
             var psi = new ProcessStartInfo("conhost.exe", "cmd.exe /k title Ollama " + id + " & " + command)
                 { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = HomeDir };
+            ApplyCreds(psi);   // shared tokens/keys, same as every other embedded terminal
             sess.Proc = Process.Start(psi);
         }
         catch (Exception ex)
@@ -3914,6 +3977,7 @@ try {
             { UseShellExecute = false, CreateNoWindow = false, WorkingDirectory = folder };
             psi.EnvironmentVariables["CODEX_HOME"] = CodexDir;
             if (agent != "Codex" && useHeadroom) psi.EnvironmentVariables["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:" + ProxyPort;
+            ApplyCreds(psi);   // shared tokens/keys (SaaS → API keys) — same as the Mac app
             sess.Proc = Process.Start(psi);
         }
         catch (Exception ex)
@@ -4455,6 +4519,48 @@ try {
 
         saasProgress = new Label { Text = "", ForeColor = TextFaint, Font = new Font("Segoe UI", 8.75f), Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
         row(saasProgress, 22);
+
+        // ---- API keys — everything a SaaS needs, per the playbook ----
+        row(SectionCap("API keys — everything your SaaS needs"), 26);
+        row(RowCap("Stored in ~\\.claude-manager\\credentials.env (never in any repo) and injected as environment variables into every terminal Hydra launches."), 18);
+        var keysGrid = new TableLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, ColumnCount = 3, Margin = new Padding(0) };
+        keysGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190f));
+        keysGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+        keysGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 62f));
+        var creds = LoadCreds();
+        for (int i = 0; i < SaasKeyCatalog.GetLength(0); i++)
+        {
+            string label = SaasKeyCatalog[i, 0], key = SaasKeyCatalog[i, 1], hint = SaasKeyCatalog[i, 2];
+            keysGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
+            var cap = new Label { Text = label, ForeColor = TextDim, Font = new Font("Segoe UI", 8.75f),
+                Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 0, 8, 0) };
+            var tip2 = new ToolTip { ShowAlways = true, InitialDelay = 250 };
+            tip2.SetToolTip(cap, key + " — " + hint);
+            keysGrid.Controls.Add(cap, 0, i);
+            var box = new TextBox { Dock = DockStyle.Fill, Margin = new Padding(0, 3, 8, 3),
+                BackColor = Panel2, ForeColor = Color.White, BorderStyle = BorderStyle.FixedSingle,
+                UseSystemPasswordChar = true, Font = new Font("Consolas", 9f) };
+            string v; box.Text = creds.TryGetValue(key, out v) ? v : "";
+            tip2.SetToolTip(box, hint);
+            string keyCopy = key;
+            box.Leave += (s, e) => {
+                var c = LoadCreds();
+                string cur; c.TryGetValue(keyCopy, out cur);
+                if ((cur ?? "") == box.Text) return;
+                if (box.Text.Trim().Length == 0) c.Remove(keyCopy); else c[keyCopy] = box.Text.Trim();
+                SaveCreds(c);
+                SetupLog("OK  " + keyCopy + (box.Text.Trim().Length == 0 ? " cleared." : " saved — new terminals pick it up immediately."));
+            };
+            keysGrid.Controls.Add(box, 1, i);
+            var show = new Button { Text = "Show", AutoSize = false, Dock = DockStyle.Fill, Margin = new Padding(0, 3, 0, 3),
+                FlatStyle = FlatStyle.Flat, ForeColor = Color.White, Font = new Font("Segoe UI", 8f) };
+            Hoverize(show, Panel2, FieldHi);
+            var boxRef = box;
+            show.Click += (s, e) => { boxRef.UseSystemPasswordChar = !boxRef.UseSystemPasswordChar; show.Text = boxRef.UseSystemPasswordChar ? "Show" : "Hide"; };
+            keysGrid.Controls.Add(show, 2, i);
+        }
+        row(keysGrid, 30 * SaasKeyCatalog.GetLength(0) + 4);
+        row(RowCap("Fields save when you leave them. Terminals already open keep the env they started with."), 18);
         var chkTimer = new System.Windows.Forms.Timer { Interval = 3000 };
         chkTimer.Tick += (s, e) => { UpdateSaasProgress(); RefreshSaasStackPreview(); };
         chkTimer.Start();

@@ -98,6 +98,9 @@ struct SaaSView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     projectBar
                     instantBar
+                    // Every key a SaaS needs (Groq, Lemon Squeezy, Firebase, Resend,
+                    // Fly.io, …) — stored outside the repo, injected into every terminal.
+                    CredentialsSection()
                     StageHeader(n: 1, title: "Vision", subtitle: "Describe your idea, then scaffold the app")
                     visionPhase
                     stageGap
