@@ -5566,17 +5566,47 @@ try {
             }
             string provider = HermesProviderId(hermesProviderCombo != null && hermesProviderCombo.SelectedItem != null ? hermesProviderCombo.SelectedItem.ToString() : HermesProviderLabel(hermesProvider));
             hermesSelectedProvider = provider;
-            if (provider == "custom" && !TestPort(OllamaPort))
+            if (provider == "custom")
             {
-                string executable = FindOllamaExecutable();
-                if (executable == null)
+                // Hermes' system prompt (tool + skill instructions) overflows Ollama's
+                // 8192-token default; truncation silently drops the act-now rules, so
+                // small models narrate a plan and then stall. Guarantee a 16k window.
+                bool needCtxBump = OllamaCtx() < 16384;
+                if (needCtxBump)
                 {
-                    MessageBox.Show("Ollama isn't available yet. Install the built-in runtime from Settings, then launch this Hermes backend again.",
-                        "Hermes + Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    SaveOllamaCtx(16384);
+                    SetupLog("Ollama context raised to 16384 for Hermes — its system prompt overflows smaller windows and the model stalls after planning.");
+                }
+                bool ownedRunning = false;
+                try { ownedRunning = ollamaProcess != null && !ollamaProcess.HasExited; } catch { }
+                if (needCtxBump && ownedRunning)
+                {
+                    // Restart the owned server so the larger window applies to THIS session,
+                    // then come back through the same wait-for-API launch path.
+                    string restartExe = FindOllamaExecutable();
+                    if (restartExe != null)
+                    {
+                        StopOwnedOllama();
+                        string folderCopy = folder;
+                        ThreadPool.QueueUserWorkItem(_ => {
+                            for (int i = 0; i < 20 && TestPort(OllamaPort); i++) Thread.Sleep(250);
+                            try { BeginInvoke((Action)(() => ContinueHermesAfterOllamaReady(folderCopy, restartExe))); } catch { }
+                        });
+                        return;
+                    }
+                }
+                if (!TestPort(OllamaPort))
+                {
+                    string executable = FindOllamaExecutable();
+                    if (executable == null)
+                    {
+                        MessageBox.Show("Ollama isn't available yet. Install the built-in runtime from Settings, then launch this Hermes backend again.",
+                            "Hermes + Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return;
+                    }
+                    ContinueHermesAfterOllamaReady(folder, executable);
                     return;
                 }
-                ContinueHermesAfterOllamaReady(folder, executable);
-                return;
             }
             RemoveMirroredSkillsFromHermes();   // Hermes runs on its own skills ecosystem
             cmd = "hermes";

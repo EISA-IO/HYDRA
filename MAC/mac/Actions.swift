@@ -163,6 +163,32 @@ extension AppState {
                     alert("Ollama not available", "Install the built-in Ollama runtime from Settings, then launch this Hermes backend again.")
                     return
                 }
+                // Hermes' system prompt (tool + skill instructions) overflows Ollama's
+                // 8192-token default; truncation silently drops the act-now rules, so
+                // small models narrate a plan and then stall. Guarantee a 16k window.
+                let needCtxBump = OllamaService.contextLength() < 16384
+                if needCtxBump { OllamaService.saveContextLength(16384) }
+                if needCtxBump, ollama.state == .runningOwned || ollama.state == .starting {
+                    // Restart the owned server so the larger window applies to THIS
+                    // session: stop it, wait for the port to free, then re-enter launch —
+                    // the wait-for-API path below brings it back with the new context.
+                    guard !hermesLocalLaunchPending else {
+                        alert("Hermes is waiting for Ollama", "Hydra is still restarting the local API with a larger context window. The Hermes session will open automatically when it is ready.")
+                        return
+                    }
+                    hermesLocalLaunchPending = true
+                    ollama.stop()
+                    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                        for _ in 0..<25 where AppState.portOpen(OllamaPort) { Thread.sleep(forTimeInterval: 0.2) }
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self else { return }
+                            self.hermesLocalLaunchPending = false
+                            self.launch(folder: f, startupPrompt: startupPrompt,
+                                        modelOverride: modelOverride, agentOverride: selectedAgent)
+                        }
+                    }
+                    return
+                }
                 if !AppState.portOpen(OllamaPort) {
                     guard !hermesLocalLaunchPending else {
                         alert("Hermes is waiting for Ollama", "Hydra is still starting the local API. The Hermes session will open automatically when it is ready.")
