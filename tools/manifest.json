@@ -1,54 +1,86 @@
 {
-  "description": "Native toolchain bundled with Hydra so tools work with no manual download.",
+  "description": "Hydra's self-contained release toolchain. Core setup and repair are local-only.",
+  "releaseContract": {
+    "sourceLock": "../runtime/runtime-lock.json",
+    "startupDownloads": false,
+    "repairDownloads": false,
+    "ollamaModelWeightsBundled": false
+  },
   "tools": {
+    "node": {
+      "role": "portable JavaScript runtime for the bundled CLIs and plugins",
+      "version": "24.18.0",
+      "bundled": { "selfContainedBuilds": "runtime/bin" }
+    },
+    "claude": {
+      "role": "Claude Code CLI",
+      "version": "2.1.207",
+      "bundled": { "selfContainedBuilds": "runtime/app/node_modules/@anthropic-ai/claude-code" }
+    },
+    "codex": {
+      "role": "OpenAI Codex CLI",
+      "version": "0.144.3",
+      "bundled": { "selfContainedBuilds": "runtime/app/node_modules/@openai/codex" }
+    },
+    "python": {
+      "role": "private relocatable Python runtime for Hermes Agent",
+      "version": "3.13.13",
+      "bundled": { "selfContainedBuilds": "runtime/python" }
+    },
+    "hermes": {
+      "role": "Hermes Agent CLI and locked Python dependencies",
+      "version": "0.18.2",
+      "bundled": { "selfContainedBuilds": "runtime/python" }
+    },
+    "ollama": {
+      "role": "local-model runtime; model weights are supplied separately",
+      "version": "0.31.2",
+      "bundled": {
+        "macSelfContainedBuilds": "runtime/ollama",
+        "windowsOfflineSidecar": "Hydra-Windows-x64-Ollama-Offline-Pack.zip"
+      }
+    },
+    "ripgrep": {
+      "role": "recursive text search used by agent tools",
+      "version": "15.1.0",
+      "bundled": { "selfContainedBuilds": "runtime/bin/rg" }
+    },
+    "ffmpeg": {
+      "role": "media command required by video workflows",
+      "version": "imageio-ffmpeg 0.6.0 distribution",
+      "bundled": { "selfContainedBuilds": "runtime/bin/ffmpeg" }
+    },
+    "git": {
+      "role": "portable Git and Git Bash required by Claude Code on Windows",
+      "version": "PortableGit 2.55.0.2",
+      "bundled": { "win-x64": "runtime/git" }
+    },
     "rtk": {
       "role": "input compression (Rust Token Killer)",
-      "bundled": { "mac-arm64": "mac-arm64/rtk", "mac-x64": "mac-x64/rtk", "win-x64": "win-x64/rtk.exe" },
       "version": "0.43.0",
-      "fallbackInstall": "curl -fsSL https://raw.githubusercontent.com/reachingforthejack/rtk/main/install.sh | sh"
+      "bundled": { "mac-arm64": "mac-arm64/rtk", "mac-x64": "mac-x64/rtk", "win-x64": "win-x64/rtk.exe" },
+      "localInstall": "copy the architecture-matched bundled binary into Hydra's managed bin"
     },
     "caveman": {
-      "role": "output compression (Claude Code plugin)",
+      "role": "output compression plugin",
       "bundledMarketplace": "caveman",
-      "localInstall": "node caveman/bin/install.js --only claude --only codex",
-      "fallbackInstall": "npx -y github:JuliusBrussee/caveman --only claude --only codex"
+      "localInstall": "node caveman/bin/install.js --only claude --only codex"
     },
     "claude-video": {
       "role": "video understanding skill (/watch)",
       "bundledMarketplace": "claude-video",
       "bundledSkill": "claude-video/skills/watch",
-      "localInstall": "copy claude-video/skills/watch to ~/.claude/skills/watch and ~/.agents/skills/watch",
-      "fallbackInstall": "npx skills add bradautomates/claude-video -g"
+      "localInstall": "copy the bundled skill into the Claude and Codex skill directories"
     },
     "agent-skills": {
-      "role": "production engineering lifecycle skills (spec, plan, build, test, review, ship)",
+      "role": "production engineering lifecycle skills",
       "bundledMarketplace": "agent-skills",
       "bundledSkills": "agent-skills/skills",
-      "localInstall": "copy each agent-skills/skills/*/SKILL.md pack to ~/.claude/skills and ~/.agents/skills",
-      "fallbackInstall": "npx skills add addyosmani/agent-skills"
-    },
-    "claude": {
-      "role": "Claude Code CLI",
-      "bundled": { "selfContainedBuilds": "runtime/app/node_modules/@anthropic-ai/claude-code" },
-      "fallbackInstall": "curl -fsSL https://claude.ai/install.sh | bash"
-    },
-    "codex": {
-      "role": "ChatGPT/Codex CLI",
-      "bundled": { "selfContainedBuilds": "runtime/app/node_modules/@openai/codex" },
-      "fallbackInstall": "npm install -g @openai/codex@latest"
-    },
-    "node": {
-      "role": "portable JavaScript runtime for bundled CLIs and plugins",
-      "bundled": { "selfContainedBuilds": "runtime/bin" }
-    },
-    "ollama": {
-      "role": "offline local-model runtime (models remain user-managed)",
-      "bundled": { "selfContainedBuilds": "runtime/ollama" }
+      "localInstall": "copy bundled skill packs into the Claude and Codex skill directories"
     },
     "headroom": {
-      "role": "optional compression proxy (Python)",
-      "bundled": {},
-      "fallbackInstall": "pipx install 'headroom-ai[all]'"
+      "role": "optional compression proxy; not part of the zero-install core",
+      "bundled": {}
     }
   }
 }

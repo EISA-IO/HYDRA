@@ -502,8 +502,14 @@ class Hydra : Form
         try {
             string cur = Environment.GetEnvironmentVariable("PATH") ?? "";
             string runtimeBin = Path.Combine(EmbeddedRuntimeDir, "bin");
+            string runtimeGitCmd = Path.Combine(EmbeddedRuntimeDir, "git", "cmd");
+            string runtimeGitBin = Path.Combine(EmbeddedRuntimeDir, "git", "bin");
+            string runtimeGitUsrBin = Path.Combine(EmbeddedRuntimeDir, "git", "usr", "bin");
             if (cur.IndexOf(runtimeBin, StringComparison.OrdinalIgnoreCase) < 0)
-                Environment.SetEnvironmentVariable("PATH", ManagedBin + ";" + runtimeBin + ";" + cur, EnvironmentVariableTarget.Process);
+                Environment.SetEnvironmentVariable("PATH", ManagedBin + ";" + runtimeBin + ";" + runtimeGitCmd + ";" + runtimeGitBin + ";" + runtimeGitUsrBin + ";" + cur, EnvironmentVariableTarget.Process);
+            string bundledBash = Path.Combine(runtimeGitBin, "bash.exe");
+            if (File.Exists(bundledBash))
+                Environment.SetEnvironmentVariable("CLAUDE_CODE_GIT_BASH_PATH", bundledBash, EnvironmentVariableTarget.Process);
         } catch { }
         bool firstRun = !File.Exists(SettingsFile);
         glossary = BuildGlossary();
@@ -731,7 +737,7 @@ class Hydra : Form
     static bool WarnOllamaMissing(string executable)
     {
         if (executable != null) return false;
-        MessageBox.Show("Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide.",
+        MessageBox.Show("This Hydra app is missing its bundled Ollama runtime. Replace it with a complete offline release.",
             "Ollama", MessageBoxButtons.OK, MessageBoxIcon.Information);
         return true;
     }
@@ -1610,17 +1616,18 @@ class Hydra : Form
     void QuietEnableCaveman()
     {
         if (CavemanInstalled()) return;
-        if (!OnPath("npx.exe") && !OnPath("npx.cmd") && !OnPath("npx")) return;
         if (cvStatus != null) { cvStatus.Text = "enabling Caveman by default…"; cvStatus.ForeColor = Yellow; }
         var th = new Thread(() =>
         {
             try
             {
-                var psi = new ProcessStartInfo("npx", "-y github:JuliusBrussee/caveman --only claude --only codex")
-                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-                var p = Process.Start(psi);
-                p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd();
-                p.WaitForExit(120000);
+                string src = FindToolsSource();
+                if (src == null) return;
+                string bundled = Path.Combine(src, "caveman");
+                string marketplace = Path.Combine(HomeDir, ".claude", "plugins", "marketplaces", "caveman");
+                if (Directory.Exists(bundled) && !Directory.Exists(marketplace)) CopyDir(bundled, marketplace);
+                string installer = Path.Combine(Directory.Exists(marketplace) ? marketplace : bundled, "bin", "install.js");
+                if (File.Exists(installer) && HasNode()) RunLoggedCmd("node \"" + installer + "\" --only claude --only codex");
                 EnsureCodexCavemanInstructions();
                 InstallBundledCavemanForCodexIfPossible();
             }
@@ -2328,7 +2335,7 @@ class Hydra : Form
     {
         return string.IsNullOrEmpty(profile) || Regex.IsMatch(profile, "^[a-z0-9][a-z0-9_-]{0,63}$");
     }
-    static void ProvisionEmbeddedRuntime()
+    static void ProvisionEmbeddedRuntime(bool force = false)
     {
         try
         {
@@ -2340,29 +2347,81 @@ class Hydra : Form
                 using (var reader = versionStream == null ? null : new StreamReader(versionStream))
                     if (reader != null) version = reader.ReadToEnd().Trim();
                 string marker = Path.Combine(EmbeddedRuntimeDir, ".payload-version");
-                if (File.Exists(marker) && File.ReadAllText(marker).Trim() == version) return;
-                Directory.CreateDirectory(EmbeddedRuntimeDir);
-                using (var archive = new ZipArchive(payload, ZipArchiveMode.Read, false))
+                bool current = !force && File.Exists(marker) && File.ReadAllText(marker).Trim() == version;
+                if (!current)
                 {
-                    string root = Path.GetFullPath(EmbeddedRuntimeDir + Path.DirectorySeparatorChar);
-                    foreach (var entry in archive.Entries)
+                    Directory.CreateDirectory(EmbeddedRuntimeDir);
+                    using (var archive = new ZipArchive(payload, ZipArchiveMode.Read, false))
                     {
-                        string destination = Path.GetFullPath(Path.Combine(EmbeddedRuntimeDir, entry.FullName));
-                        if (!destination.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                            throw new InvalidDataException("Invalid embedded runtime path: " + entry.FullName);
-                        if (string.IsNullOrEmpty(entry.Name)) { Directory.CreateDirectory(destination); continue; }
-                        Directory.CreateDirectory(Path.GetDirectoryName(destination));
-                        using (var input = entry.Open())
-                        using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
-                            input.CopyTo(output);
+                        string root = Path.GetFullPath(EmbeddedRuntimeDir + Path.DirectorySeparatorChar);
+                        foreach (var entry in archive.Entries)
+                        {
+                            string destination = Path.GetFullPath(Path.Combine(EmbeddedRuntimeDir, entry.FullName));
+                            if (!destination.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                                throw new InvalidDataException("Invalid embedded runtime path: " + entry.FullName);
+                            if (string.IsNullOrEmpty(entry.Name)) { Directory.CreateDirectory(destination); continue; }
+                            Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                            using (var input = entry.Open())
+                            using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+                                input.CopyTo(output);
+                        }
                     }
+                    File.WriteAllText(marker, version);
                 }
-                File.WriteAllText(marker, version);
             }
+            ProvisionOllamaSidecar(force);
         }
         catch (Exception ex)
         {
             try { File.WriteAllText(Path.Combine(StateDir, "runtime-extract-error.txt"), ex.ToString()); } catch { }
+        }
+    }
+    static void ProvisionOllamaSidecar(bool force)
+    {
+        const string sidecarName = "Hydra-Windows-x64-Ollama-Offline-Pack.zip";
+        string sidecar = Path.Combine(AppDir, sidecarName);
+        if (!File.Exists(sidecar)) return;
+        string destinationRoot = Path.Combine(EmbeddedRuntimeDir, "ollama");
+        string marker = Path.Combine(destinationRoot, ".sidecar-version");
+        try
+        {
+            string expected;
+            using (var expectedStream = EmbeddedRes("hydra-ollama-sidecar.sha256"))
+            using (var reader = expectedStream == null ? null : new StreamReader(expectedStream))
+                expected = reader == null ? "" : reader.ReadToEnd().Trim().ToLowerInvariant();
+            string actual;
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            using (var input = File.OpenRead(sidecar))
+                actual = BitConverter.ToString(sha.ComputeHash(input)).Replace("-", "").ToLowerInvariant();
+            if (string.IsNullOrEmpty(expected) || actual != expected)
+                throw new InvalidDataException(sidecarName + " failed its embedded SHA-256 check.");
+            if (!force && File.Exists(marker) && File.ReadAllText(marker).Trim() == actual &&
+                File.Exists(Path.Combine(destinationRoot, "ollama.exe"))) return;
+            if (Directory.Exists(destinationRoot)) Directory.Delete(destinationRoot, true);
+            Directory.CreateDirectory(destinationRoot);
+            using (var stream = File.OpenRead(sidecar))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read, false))
+            {
+                string root = Path.GetFullPath(destinationRoot + Path.DirectorySeparatorChar);
+                foreach (var entry in archive.Entries)
+                {
+                    string destination = Path.GetFullPath(Path.Combine(destinationRoot, entry.FullName));
+                    if (!destination.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("Invalid Ollama pack path: " + entry.FullName);
+                    if (string.IsNullOrEmpty(entry.Name)) { Directory.CreateDirectory(destination); continue; }
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                    using (var input = entry.Open())
+                    using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+                        input.CopyTo(output);
+                }
+            }
+            if (!File.Exists(Path.Combine(destinationRoot, "ollama.exe")))
+                throw new InvalidDataException(sidecarName + " did not contain ollama.exe at its expected root.");
+            File.WriteAllText(marker, actual);
+        }
+        catch (Exception ex)
+        {
+            try { Directory.CreateDirectory(StateDir); File.WriteAllText(Path.Combine(StateDir, "ollama-pack-error.txt"), ex.ToString()); } catch { }
         }
     }
     static Icon AppIcon()
@@ -2903,14 +2962,14 @@ class Hydra : Form
         setupStatus = new Label { Dock = DockStyle.Fill, ForeColor = TextDim, Font = new Font("Consolas", 9f) };
         row(setupStatus, 20);
 
-        var allBtn = new Button { Text = "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + Video + Agent Skills + skills + Ollama)", Dock = DockStyle.Fill,
+        var allBtn = new Button { Text = "Repair bundled tools  (zero-network)", Dock = DockStyle.Fill,
             FlatStyle = FlatStyle.Flat, ForeColor = Color.Black, Font = new Font("Segoe UI", 10.5f, FontStyle.Bold) };
         Hoverize(allBtn, Accent, AccentHi);
         allBtn.Click += (s, e) => SetupRun(InstallEverything);
         setupAllBtn = allBtn;
         row(allBtn, 40);
 
-        setupAllCap = RowCap("Re-checks every package on each click and installs only what's missing — safe to run any time.");
+        setupAllCap = RowCap("Restores the embedded runtimes locally. It never downloads or installs a system package.");
         row(setupAllCap, 18);
 
         var updBtn = new Button { Text = "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video · Agent Skills)", Dock = DockStyle.Fill,
@@ -2956,7 +3015,7 @@ class Hydra : Form
         setupOut = new TextBox { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false,
             BackColor = Color.FromArgb(18, 18, 20), ForeColor = Color.FromArgb(210, 210, 215),
             BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9.5f),
-            Text = "Ready. Click \"Install everything\" on a fresh machine, or install pieces individually." };
+            Text = "Ready. Complete releases include every core tool; repair restores them locally without downloads." };
         row(setupOut, 190);
 
         DetectStatus();
@@ -3728,7 +3787,7 @@ class Hydra : Form
         row(hermesStatus, 22);
         var hermesActions = new FlowLayoutPanel { Dock = DockStyle.Fill, BackColor = Color.Transparent, WrapContents = true, Margin = new Padding(0) };
         var hSetup = GhostBtn("Open full GUI dashboard"); hSetup.AutoSize = true; hSetup.Click += (s, e) => OpenHermesDashboard();
-        var hInstall = GhostBtn("Install / repair"); hInstall.AutoSize = true; hInstall.Click += (s, e) => InstallHermes();
+        var hInstall = GhostBtn("Repair bundled Hermes"); hInstall.AutoSize = true; hInstall.Click += (s, e) => SetupRun(InstallHermes);
         var hCheck = GhostBtn("Check update"); hCheck.AutoSize = true; hCheck.Click += (s, e) => SetupRun(CheckHermesUpdate);
         var hUpdate = GhostBtn("Update now"); hUpdate.AutoSize = true; hUpdate.Click += (s, e) => SetupRun(UpdateHermes);
         var hDoctor = GhostBtn("Doctor"); hDoctor.AutoSize = true; hDoctor.Click += (s, e) => NewHermesUtilityTerminal("doctor", "Hermes diagnostics");
@@ -4058,6 +4117,16 @@ class Hydra : Form
             string u = (Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Environment", "Path", "") as string) ?? "";
             string combined = m;
             if (u.Length > 0) combined = combined.TrimEnd(';') + ";" + u;
+            string[] bundled = {
+                ManagedBin,
+                Path.Combine(EmbeddedRuntimeDir, "bin"),
+                Path.Combine(EmbeddedRuntimeDir, "git", "cmd"),
+                Path.Combine(EmbeddedRuntimeDir, "git", "bin"),
+                Path.Combine(EmbeddedRuntimeDir, "git", "usr", "bin")
+            };
+            foreach (var d in bundled)
+                if (Directory.Exists(d) && combined.IndexOf(d, StringComparison.OrdinalIgnoreCase) < 0)
+                    combined = d + ";" + combined;
             // belt-and-suspenders: add the well-known install dirs in case the registry hasn't propagated yet
             string[] extra = {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs"),
@@ -4074,26 +4143,12 @@ class Hydra : Form
         catch (Exception ex) { SetupLog("  (PATH refresh warning: " + ex.Message + ")"); }
     }
 
-    // Guarantee Node.js + npm exist. Tries winget first, then a silent LTS MSI download.
-    // Returns true if npm is usable afterwards. Safe to call repeatedly.
+    // Release artifacts carry Node.js. Never install a system runtime from inside Hydra.
     bool EnsureNode()
     {
         RefreshPathFromRegistry();
         if (HasNpm()) return true;
-        SetupLog("Node.js/npm not found — installing the latest Node LTS…");
-        if (HasWinget())
-        {
-            SetupLog("> winget install OpenJS.NodeJS.LTS");
-            RunLoggedCmd("winget install --id OpenJS.NodeJS.LTS -e --source winget --silent --accept-source-agreements --accept-package-agreements");
-            RefreshPathFromRegistry();
-            if (HasNpm()) { SetupLog("OK  Node.js installed via winget."); return true; }
-        }
-        SetupLog("Falling back to the official Node LTS installer (silent MSI)…");
-        RunPowerShellScript(NodeMsiScript());
-        RefreshPathFromRegistry();
-        if (HasNpm()) { SetupLog("OK  Node.js + npm installed."); return true; }
-        SetupLog("Could not install Node automatically. Install LTS from https://nodejs.org/en/download and retry.");
-        try { Process.Start("https://nodejs.org/en/download"); } catch { }
+        SetupLog("Bundled Node.js/npm is missing. Repair Hydra from a self-contained release artifact.");
         return false;
     }
 
@@ -4169,12 +4224,12 @@ try {
         lastAllInstalledStyle = all;
         if (setupAllBtn != null)
             setupAllBtn.Text = all
-                ? "Install everything   ✓ all packages present — click to re-check"
-                : "Install everything  (Node + Claude/Codex CLI + RTK + Caveman + Video + Agent Skills + skills + Ollama)";
+                ? "Repair bundled tools   ✓ all packages present — click to verify"
+                : "Repair bundled tools  (zero-network)";
         if (setupAllCap != null)
             setupAllCap.Text = all
                 ? "Your toolchain is complete — just keep it fresh with \"Update core packages\" below."
-                : "Re-checks every package on each click and installs only what's missing — safe to run any time.";
+                : "Restores the embedded runtimes locally — no package manager or remote installer.";
         if (setupUpdBtn != null)
         {
             setupUpdBtn.Text = all ? "Update core packages  (npm · Claude CLI · Codex CLI · RTK · Caveman · Video · Agent Skills)   ✓ everything installed"
@@ -4419,18 +4474,16 @@ try {
 
     void InstallClaudeCli()
     {
-        EnsureNode();   // helpful for Caveman, but the native Claude installer doesn't need it
-        SetupLog("Installing latest Claude CLI (native installer, npm fallback)…");
-        int rc = RunLoggedCmd(ClaudeInstallCmd());
-        SetupLog(rc == 0 ? "OK  Claude CLI installed (latest)." : "Claude CLI install returned exit " + rc + ".");
+        if (!HasClaude()) ProvisionEmbeddedRuntime(true);
+        SetupLog(HasClaude() ? "OK  Bundled Claude CLI is ready — no installation required."
+                             : "Bundled Claude CLI is missing. Use an official self-contained Hydra release artifact.");
     }
 
     void InstallCodexCli()
     {
-        if (!EnsureNode()) return;
-        SetupLog("Installing latest Codex CLI (npm)…");
-        int rc = RunLoggedCmd(CodexInstallCmd());
-        SetupLog(rc == 0 ? "OK  Codex CLI installed (latest)." : "Codex CLI install returned exit " + rc + ".");
+        if (!HasCodex()) ProvisionEmbeddedRuntime(true);
+        if (!HasCodex()) { SetupLog("Bundled Codex CLI is missing. Use an official self-contained Hydra release artifact."); return; }
+        SetupLog("OK  Bundled Codex CLI is ready — no installation required.");
         if (HasRtk()) RunLoggedCmd("rtk init -g --codex");
         EnsureCodexCavemanInstructions();
         InstallBundledCavemanForCodexIfPossible();
@@ -4440,7 +4493,13 @@ try {
 
     void InstallHermes()
     {
-        StartUtilityTerminal("powershell -NoProfile -ExecutionPolicy Bypass -Command \"iex (irm https://hermes-agent.nousresearch.com/install.ps1)\"", "Install / repair Hermes", "Hermes");
+        if (HasHermes()) { SetupLog("OK  Bundled Hermes is ready — no installation required."); return; }
+        SetupLog("Bundled Hermes is missing or damaged — restoring the embedded runtime locally…");
+        ProvisionEmbeddedRuntime(true);
+        SetupLog(HasHermes()
+            ? "OK  Bundled Hermes restored without a network connection."
+            : "Bundled Hermes could not be restored. Use an official self-contained Hydra release artifact.");
+        try { BeginInvoke((Action)DetectStatus); } catch { }
     }
 
     void CheckHermesUpdate()
@@ -4482,8 +4541,14 @@ try {
     {
         if (!(OnPath("rtk.exe") || OnPath("rtk") || File.Exists(RtkLocalPath())))
         {
-            SetupLog("Downloading RTK (Windows binary) to ~/.local/bin …");
-            RunPowerShellScript(RtkDownloadScript());
+            string bundled = Path.Combine(EmbeddedRuntimeDir, "tools", "win-x64", "rtk.exe");
+            if (File.Exists(bundled))
+            {
+                Directory.CreateDirectory(ManagedBin);
+                File.Copy(bundled, Path.Combine(ManagedBin, "rtk.exe"), true);
+                SetupLog("Bundled RTK restored locally.");
+            }
+            else { SetupLog("Bundled RTK is missing from this release artifact."); return; }
         }
         else SetupLog("rtk binary already present.");
         string rtk = File.Exists(RtkLocalPath()) ? "\"" + RtkLocalPath() + "\"" : "rtk";
@@ -4518,8 +4583,13 @@ try {
     {
         if (CavemanInstalled()) { SetupLog("Caveman already installed."); return; }
         if (!EnsureNode()) return;
-        SetupLog("Installing Caveman plugin/instructions for Claude Code + Codex CLI…");
-        int rc = RunLoggedCmd("npx -y github:JuliusBrussee/caveman --only claude --only codex");
+        string src = FindToolsSource();
+        string bundled = src == null ? null : Path.Combine(src, "caveman");
+        if (bundled == null || !Directory.Exists(bundled)) { SetupLog("Bundled Caveman marketplace is missing."); return; }
+        string marketplace = Path.Combine(HomeDir, ".claude", "plugins", "marketplaces", "caveman");
+        if (!Directory.Exists(marketplace)) CopyDir(bundled, marketplace);
+        string installer = Path.Combine(marketplace, "bin", "install.js");
+        int rc = File.Exists(installer) ? RunLoggedCmd("node \"" + installer + "\" --only claude --only codex") : -1;
         EnsureCodexCavemanInstructions();
         InstallBundledCavemanForCodexIfPossible();
         InstallClaudeVideoIfPossible();
@@ -4553,11 +4623,11 @@ try {
     void InstallOllama()
     {
         if (File.Exists(OllamaEmbeddedExe)) { SetupLog("Ollama runtime already built into Hydra."); return; }
-        SetupLog("Building the Ollama runtime into Hydra (portable — nothing is installed system-wide)…");
-        RunPowerShellScript(OllamaPortableScript());
+        SetupLog("Restoring the bundled Ollama runtime locally…");
+        ProvisionEmbeddedRuntime(true);
         bool ok = File.Exists(OllamaEmbeddedExe);
-        SetupLog(ok ? "OK  Ollama built into Hydra: " + OllamaDir + " (models will live in " + OllamaModelsDir + ")."
-                    : "Could not download the Ollama runtime — check the log above (network?) and retry.");
+        SetupLog(ok ? "OK  Bundled Ollama runtime restored. Models live in " + OllamaModelsDir + "."
+                    : "Bundled Ollama runtime is missing. Use an official self-contained Hydra release artifact.");
         try { BeginInvoke((Action)QueueOllamaRefresh); } catch { }
     }
 
@@ -4882,7 +4952,7 @@ try {
                     }
                 }
                 if (!File.Exists(rtkDst) && !OnPath("rtk.exe") && !OnPath("rtk"))
-                    { try { RunPowerShellScript(RtkDownloadScript()); } catch { } }
+                    SetupLog("Bundled RTK is missing. Repair Hydra from a self-contained release artifact.");
                 // Register the RTK input-compression hook using whichever rtk is available.
                 if (!RtkInstalled())
                 {
@@ -4915,19 +4985,16 @@ try {
                     InstallBundledCavemanForCodexIfPossible();
                 }
 
-                // 3) Claude CLI — not redistributable; install once, silently, if missing.
-                //    Native installer needs no npm, so don't gate on it.
+                // 3) Release CLIs are part of the embedded payload. Startup must never
+                //    mutate the machine or reach an installer; a missing command means
+                //    the artifact is incomplete and should be repaired locally.
                 if (!OnPath("claude.exe") && !OnPath("claude"))
-                {
-                    SetupLog("Claude CLI not found — installing it once…");
-                    try { RunLoggedCmd(ClaudeInstallCmd()); } catch { }
-                }
+                    SetupLog("Bundled Claude CLI is missing. Repair Hydra from a self-contained release artifact.");
 
-                if (!HasCodex() && HasNpm())
-                {
-                    SetupLog("Codex CLI not found — installing it once…");
-                    try { RunLoggedCmd(CodexInstallCmd()); } catch { }
-                }
+                if (!HasCodex())
+                    SetupLog("Bundled Codex CLI is missing. Repair Hydra from a self-contained release artifact.");
+                if (!HasHermes())
+                    SetupLog("Bundled Hermes is missing. Repair Hydra from a self-contained release artifact.");
                 InstallClaudeVideoIfPossible();
                 InstallAgentSkillsIfPossible();
             }
@@ -5080,51 +5147,31 @@ try {
     void InstallEverything()
     {
         SetupLog("");
-        SetupLog("===== Install everything (Node + Claude/Codex + Hermes + RTK + Caveman + Video + Agent Skills + skills + Ollama) =====");
-        SetupLog("Checking what's already installed — only missing packages get installed.");
-        RefreshPathFromRegistry();
-
-        if (HasNpm()) SetupLog("OK  Node.js/npm already installed — skipping.");
-        else if (!EnsureNode())
-        {
-            SetupLog("Node.js is required and could not be installed automatically. Fix that, then click Install everything again.");
-            return;
-        }
-
-        if (HasClaude()) SetupLog("OK  Claude CLI already installed — skipping.");
-        else InstallClaudeCli();
-
-        if (HasCodex()) SetupLog("OK  Codex CLI already installed — skipping.");
-        else InstallCodexCli();
-
-        if (HasHermes()) SetupLog("OK  Hermes Agent already installed — skipping.");
-        else
-        {
-            // Hermes owns its own Python environment, so its official interactive
-            // installer runs in a Workspace terminal instead of the silent pass here.
-            SetupLog("Hermes Agent: opening its official installer in a Workspace terminal — answer its prompts there.");
-            try { BeginInvoke((Action)InstallHermes); } catch { }
-        }
-
-        if (HasRtk() && RtkInstalled()) SetupLog("OK  RTK already installed — skipping.");
-        else InstallRtk();
-
-        InstallCaveman();   // no-ops with "already installed" when present
-
-        if (VideoInstalled()) SetupLog("OK  Claude Video already installed — skipping.");
-        else InstallClaudeVideoIfPossible();
-
-        if (AgentSkillsInstalled()) SetupLog("OK  Agent Skills already installed — skipping.");
-        else InstallAgentSkillsIfPossible();
+        SetupLog("===== Repair bundled toolchain (zero-network) =====");
+        SetupLog("Restoring the release payload locally; no package manager or remote installer will run.");
+        ProvisionEmbeddedRuntime(true);
+        ProvisionNativeToolchain();
 
         string src = FindSkillsSource();
         if (src != null) DoInstallSkills(src);
-        else SetupLog("No bundled skills found next to the app — use the Skills button to pick a folder.");
+        else SetupLog("Bundled skills are missing from this artifact.");
+        InstallClaudeVideoIfPossible();
+        InstallAgentSkillsIfPossible();
 
-        if (File.Exists(OllamaEmbeddedExe)) SetupLog("OK  Ollama runtime already built into Hydra — skipping.");
-        else InstallOllama();
-
-        SetupLog("===== Done. New Claude/Codex/Hermes terminals pick up updated tools and settings. =====");
+        string[] missing = new[] {
+            HasNode() ? null : "Node.js",
+            HasClaude() ? null : "Claude CLI",
+            HasCodex() ? null : "Codex CLI",
+            HasHermes() ? null : "Hermes",
+            (HasRtk() || File.Exists(Path.Combine(EmbeddedRuntimeDir, "tools", "win-x64", "rtk.exe"))) ? null : "RTK",
+            File.Exists(OllamaEmbeddedExe) ? null : "Ollama"
+        };
+        var absent = new List<string>();
+        foreach (string item in missing) if (!string.IsNullOrEmpty(item)) absent.Add(item);
+        SetupLog(absent.Count == 0
+            ? "===== Done. Every bundled runtime is ready without a network connection. ====="
+            : "===== This is not a complete release artifact. Missing: " + string.Join(", ", absent.ToArray()) + ". =====");
+        try { BeginInvoke((Action)DetectStatus); } catch { }
     }
 
     // Update the core packages in place to their latest versions. Assumes they're already
@@ -5584,7 +5631,7 @@ try {
         empty.Controls.Add(new Label { Text = "No terminals yet", Location = new Point(0, 49), Size = new Size(590, 24),
             TextAlign = ContentAlignment.MiddleCenter, ForeColor = TextDim, Font = new Font("Segoe UI Semibold", 11f, FontStyle.Bold) });
         empty.Controls.Add(new Label {
-            Text = "1   First time?  Settings → “Install everything” sets up Claude, Codex, and the tools for you.\r\n"
+            Text = "1   First time?  Open the complete offline app; Claude, Codex, and the tools are already bundled.\r\n"
                  + "2   Pick your agent above — Claude, Codex, or Hermes — and choose a project folder.\r\n"
                  + "3   Click “+ New Terminal”. The session runs right here as a tab — open as many as you like.",
             Location = new Point(0, 79), Size = new Size(590, 66), TextAlign = ContentAlignment.MiddleCenter,

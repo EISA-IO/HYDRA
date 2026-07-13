@@ -2,54 +2,149 @@ name: Self-contained release builds
 
 on:
   workflow_dispatch:
+    inputs:
+      confirm_redistribution_rights:
+        description: 'I have confirmed the right to redistribute every bundled third-party component, including Claude Code.'
+        required: true
+        default: false
+        type: boolean
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - '.github/workflows/self-contained-builds.yml'
+      - 'MAC/**'
+      - 'WINDOWS/**'
+      - 'runtime/**'
+      - 'tools/**'
+      - 'SKILLS-BACKUP/**'
+      - 'README.md'
+      - 'THIRD-PARTY-NOTICES.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-contained-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: '0.11.14'
+          enable-cache: true
+      - name: Verify zero-network source contract
+        shell: pwsh
+        run: |
+          .\WINDOWS\Test-OfflineRelease.ps1
+          npm audit --prefix .\runtime --package-lock-only --omit=dev --audit-level=high
       - name: Build single-file offline Windows EXE
         shell: pwsh
         run: .\WINDOWS\Build-SelfContained.ps1 -Output .\dist\Hydra-Windows-x64-SelfContained.exe
-      - name: Offline first-launch smoke test
+      - name: Offline first-launch and payload test
         shell: pwsh
         run: |
           $state = Join-Path $env:RUNNER_TEMP "hydra-offline-state"
+          $uvx = (Get-Command uvx).Source
           $env:HYDRA_STATE_DIR = $state
+          $env:UV_OFFLINE = "1"
+          $env:PIP_NO_INDEX = "1"
+          $env:npm_config_offline = "true"
           $env:PATH = "$env:WINDIR\System32;$env:WINDIR"
-          .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\dist\Hydra-Windows-x64-SelfContained.exe) -Tab 0 -DemoLaunch -TimeoutSeconds 300 -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-offline.png")
-          & (Join-Path $state "runtime\bin\claude.cmd") --version
-          & (Join-Path $state "runtime\bin\codex.cmd") --version
-          & (Join-Path $state "runtime\bin\node.exe") --version
-          & (Join-Path $state "runtime\ollama\ollama.exe") --version
-          & (Join-Path $state "runtime\tools\win-x64\rtk.exe") --version
-      - uses: actions/upload-artifact@v6
+          .\WINDOWS\Test-UIRender.ps1 -Executable (Resolve-Path .\dist\Hydra-Windows-x64-SelfContained.exe) -Tab 0 -DemoLaunch -TimeoutSeconds 600 -Screenshot (Join-Path $env:RUNNER_TEMP "hydra-offline.png")
+          .\WINDOWS\Test-OfflineRelease.ps1 -PayloadRoot (Join-Path $state "runtime")
+          Remove-Item Env:UV_OFFLINE, Env:PIP_NO_INDEX -ErrorAction SilentlyContinue
+          & $uvx --from pip-audit==2.10.1 pip-audit --path (Join-Path $state "runtime\python\Lib\site-packages") --progress-spinner off
+          if ($LASTEXITCODE -ne 0) { throw "The assembled Python dependency audit failed." }
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          foreach ($name in @("Hydra-Windows-x64-SelfContained.exe", "Hydra-Windows-x64-Ollama-Offline-Pack.zip")) {
+            $asset = Resolve-Path (Join-Path .\dist $name)
+            $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $name" | Set-Content (Join-Path .\dist "$name.sha256") -Encoding ascii
+          }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: (github.event_name == 'workflow_dispatch' && inputs.confirm_redistribution_rights) || (startsWith(github.ref, 'refs/tags/v') && vars.HYDRA_REDISTRIBUTION_APPROVED == 'true')
         with:
           name: Hydra-Windows-x64-SelfContained
-          path: dist/Hydra-Windows-x64-SelfContained.exe
+          path: |
+            dist/Hydra-Windows-x64-SelfContained.exe
+            dist/Hydra-Windows-x64-SelfContained.exe.sha256
+            dist/Hydra-Windows-x64-Ollama-Offline-Pack.zip
+            dist/Hydra-Windows-x64-Ollama-Offline-Pack.zip.sha256
           compression-level: 0
 
   mac:
-    runs-on: macos-15
-    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            architecture: arm64
+            uname: arm64
+          - runner: macos-15-intel
+            architecture: x64
+            uname: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: '0.11.14'
+          enable-cache: true
+      - name: Confirm native runner architecture
+        run: test "$(uname -m)" = "${{ matrix.uname }}"
+      - name: Verify zero-network source contract
+        working-directory: MAC
+        run: |
+          ./test-offline-release.sh
+          npm audit --prefix ../runtime --package-lock-only --omit=dev --audit-level=high
       - name: Build architecture-matched offline Mac app
         working-directory: MAC
         run: ./build-mac.sh
-      - name: Verify bundled runtime
+      - name: Verify and package bundled runtime
         working-directory: MAC
         run: |
-          RES="Hydra.app/Contents/Resources"
-          "$RES/runtime/bin/claude" --version
-          "$RES/runtime/bin/codex" --version
-          "$RES/runtime/bin/node" --version
-          "$RES/runtime/ollama/ollama" --version
-          find "$RES/tools" -type f -name rtk -perm -111 -exec {} --version \;
-          ditto -c -k --keepParent Hydra.app "../Hydra-macOS-$(uname -m)-SelfContained.zip"
-      - uses: actions/upload-artifact@v6
+          ./test-offline-release.sh Hydra.app
+          SITE_PACKAGES="$(find Hydra.app/Contents/Resources/runtime/python -type d -path '*/site-packages' | head -1)"
+          test -n "$SITE_PACKAGES"
+          uvx --from pip-audit==2.10.1 pip-audit --path "$SITE_PACKAGES" --progress-spinner off
+          mkdir -p ../dist
+          ditto -c -k --keepParent Hydra.app "../dist/Hydra-macOS-${{ matrix.architecture }}-SelfContained.zip"
+          cd ../dist
+          shasum -a 256 "Hydra-macOS-${{ matrix.architecture }}-SelfContained.zip" > "Hydra-macOS-${{ matrix.architecture }}-SelfContained.zip.sha256"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: (github.event_name == 'workflow_dispatch' && inputs.confirm_redistribution_rights) || (startsWith(github.ref, 'refs/tags/v') && vars.HYDRA_REDISTRIBUTION_APPROVED == 'true')
         with:
-          name: Hydra-macOS-SelfContained
-          path: Hydra-macOS-*-SelfContained.zip
+          name: Hydra-macOS-${{ matrix.architecture }}-SelfContained
+          path: |
+            dist/Hydra-macOS-${{ matrix.architecture }}-SelfContained.zip
+            dist/Hydra-macOS-${{ matrix.architecture }}-SelfContained.zip.sha256
           compression-level: 0
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') && vars.HYDRA_REDISTRIBUTION_APPROVED == 'true'
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: Hydra-*-SelfContained
+          path: release-assets
+          merge-multiple: true
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY"

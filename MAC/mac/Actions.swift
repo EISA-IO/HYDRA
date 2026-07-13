@@ -282,7 +282,7 @@ extension AppState {
 
     func launchOllamaTerminal() {
         guard let executable = OllamaService.installedExecutable() else {
-            alert("Ollama", "Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide.")
+            alert("Ollama", "This Hydra app is missing its bundled Ollama runtime. Replace it with a complete offline release.")
             return
         }
         let running = Self.portOpen(OllamaPort)

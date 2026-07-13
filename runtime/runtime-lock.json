@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "uv": "0.11.14",
+  "python": "3.13.13",
+  "node": {
+    "version": "v24.18.0",
+    "windows-x64": {
+      "url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-win-x64.zip",
+      "sha256": "0ae68406b42d7725661da979b1403ec9926da205c6770827f33aac9d8f26e821"
+    },
+    "mac-arm64": {
+      "url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-arm64.tar.gz",
+      "sha256": "e1a97e14c99c803e96c7339403282ea05a499c32f8d83defe9ef5ec66f979ed1"
+    },
+    "mac-x64": {
+      "url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-darwin-x64.tar.gz",
+      "sha256": "dfd0dbd3e721503434df7b7205e719f61b3a3a31b2bcf9729b8b91fea240f080"
+    }
+  },
+  "hermes": {
+    "version": "0.18.2",
+    "sdistUrl": "https://files.pythonhosted.org/packages/5c/44/c2e588a0d49049aa3fa6833d52bd6e803dc62ac7369a7ecb483b9a7b9a3d/hermes_agent-0.18.2.tar.gz",
+    "sdistSha256": "1cc7ccb6bca6e6d2aef448bbf9b79d4bc31247288a8bf549231fc148a343c678",
+    "uvLockUrl": "https://raw.githubusercontent.com/NousResearch/hermes-agent/v2026.7.7.2/uv.lock",
+    "uvLockSha256": "92d8153c76379a4d427eaf37cd77cedef9dc093c6c44c1386abd4546578f709a",
+    "wheelUrl": "https://files.pythonhosted.org/packages/0c/4c/91652c61450763bfe165c65b83026503de0ac9ddad2c11ee522490bf4c2d/hermes_agent-0.18.2-py3-none-any.whl",
+    "wheelSha256": "8f02155cfc84b28bd98551cd18dffec0efa9ec070dd08f90f1a850f1c779492f",
+    "securityOverridesPath": "runtime/hermes-security-overrides.txt",
+    "securityOverridesSha256": "7928b3caa446ca0ae49f7823cec8d065dc72f5213fb9d11ad815a8be8adf1a70"
+  },
+  "ffmpeg": {
+    "version": "imageio-ffmpeg 0.6.0",
+    "windows-x64": {
+      "url": "https://files.pythonhosted.org/packages/2c/c6/fa760e12a2483469e2bf5058c5faff664acf66cadb4df2ad6205b016a73d/imageio_ffmpeg-0.6.0-py3-none-win_amd64.whl",
+      "sha256": "02fa47c83703c37df6bfe4896aab339013f62bf02c5ebf2dce6da56af04ffc0a"
+    },
+    "mac-arm64": {
+      "url": "https://files.pythonhosted.org/packages/40/5c/f3d8a657d362cc93b81aab8feda487317da5b5d31c0e1fdfd5e986e55d17/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl",
+      "sha256": "b1ae3173414b5fc5f538a726c4e48ea97edc0d2cdc11f103afee655c463fa742"
+    },
+    "mac-x64": {
+      "url": "https://files.pythonhosted.org/packages/da/58/87ef68ac83f4c7690961bce288fd8e382bc5f1513860fc7f90a9c1c1c6bf/imageio_ffmpeg-0.6.0-py3-none-macosx_10_9_intel.macosx_10_9_x86_64.whl",
+      "sha256": "9d2baaf867088508d4a3458e61eeb30e945c4ad8016025545f66c4b5aaef0a61"
+    }
+  },
+  "ripgrep": {
+    "version": "15.1.0",
+    "windows-x64": {
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-pc-windows-msvc.zip",
+      "sha256": "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a"
+    },
+    "mac-arm64": {
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-aarch64-apple-darwin.tar.gz",
+      "sha256": "378e973289176ca0c6054054ee7f631a065874a352bf43f0fa60ef079b6ba715"
+    },
+    "mac-x64": {
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-apple-darwin.tar.gz",
+      "sha256": "64811cb24e77cac3057d6c40b63ac9becf9082eedd54ca411b475b755d334882"
+    }
+  },
+  "git": {
+    "version": "2.55.0.2",
+    "windows-x64": {
+      "url": "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.2/PortableGit-2.55.0.2-64-bit.7z.exe",
+      "sha256": "b20d42da3afa228e9fa6174480de820282667e799440d655e308f700dfa0d0df"
+    }
+  },
+  "ollama": {
+    "version": "0.31.2",
+    "windows-x64": {
+      "url": "https://github.com/ollama/ollama/releases/download/v0.31.2/ollama-windows-amd64.zip",
+      "sha256": "6988b58d2223ae3f9d5766b46b0be614dec36524b80317159718b5adf3006f3b"
+    },
+    "mac-universal": {
+      "url": "https://github.com/ollama/ollama/releases/download/v0.31.2/ollama-darwin.tgz",
+      "sha256": "d72381baa260f6ce014c8e942e605eac76cac5313fcb3401eaf5495f659cfd6d"
+    }
+  },
+  "rtk": {
+    "version": "0.43.0",
+    "windows-x64": {
+      "url": "https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-pc-windows-msvc.zip",
+      "sha256": "7c5e4a2ef816a4d4ed947ddd74ca3df851fc39ea87d49a3ca2bf3abc515a016b"
+    },
+    "mac-arm64": {
+      "url": "https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-aarch64-apple-darwin.tar.gz",
+      "sha256": "8a17e49acbd378997eb21d0eb6f7f861111f35b4fc9b1c74edf4c7448e576c65"
+    },
+    "mac-x64": {
+      "url": "https://github.com/rtk-ai/rtk/releases/download/v0.43.0/rtk-x86_64-apple-darwin.tar.gz",
+      "sha256": "a85f60e2637811be68366208b8d8b9c5ba1b748cb5df4477ab20cd73d3c5d9f8"
+    }
+  }
+}

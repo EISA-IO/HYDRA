@@ -62,7 +62,7 @@ struct WorkspaceView: View {
                         Image(systemName: "terminal").font(.system(size: 30)).foregroundStyle(Theme.textFaint)
                         Text("No terminals yet").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.textDim)
                         Text("""
-                        1   First time?  Settings → “Install everything” sets up Claude, Codex, and the tools for you.
+                        1   First time?  Open the complete offline app; its tools are already bundled.
                         2   Pick your agent above — Claude, Codex, or Hermes — and choose a project folder.
                         3   Click “+ New Terminal”. The session runs right here as a tab — open as many as you like.
                         """)

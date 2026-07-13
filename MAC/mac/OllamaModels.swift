@@ -171,7 +171,7 @@ extension AppState {
 
     private func chatOllama(tag: String) {
         guard let exe = OllamaService.installedExecutable() else {
-            alert("Ollama", "Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) first.")
+            alert("Ollama", "This Hydra app is missing its bundled Ollama runtime. Replace it with a complete offline release.")
             return
         }
         // Boot the built-in server first (Hydra-owned); the terminal waits for the

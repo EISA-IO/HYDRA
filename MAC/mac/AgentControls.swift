@@ -497,9 +497,9 @@ struct SystemSettingsPane: View {
                     SectionCap(text: "Install & updates")
                     Text(app.statusLine.isEmpty ? "Detecting…" : app.statusLine).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.textDim)
                     FlowButtons { [
-                        AnyView(Button(app.allCoreInstalled ? "Update core packages" : "Install everything") { app.allCoreInstalled ? app.updateCore() : app.installEverything() }.accentButton()),
+                        AnyView(Button(app.allCoreInstalled ? "Update core packages" : "Repair bundled tools") { app.allCoreInstalled ? app.updateCore() : app.installEverything() }.accentButton()),
                         AnyView(Button("Check CLI updates") { app.checkCLIUpdates() }.ghostButton()),
-                        AnyView(Button("Install / repair Hermes") { app.installHermes() }.ghostButton()),
+                        AnyView(Button("Check bundled Hermes") { app.installHermes() }.ghostButton()),
                         AnyView(Button("Re-check") { app.refreshAll() }.ghostButton()),
                         AnyView(Button("Open Ollama tab") { app.pendingTab = 5 }.ghostButton())
                     ] }

@@ -73,10 +73,13 @@ extension AppState {
     }
 
     func installCodex() {
-        runSteps("Installing / updating the Codex CLI", [("Node.js", nodeEnsureScript()), ("Codex CLI", codexInstallCmd())]) {
-            self.installBundledCavemanForCodexIfPossible()
-            if Shell.shared.onPath("rtk") { _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30) }
+        guard Shell.shared.onPath("codex") else {
+            alert("Bundled Codex CLI is missing", "This Hydra build is incomplete. Download a complete offline release and replace this app; Hydra will not install Codex from the network during setup or repair.")
+            return
         }
+        log("Bundled Codex CLI is ready.")
+        installBundledCavemanForCodexIfPossible()
+        if Shell.shared.onPath("rtk") { _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30) }
     }
 
     func cavemanCmd() -> String {
@@ -129,27 +132,28 @@ extension AppState {
 
     // ---- individual installers ----
     func installNode() {
-        if hasNode { log("Node.js already installed."); refreshAll(); return }
-        runSteps("Installing Node.js", [("Node.js", nodeEnsureScript())])
+        if hasNode {
+            log("Bundled Node.js is ready.")
+        } else {
+            alert("Bundled Node.js is missing", "This Hydra build is incomplete. Download a complete offline release and replace this app; Hydra will not install Node.js from the network during setup or repair.")
+        }
+        refreshAll()
     }
 
     func installClaude() {
-        runSteps("Installing / updating the Claude CLI", [("Claude CLI", claudeInstallCmd())])
+        if Shell.shared.onPath("claude") {
+            log("Bundled Claude CLI is ready.")
+        } else {
+            alert("Bundled Claude CLI is missing", "This Hydra build is incomplete. Download a complete offline release and replace this app; Hydra will not install Claude Code from the network during setup or repair.")
+        }
     }
 
-    // Hermes owns its install tree, authentication state and migrations. Keeping these
-    // actions on the official installer/updater is the compatibility boundary that lets
-    // Hydra track new Hermes releases without encoding their internal file layout.
     func installHermes() {
-        guard hermesPlatformSupported else {
-            alert("Hermes on Intel macOS", "Hermes upstream currently supports Apple Silicon macOS. Hydra will still launch an existing `hermes` command, but it will not run an unsupported installer on this Mac.")
-            return
+        if Shell.shared.onPath("hermes") {
+            log("Bundled Hermes Agent is ready.")
+        } else {
+            alert("Bundled Hermes Agent is missing", "This Hydra build is incomplete. Download a complete offline release and replace this app; Hydra will not run the Hermes network installer during setup or repair.")
         }
-        let cwd = FS.isDir(folder) ? folder : Paths.home
-        runInWorkspace("curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
-                       cwd: cwd,
-                       note: "Official Hermes installer / repair. Configure authentication afterward with `hermes model`.",
-                       agentLabel: "Hermes", modelLabel: "Installer", taskLabel: "Install / repair Hermes")
     }
 
     func configureHermes() {
@@ -201,17 +205,15 @@ extension AppState {
     }
 
     func installRtk() {
-        runSteps("Installing RTK (input compression)", [("RTK (download + register)", rtkFullScript())]) {
-            self.rtkInstalled = Self.isRtkInstalled(); self.rtk = self.rtkInstalled
-        }
+        provisionNativeToolchain()
+        log("Repairing RTK from Hydra's bundled runtime.")
     }
 
     func installCaveman() {
-        let cmd = hasNode ? cavemanCmd()
-                          : "echo 'Caveman needs Node.js — install Node first (Install everything does this for you).'"
-        runSteps("Installing Caveman (output compression)", [("Caveman", cmd)]) {
-            self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
-        }
+        provisionNativeToolchain()
+        installBundledCavemanForCodexIfPossible()
+        cavemanInstalled = Self.isCavemanInstalled(); caveman = cavemanInstalled
+        log(cavemanInstalled ? "Bundled Caveman is ready." : "Bundled Caveman repair did not complete; verify this is a complete offline release.")
     }
 
     func installClaudeVideo() {
@@ -275,13 +277,12 @@ extension AppState {
     }
 
     func installOllama() {
-        if FileManager.default.isExecutableFile(atPath: Paths.ollamaExe) {
-            log("Ollama runtime already built into Hydra."); return
+        if ollamaBuiltIn {
+            log("Bundled Ollama runtime is ready.")
+        } else {
+            alert("Bundled Ollama is missing", "This Hydra build is incomplete. Download a complete offline release and replace this app; Hydra will not download Ollama during setup or repair.")
         }
-        runSteps("Building Ollama into Hydra (portable — nothing installed system-wide)",
-                 [("Ollama runtime", ollamaInstallScript())]) {
-            self.refreshOllamaModels()
-        }
+        refreshOllamaModels()
     }
 
     // ---- Headroom (optional) ----
@@ -363,38 +364,24 @@ extension AppState {
         DispatchQueue.global(qos: .utility).async { self.doInstallSkills(from: src) }
     }
 
-    // ---- one-shot: install everything ----
-    // A missing-only pass: each script re-checks and skips what's already present,
-    // so it's safe (and fast) to run repeatedly.
+    // ---- one-shot: repair everything from the immutable app bundle ----
     func installEverything() {
-        let steps: [(String, String)] = [
-            ("Node.js", nodeEnsureScript()),
-            ("Claude CLI", "command -v claude >/dev/null 2>&1 && echo 'Claude CLI already installed — skipping.' || { " + claudeInstallCmd() + "; }"),
-            ("Codex CLI", "command -v codex >/dev/null 2>&1 && echo 'Codex CLI already installed — skipping.' || { " + codexInstallCmd() + "; }"),
-            ("Hermes", hermesPlatformSupported
-                ? "command -v hermes >/dev/null 2>&1 && echo 'Hermes already installed — skipping.' || { curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --non-interactive; }"
-                : "echo '(skip Hermes — upstream does not support Intel macOS)'"),
-            ("RTK", rtkFullScript()),
-            ("Caveman", cavemanCmd() + " || echo '(Caveman needs Node.js — install Node then retry)'"),
-            ("Ollama (built-in)", ollamaInstallScript())
-        ]
-        runSteps("Installing everything (Node · Claude CLI · Hermes · RTK · Caveman · Claude Video · Agent Skills · skills · Ollama)", steps) {
-            // bundled skills, quietly (no folder prompt inside the batch flow)
-            if let src = self.findSkillsSource() {
-                DispatchQueue.global(qos: .userInitiated).async { self.doInstallSkills(from: src) }
-            } else {
-                self.log("No bundled skills found next to the app — use the Skills button to add a folder.")
-            }
-            self.rtkInstalled = Self.isRtkInstalled(); self.rtk = self.rtkInstalled
-            if Shell.shared.onPath("rtk") { _ = Shell.shared.run("rtk", ["init", "-g", "--codex"], timeout: 30) }
-            self.installBundledCavemanForCodexIfPossible()
-            self.installClaudeVideoIfPossible()
-            self.videoInstalled = Self.isVideoInstalled()
-            self.installAgentSkillsIfPossible()
-            self.agentSkillsInstalled = Self.isAgentSkillsInstalled()
-            self.cavemanInstalled = Self.isCavemanInstalled(); self.caveman = self.cavemanInstalled
-            self.refreshOllamaModels()
+        log("Repairing bundled tools locally; no downloads will be attempted.")
+        provisionNativeToolchain()
+        if let src = findSkillsSource() {
+            DispatchQueue.global(qos: .userInitiated).async { self.doInstallSkills(from: src) }
+        } else {
+            log("No bundled skills found next to the app — use the Skills button to add a folder.")
         }
+        installBundledCavemanForCodexIfPossible()
+        installClaudeVideoIfPossible()
+        installAgentSkillsIfPossible()
+        rtkInstalled = Self.isRtkInstalled(); rtk = rtkInstalled
+        videoInstalled = Self.isVideoInstalled()
+        agentSkillsInstalled = Self.isAgentSkillsInstalled()
+        cavemanInstalled = Self.isCavemanInstalled(); caveman = cavemanInstalled
+        refreshOllamaModels()
+        refreshAll()
     }
 
     // ---- update the core packages in place to their latest versions ----

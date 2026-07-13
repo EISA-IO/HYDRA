@@ -466,13 +466,14 @@ final class AppState: ObservableObject {
 
     /// True once the core toolchain is fully present — used to hide "Install everything"
     /// and let the Setup tab focus on keeping things up to date. Headroom is optional.
-    var ollamaBuiltIn: Bool { FileManager.default.isExecutableFile(atPath: Paths.ollamaExe) }
+    var ollamaBuiltIn: Bool {
+        guard let executable = OllamaService.installedExecutable() else { return false }
+        return OllamaService.isEmbedded(executable)
+    }
     var hermesPlatformSupported: Bool {
-        #if arch(arm64)
+        // Hydra ships an architecture-matched Hermes Python environment for both
+        // supported macOS runner architectures.
         return true
-        #else
-        return false
-        #endif
     }
 
     var allCoreInstalled: Bool {
@@ -503,9 +504,7 @@ final class AppState: ObservableObject {
             if !Self.isRtkInstalled(), sh.onPath("rtk") {
                 sh.run("rtk", ["init", "-g", "--auto-patch"], timeout: 30)
             }
-            if !Self.isCavemanInstalled(), sh.onPath("npx") {
-                sh.bash("npx -y github:JuliusBrussee/caveman --only claude --only codex", timeout: 120)
-            }
+            if !Self.isCavemanInstalled() { self.installBundledCavemanForCodexIfPossible() }
             DispatchQueue.main.async { self.refreshAll() }
         }
     }

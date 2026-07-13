@@ -251,7 +251,7 @@ final class OllamaService: ObservableObject {
         }
         guard process?.isRunning != true else { return }
         guard let executable = executable() else {
-            errorMessage = "Ollama isn't built into Hydra yet. Use Settings → \"Install everything\" (or its Ollama button) to add the built-in runtime — nothing is installed system-wide."
+            errorMessage = "This Hydra app is missing its bundled Ollama runtime. Replace it with a complete offline release."
             state = .unavailable
             return
         }

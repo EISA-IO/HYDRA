@@ -56,8 +56,8 @@ extension AppState {
             let sh = Shell.shared
             let src = self.toolsSource()
 
-            // 1) RTK — copy the bundled binary into the managed bin (no download). If we don't
-            //    ship one for this arch and rtk isn't already anywhere, fall back to the installer.
+            // 1) RTK — copy the bundled binary into the managed bin. Startup never downloads
+            //    a missing dependency; an incomplete artifact is reported for local repair.
             let rtkDst = Paths.managedBin + "/rtk"
             if let src = src {
                 let bundledRtk = src + "/" + self.platformSlot() + "/rtk"
@@ -69,8 +69,7 @@ extension AppState {
                 }
             }
             if !FS.exists(rtkDst) && !sh.onPath("rtk") {
-                // no bundled binary for this platform and none installed — self-provision quietly
-                _ = sh.bash(self.rtkFullScript(), timeout: 180)
+                DispatchQueue.main.async { self.setupLog += "Bundled RTK is missing. Repair Hydra from a self-contained release artifact.\n" }
             }
             // Register the RTK hook (input compression) using whichever rtk is now on PATH.
             if !Self.isRtkInstalled(), let rtkBin = sh.which("rtk") ?? (FS.exists(rtkDst) ? rtkDst : nil) {
@@ -98,18 +97,18 @@ extension AppState {
                 }
             }
 
-            // 3) Claude CLI — not redistributable, so we can't bundle Anthropic's binary. If it's
-            //    genuinely missing, install it once, silently, so the user still does nothing.
+            // 3) Release CLIs are part of the app bundle. Never mutate the target Mac or
+            //    invoke an installer during normal startup.
             if !sh.onPath("claude") {
-                DispatchQueue.main.async { self.setupLog += "Claude CLI not found — installing it once…\n" }
-                _ = sh.bash(self.claudeInstallCmd(), timeout: 300)
+                DispatchQueue.main.async { self.setupLog += "Bundled Claude CLI is missing. Repair Hydra from a self-contained release artifact.\n" }
             }
 
-            // 4) Codex CLI — install from npm if missing, then wire the same RTK/Caveman defaults
-            //    that launch() enforces synchronously for each Codex terminal.
-            if !sh.onPath("codex"), sh.onPath("npm") {
-                DispatchQueue.main.async { self.setupLog += "Codex CLI not found — installing it once…\n" }
-                _ = sh.bash(self.codexInstallCmd(), timeout: 300)
+            // 4) Codex CLI — validate the embedded command, then wire local defaults.
+            if !sh.onPath("codex") {
+                DispatchQueue.main.async { self.setupLog += "Bundled Codex CLI is missing. Repair Hydra from a self-contained release artifact.\n" }
+            }
+            if !sh.onPath("hermes") {
+                DispatchQueue.main.async { self.setupLog += "Bundled Hermes is missing. Repair Hydra from a self-contained release artifact.\n" }
             }
             if sh.onPath("codex") {
                 _ = sh.run("rtk", ["init", "-g", "--codex"], timeout: 30)

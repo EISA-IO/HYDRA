@@ -141,7 +141,7 @@ enum Glossary {
         add(M, "⌘1 … ⌘8", "Switch tabs (Workspace / Settings / SaaS / Skills / Glossary / Ollama / Hermes / MCP).")
         add(M, "⌘T", "New terminal — a Claude, Codex, or Hermes session in the chosen folder.")
         add(M, "Recents", "Pick a recent project folder from the Workspace toolbar.")
-        add(M, "Install everything", "Settings → System & updates: one click installs Claude, Codex, and the toolchain.")
+        add(M, "Repair bundled tools", "Settings → System & updates: restores Hydra's tools from the app bundle without downloading anything.")
 
         let H = "Headroom (token compression)"
         add(H, "headroom proxy", "Start the compression proxy on port 8787.")

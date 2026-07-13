@@ -1,0 +1,10 @@
+{
+  "name": "hydra-offline-cli-runtime",
+  "private": true,
+  "version": "1.1.0",
+  "description": "Pinned JavaScript CLIs embedded in Hydra release artifacts.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.207",
+    "@openai/codex": "0.144.3"
+  }
+}

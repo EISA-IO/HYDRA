@@ -9,6 +9,29 @@ CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RES="$CONTENTS/Resources"
 BIN="$MACOS/Hydra"
+REPO="$(cd "$HERE/.." && pwd)"
+RUNTIME_LOCK="$REPO/runtime/runtime-lock.json"
+
+lock_value() {
+  python3 - "$RUNTIME_LOCK" "$1" <<'PY'
+import json, sys
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+for part in sys.argv[2].split("."):
+    value = value[part]
+print(value)
+PY
+}
+
+download_verified() {
+  local url="$1" destination="$2" expected="$3" actual
+  echo "  download $url"
+  curl -fsSL "$url" -o "$destination"
+  actual="$(shasum -a 256 "$destination" | awk '{print $1}')"
+  [ "$actual" = "$expected" ] || {
+    echo "SHA-256 mismatch for $url. Expected $expected, received $actual." >&2
+    exit 1
+  }
+}
 
 echo "› Building with Swift Package Manager (pulls in SwiftTerm on first run)…"
 rm -rf "$APP"
@@ -80,6 +103,7 @@ if [ -d "$TOOLS_SRC" ]; then
   find "$RES/tools" -type f -name rtk -exec chmod +x {} \; 2>/dev/null || true
   echo "  bundled tools: $(ls -1 "$RES/tools" 2>/dev/null | tr '\n' ' ')"
 fi
+cp "$REPO/THIRD-PARTY-NOTICES.md" "$RES/THIRD-PARTY-NOTICES.md"
 
 # ---- full offline runtime: Node + Claude Code + Codex + Ollama -----------------
 # Set HYDRA_THIN_BUILD=1 only for a developer build. Release builds intentionally
@@ -90,19 +114,26 @@ if [ "${HYDRA_THIN_BUILD:-0}" != "1" ]; then
   rm -rf "$RUNTIME"; mkdir -p "$RBIN" "$RAPP" "$RUNTIME/ollama"
   ARCH="$(uname -m)"
   case "$ARCH" in
-    arm64) NODE_ARCH="arm64"; RTK_PATTERN='darwin.*(aarch64|arm64)|(aarch64|arm64).*darwin' ;;
-    x86_64) NODE_ARCH="x64"; RTK_PATTERN='darwin.*x86_64|x86_64.*darwin' ;;
+    arm64) SLOT_NAME="mac-arm64" ;;
+    x86_64) SLOT_NAME="mac-x64" ;;
     *) echo "Unsupported macOS architecture: $ARCH" >&2; exit 1 ;;
   esac
   TMP_RUNTIME="$(mktemp -d)"
   trap 'rm -rf "$TMP_RUNTIME"' EXIT
-  NODE_VER="$(curl -fsSL https://nodejs.org/dist/index.json | /usr/bin/python3 -c 'import json,sys; print(next(x["version"] for x in json.load(sys.stdin) if x["lts"]))')"
-  curl -fsSL "https://nodejs.org/dist/$NODE_VER/node-$NODE_VER-darwin-$NODE_ARCH.tar.gz" -o "$TMP_RUNTIME/node.tgz"
+
+  UV_EXPECTED="$(lock_value uv)"
+  command -v uv >/dev/null 2>&1 || { echo "The pinned uv $UV_EXPECTED build dependency is required. Target Macs do not need it." >&2; exit 1; }
+  UV_ACTUAL="$(uv --version | sed -E 's/^uv ([^ ]+).*/\1/')"
+  [ "$UV_ACTUAL" = "$UV_EXPECTED" ] || { echo "Expected uv $UV_EXPECTED, found $UV_ACTUAL." >&2; exit 1; }
+
+  download_verified "$(lock_value "node.$SLOT_NAME.url")" "$TMP_RUNTIME/node.tgz" "$(lock_value "node.$SLOT_NAME.sha256")"
   tar -xzf "$TMP_RUNTIME/node.tgz" -C "$TMP_RUNTIME"
-  cp -R "$TMP_RUNTIME/node-$NODE_VER-darwin-$NODE_ARCH/." "$RBIN/"
+  NODE_ROOT="$(find "$TMP_RUNTIME" -maxdepth 1 -type d -name 'node-*-darwin-*' | head -1)"
+  [ -n "$NODE_ROOT" ] || { echo "Node runtime missing from archive" >&2; exit 1; }
+  cp -R "$NODE_ROOT/." "$RBIN/"
   ln -sf bin/node "$RBIN/node"; ln -sf bin/npm "$RBIN/npm"; ln -sf bin/npx "$RBIN/npx"
-  "$RBIN/npm" install --prefix "$RAPP" --omit=dev --no-fund --no-audit \
-    @anthropic-ai/claude-code@latest @openai/codex@latest
+  cp "$REPO/runtime/package.json" "$REPO/runtime/package-lock.json" "$RAPP/"
+  PATH="$RBIN:$PATH" "$RBIN/npm" ci --prefix "$RAPP" --omit=dev --no-fund --no-audit
   cat > "$RBIN/claude" <<'SH'
 #!/bin/sh
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -116,7 +147,67 @@ export PATH="$HERE:$PATH"
 exec "$HERE/../app/node_modules/.bin/codex" "$@"
 SH
   chmod +x "$RBIN/claude" "$RBIN/codex" "$RBIN/bin/node" "$RBIN/bin/npm" "$RBIN/bin/npx"
-  curl -fsSL https://ollama.com/download/ollama-darwin.tgz -o "$TMP_RUNTIME/ollama.tgz"
+
+  PYTHON_VERSION="$(lock_value python)"
+  uv python install "$PYTHON_VERSION" --install-dir "$TMP_RUNTIME/python-install" --no-bin
+  PYTHON_BIN="$(find "$TMP_RUNTIME/python-install" -type f -path '*/bin/python3' | head -1)"
+  [ -n "$PYTHON_BIN" ] || { echo "Managed Python runtime missing after uv install" >&2; exit 1; }
+  PYTHON_ROOT="$(cd "$(dirname "$PYTHON_BIN")/.." && pwd)"
+  mkdir -p "$RUNTIME/python"
+  cp -R "$PYTHON_ROOT/." "$RUNTIME/python/"
+  PYTHON="$RUNTIME/python/bin/python3"
+  SITE_PACKAGES="$($PYTHON -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+
+  download_verified "$(lock_value hermes.sdistUrl)" "$TMP_RUNTIME/hermes_agent.tar.gz" "$(lock_value hermes.sdistSha256)"
+  mkdir -p "$TMP_RUNTIME/hermes-source"
+  tar -xzf "$TMP_RUNTIME/hermes_agent.tar.gz" -C "$TMP_RUNTIME/hermes-source"
+  HERMES_SOURCE="$(find "$TMP_RUNTIME/hermes-source" -mindepth 1 -maxdepth 1 -type d | head -1)"
+  [ -n "$HERMES_SOURCE" ] || { echo "Hermes source metadata missing from archive" >&2; exit 1; }
+  download_verified "$(lock_value hermes.uvLockUrl)" "$HERMES_SOURCE/uv.lock" "$(lock_value hermes.uvLockSha256)"
+  uv export --project "$HERMES_SOURCE" --frozen --extra all --no-dev --no-emit-project --output-file "$TMP_RUNTIME/hermes-requirements.txt" >/dev/null
+  uv pip install --python "$PYTHON" --target "$SITE_PACKAGES" --require-hashes --requirements "$TMP_RUNTIME/hermes-requirements.txt"
+  HERMES_WHEEL="$TMP_RUNTIME/hermes_agent-0.18.2-py3-none-any.whl"
+  download_verified "$(lock_value hermes.wheelUrl)" "$HERMES_WHEEL" "$(lock_value hermes.wheelSha256)"
+  uv pip install --python "$PYTHON" --target "$SITE_PACKAGES" --no-deps "$HERMES_WHEEL"
+  SECURITY_OVERRIDES="$REPO/$(lock_value hermes.securityOverridesPath)"
+  SECURITY_OVERRIDES_HASH="$(shasum -a 256 "$SECURITY_OVERRIDES" | awk '{print $1}')"
+  [ "$SECURITY_OVERRIDES_HASH" = "$(lock_value hermes.securityOverridesSha256)" ] || {
+    echo "Hermes security override hash mismatch." >&2
+    exit 1
+  }
+  uv pip install --python "$PYTHON" --target "$SITE_PACKAGES" --upgrade --no-deps --require-hashes --only-binary :all: --requirements "$SECURITY_OVERRIDES"
+
+  case "$ARCH" in
+    arm64) FFMPEG_WHEEL="$TMP_RUNTIME/imageio_ffmpeg-0.6.0-py3-none-macosx_11_0_arm64.whl" ;;
+    x86_64) FFMPEG_WHEEL="$TMP_RUNTIME/imageio_ffmpeg-0.6.0-py3-none-macosx_10_9_intel.macosx_10_9_x86_64.whl" ;;
+  esac
+  download_verified "$(lock_value "ffmpeg.$SLOT_NAME.url")" "$FFMPEG_WHEEL" "$(lock_value "ffmpeg.$SLOT_NAME.sha256")"
+  uv pip install --python "$PYTHON" --target "$SITE_PACKAGES" --no-deps "$FFMPEG_WHEEL"
+  FFMPEG_BIN="$(find "$SITE_PACKAGES/imageio_ffmpeg/binaries" -type f -name 'ffmpeg-*' | head -1)"
+  [ -n "$FFMPEG_BIN" ] || { echo "FFmpeg binary missing from wheel" >&2; exit 1; }
+  cp "$FFMPEG_BIN" "$RBIN/ffmpeg"; chmod +x "$RBIN/ffmpeg"
+
+  cat > "$RBIN/python3" <<'SH'
+#!/bin/sh
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "$HERE/../python/bin/python3" "$@"
+SH
+  cat > "$RBIN/hermes" <<'SH'
+#!/bin/sh
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+export PATH="$HERE:$PATH"
+exec "$HERE/../python/bin/python3" -m hermes_cli.main "$@"
+SH
+  chmod +x "$RBIN/python3" "$RBIN/hermes"
+
+  download_verified "$(lock_value "ripgrep.$SLOT_NAME.url")" "$TMP_RUNTIME/ripgrep.tgz" "$(lock_value "ripgrep.$SLOT_NAME.sha256")"
+  mkdir -p "$TMP_RUNTIME/ripgrep"
+  tar -xzf "$TMP_RUNTIME/ripgrep.tgz" -C "$TMP_RUNTIME/ripgrep"
+  RG_BIN="$(find "$TMP_RUNTIME/ripgrep" -type f -name rg | head -1)"
+  [ -n "$RG_BIN" ] || { echo "ripgrep binary missing from archive" >&2; exit 1; }
+  cp "$RG_BIN" "$RBIN/rg"; chmod +x "$RBIN/rg"
+
+  download_verified "$(lock_value ollama.mac-universal.url)" "$TMP_RUNTIME/ollama.tgz" "$(lock_value ollama.mac-universal.sha256)"
   tar -xzf "$TMP_RUNTIME/ollama.tgz" -C "$RUNTIME/ollama"
   OLLAMA_BIN="$(find "$RUNTIME/ollama" -type f -name ollama | head -1)"
   [ -n "$OLLAMA_BIN" ] || { echo "Ollama runtime missing from archive" >&2; exit 1; }
@@ -129,13 +220,11 @@ exec "\$HERE/$OLLAMA_REL" "\$@"
 SH
   fi
   chmod +x "$RUNTIME/ollama/ollama"
-  SLOT="$RES/tools/$([ "$ARCH" = arm64 ] && echo mac-arm64 || echo mac-x64)"
+  SLOT="$RES/tools/$SLOT_NAME"
   mkdir -p "$SLOT"
   if [ ! -x "$SLOT/rtk" ]; then
-    RTK_URL="$(curl -fsSL https://api.github.com/repos/rtk-ai/rtk/releases/latest | /usr/bin/python3 -c 'import json,re,sys; d=json.load(sys.stdin); p=re.compile(sys.argv[1],re.I); print(next((a["browser_download_url"] for a in d["assets"] if p.search(a["name"]) and (a["name"].endswith(".tar.gz") or a["name"].endswith(".zip"))), ""))' "$RTK_PATTERN")"
-    [ -n "$RTK_URL" ] || { echo "RTK release for $ARCH not found" >&2; exit 1; }
-    curl -fsSL "$RTK_URL" -o "$TMP_RUNTIME/rtk.archive"
-    case "$RTK_URL" in *.zip) unzip -q "$TMP_RUNTIME/rtk.archive" -d "$TMP_RUNTIME/rtk";; *) mkdir -p "$TMP_RUNTIME/rtk"; tar -xzf "$TMP_RUNTIME/rtk.archive" -C "$TMP_RUNTIME/rtk";; esac
+    download_verified "$(lock_value "rtk.$SLOT_NAME.url")" "$TMP_RUNTIME/rtk.tgz" "$(lock_value "rtk.$SLOT_NAME.sha256")"
+    mkdir -p "$TMP_RUNTIME/rtk"; tar -xzf "$TMP_RUNTIME/rtk.tgz" -C "$TMP_RUNTIME/rtk"
     RTK_BIN="$(find "$TMP_RUNTIME/rtk" -type f -name rtk | head -1)"
     [ -n "$RTK_BIN" ] || { echo "RTK binary missing from archive" >&2; exit 1; }
     cp "$RTK_BIN" "$SLOT/rtk"; chmod +x "$SLOT/rtk"
@@ -143,6 +232,10 @@ SH
   "$RBIN/claude" --version
   "$RBIN/codex" --version
   "$RBIN/node" --version
+  "$RBIN/hermes" --version
+  "$RBIN/python3" --version
+  "$RBIN/rg" --version
+  "$RBIN/ffmpeg" -version
   "$RUNTIME/ollama/ollama" --version
   "$SLOT/rtk" --version
   echo "  offline runtime bundled for $ARCH"
