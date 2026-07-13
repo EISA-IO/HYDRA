@@ -150,7 +150,9 @@ SH
 
   PYTHON_VERSION="$(lock_value python)"
   uv python install "$PYTHON_VERSION" --install-dir "$TMP_RUNTIME/python-install" --no-bin
-  PYTHON_BIN="$(find "$TMP_RUNTIME/python-install" -type f -path '*/bin/python3' | head -1)"
+  # uv's managed macOS Python exposes bin/python3 as a relative symlink, while
+  # Windows uses a regular executable. Accept either filesystem type here.
+  PYTHON_BIN="$(find "$TMP_RUNTIME/python-install" -path '*/bin/python3' | head -1)"
   [ -n "$PYTHON_BIN" ] || { echo "Managed Python runtime missing after uv install" >&2; exit 1; }
   PYTHON_ROOT="$(cd "$(dirname "$PYTHON_BIN")/.." && pwd)"
   mkdir -p "$RUNTIME/python"
