@@ -11,5 +11,5 @@
 - [x] Extend CI to both macOS architectures and verify every runtime command.
 - [x] Update documentation and license/third-party notices.
 - [x] Run local Windows validation.
-- [ ] Push and validate clean Windows/macOS GitHub runners.
-- [ ] Complete security/code review and publish the verified GitHub changes.
+- [x] Push and validate clean Windows/macOS GitHub runners.
+- [x] Complete security/code review and publish the verified GitHub changes.
