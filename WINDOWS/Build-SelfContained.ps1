@@ -29,6 +29,13 @@ function Get-Sha256([string]$Path) {
     } finally { $sha256.Dispose() }
     return $actual
 }
+function Get-NormalizedTextSha256([string]$Path) {
+    $text = [IO.File]::ReadAllText($Path).Replace("`r`n", "`n").Replace("`r", "`n")
+    $bytes = (New-Object Text.UTF8Encoding($false)).GetBytes($text)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace("-", "").ToLowerInvariant() }
+    finally { $sha256.Dispose() }
+}
 function Download-Verified([string]$Url, [string]$Destination, [string]$ExpectedSha256) {
     Write-Host "  download $Url"
     Invoke-WebRequest -Uri $Url -OutFile $Destination -UseBasicParsing
@@ -122,7 +129,7 @@ Download-Verified $lock.hermes.wheelUrl $hermesWheel $lock.hermes.wheelSha256
 & uv pip install --python $pythonExe --target $sitePackages --no-deps $hermesWheel
 if ($LASTEXITCODE -ne 0) { throw "Could not install the pinned Hermes wheel." }
 $securityOverrides = Join-Path $repo ($lock.hermes.securityOverridesPath -replace '/', '\')
-$securityOverridesHash = Get-Sha256 $securityOverrides
+$securityOverridesHash = Get-NormalizedTextSha256 $securityOverrides
 if ($securityOverridesHash -ne $lock.hermes.securityOverridesSha256) {
     throw "Hermes security override hash mismatch. Expected $($lock.hermes.securityOverridesSha256), received $securityOverridesHash."
 }

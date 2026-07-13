@@ -3,7 +3,7 @@
 anyio==4.14.2
 cffi==2.1.0
 click==8.4.2
-cryptography==49.0.0
+cryptography==48.0.1
 fastapi==0.139.0
 idna==3.18
 pillow==12.3.0

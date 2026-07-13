@@ -172,7 +172,7 @@ SH
   download_verified "$(lock_value hermes.wheelUrl)" "$HERMES_WHEEL" "$(lock_value hermes.wheelSha256)"
   uv pip install --python "$PYTHON" --target "$SITE_PACKAGES" --no-deps "$HERMES_WHEEL"
   SECURITY_OVERRIDES="$REPO/$(lock_value hermes.securityOverridesPath)"
-  SECURITY_OVERRIDES_HASH="$(shasum -a 256 "$SECURITY_OVERRIDES" | awk '{print $1}')"
+  SECURITY_OVERRIDES_HASH="$(tr -d '\r' < "$SECURITY_OVERRIDES" | shasum -a 256 | awk '{print $1}')"
   [ "$SECURITY_OVERRIDES_HASH" = "$(lock_value hermes.securityOverridesSha256)" ] || {
     echo "Hermes security override hash mismatch." >&2
     exit 1

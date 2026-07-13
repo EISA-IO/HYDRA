@@ -26,7 +26,7 @@
     "wheelUrl": "https://files.pythonhosted.org/packages/0c/4c/91652c61450763bfe165c65b83026503de0ac9ddad2c11ee522490bf4c2d/hermes_agent-0.18.2-py3-none-any.whl",
     "wheelSha256": "8f02155cfc84b28bd98551cd18dffec0efa9ec070dd08f90f1a850f1c779492f",
     "securityOverridesPath": "runtime/hermes-security-overrides.txt",
-    "securityOverridesSha256": "7928b3caa446ca0ae49f7823cec8d065dc72f5213fb9d11ad815a8be8adf1a70"
+    "securityOverridesSha256": "4690323f9db019f2446e4515631849dce09ccee70dac6f12531e7ff42fba0d50"
   },
   "ffmpeg": {
     "version": "imageio-ffmpeg 0.6.0",
