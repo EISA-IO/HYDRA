@@ -97,3 +97,7 @@ finally {
         Remove-Item $testRoot -Recurse -Force
     }
 }
+
+# The invalid-option assertion intentionally runs a native process that exits 2.
+# PowerShell 7 otherwise propagates that stale native status after this test passes.
+exit 0
