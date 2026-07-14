@@ -39,7 +39,9 @@ HYDRA/
 │   ├── Hydra.cs
 │   ├── Hydra.bat        — compiles + launches (rebuilds when the source changes)
 │   ├── Hydra.ps1         — lightweight fallback launcher
-│   ├── Build-SelfContained.ps1 — packs the offline single-file exe
+│   ├── Build-SelfContained.ps1 — packs the offline Windows payload
+│   ├── SelfContainedBuilder.cs — companion builder EXE source
+│   ├── Build-SelfContained-Builder.ps1 — compiles the builder EXE
 │   ├── bot.ico, bot.png
 ├── SKILLS-BACKUP/    — bundled skills (auto-seeded into ~/.claude/skills and ~/.agents/skills)
 ├── tools/            — bundled toolchain (RTK, Caveman, Claude Video, Agent Skills) + manifest.json
@@ -85,9 +87,22 @@ or just double-click `MAC/Hydra-Mac.command`.
 double-click `WINDOWS/Hydra.bat` — it compiles `Hydra.cs` on first run
 (and whenever the source is newer than the exe), then launches the GUI.
 
+To get a double-clickable option for making the complete Windows offline package,
+compile the small companion builder once and then open its EXE:
+
+```powershell
+.\WINDOWS\Build-SelfContained-Builder.ps1
+.\WINDOWS\Hydra-SelfContained-Builder.exe
+```
+
+With no arguments it writes `Hydra-Windows-x64-SelfContained.exe` and
+`Hydra-Windows-x64-Ollama-Offline-Pack.zip` to `dist`. Run it with `--help` for
+custom output and work-directory options. The builder machine needs internet access;
+the two finished files need no online installation on the target PC.
+
 ## The SaaS production playbook
 
-Build the single-file offline Windows artifact with:
+Build the offline Windows package directly from PowerShell with:
 
 ```powershell
 .\WINDOWS\Build-SelfContained.ps1 -Output .\WINDOWS\Hydra-SelfContained.exe

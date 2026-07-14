@@ -42,10 +42,14 @@ jobs:
         shell: pwsh
         run: |
           .\WINDOWS\Test-OfflineRelease.ps1
+          .\WINDOWS\Test-SelfContainedBuilder.ps1
           npm audit --prefix .\runtime --package-lock-only --omit=dev --audit-level=high
-      - name: Build single-file offline Windows EXE
+      - name: Build through the companion Windows EXE
         shell: pwsh
-        run: .\WINDOWS\Build-SelfContained.ps1 -Output .\dist\Hydra-Windows-x64-SelfContained.exe
+        run: |
+          .\WINDOWS\Build-SelfContained-Builder.ps1 -Output .\dist\Hydra-Windows-SelfContained-Builder.exe
+          & .\dist\Hydra-Windows-SelfContained-Builder.exe --output .\dist\Hydra-Windows-x64-SelfContained.exe --ollama-pack .\dist\Hydra-Windows-x64-Ollama-Offline-Pack.zip
+          if ($LASTEXITCODE -ne 0) { throw "The companion builder EXE failed." }
       - name: Offline first-launch and payload test
         shell: pwsh
         run: |
@@ -64,7 +68,7 @@ jobs:
       - name: Generate SHA-256 checksum
         shell: pwsh
         run: |
-          foreach ($name in @("Hydra-Windows-x64-SelfContained.exe", "Hydra-Windows-x64-Ollama-Offline-Pack.zip")) {
+          foreach ($name in @("Hydra-Windows-SelfContained-Builder.exe", "Hydra-Windows-x64-SelfContained.exe", "Hydra-Windows-x64-Ollama-Offline-Pack.zip")) {
             $asset = Resolve-Path (Join-Path .\dist $name)
             $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $name" | Set-Content (Join-Path .\dist "$name.sha256") -Encoding ascii
@@ -78,6 +82,8 @@ jobs:
             dist/Hydra-Windows-x64-SelfContained.exe.sha256
             dist/Hydra-Windows-x64-Ollama-Offline-Pack.zip
             dist/Hydra-Windows-x64-Ollama-Offline-Pack.zip.sha256
+            dist/Hydra-Windows-SelfContained-Builder.exe
+            dist/Hydra-Windows-SelfContained-Builder.exe.sha256
           compression-level: 0
 
   mac:

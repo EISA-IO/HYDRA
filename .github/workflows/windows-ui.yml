@@ -28,6 +28,10 @@ jobs:
           & $csc /nologo /target:winexe /out:WINDOWS\Hydra-ci.exe /win32icon:WINDOWS\bot.ico /resource:WINDOWS\bot.ico,bot.ico /resource:WINDOWS\bot.png,bot.png /reference:System.dll /reference:System.Drawing.dll /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll WINDOWS\Hydra.cs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Validate self-contained builder EXE
+        shell: pwsh
+        run: .\WINDOWS\Test-SelfContainedBuilder.ps1
+
       - name: Render and validate UI
         shell: pwsh
         run: |
